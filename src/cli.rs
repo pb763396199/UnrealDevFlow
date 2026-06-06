@@ -29,7 +29,23 @@ pub enum OutputFormat {
 #[derive(Subcommand)]
 pub enum Commands {
     /// First-time configuration (Hosts path, plugin path, engine path)
-    Configure,
+    Configure {
+        /// Hosts root directory (skip prompt if provided)
+        #[arg(long)]
+        hosts_root: Option<String>,
+
+        /// Plugin main repository path (skip prompt if provided)
+        #[arg(long)]
+        plugin_path: Option<String>,
+
+        /// Default UE project path (skip prompt if provided)
+        #[arg(long)]
+        default_project: Option<String>,
+
+        /// UE engine path (auto-detected from .uproject if not provided)
+        #[arg(long)]
+        engine_path: Option<String>,
+    },
 
     /// Create a new task workspace (worktree + Host)
     Create {

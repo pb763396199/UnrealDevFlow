@@ -53,7 +53,7 @@ impl Config {
 }
 
 /// Detect engine path from EngineAssociation version string
-fn detect_engine_path(version: &str) -> Option<PathBuf> {
+fn detect_engine_path_by_version(version: &str) -> Option<PathBuf> {
     let common_paths = [
         format!("D:\\Unreal Engine\\UE_{}", version),
         format!("E:\\Unreal Engine\\UE_{}", version),
@@ -69,6 +69,19 @@ fn detect_engine_path(version: &str) -> Option<PathBuf> {
         }
     }
     None
+}
+
+/// Detect engine path from .uproject file in the given project directory
+pub fn detect_engine_path(project_path: &PathBuf) -> Result<PathBuf> {
+    let engine_version = read_engine_version(project_path)?;
+    
+    match detect_engine_path_by_version(&engine_version) {
+        Some(path) => Ok(path),
+        None => Err(UdfError::Other(format!(
+            "Could not auto-detect engine path for version '{}'. Please specify --engine-path",
+            engine_version
+        ))),
+    }
 }
 
 /// Read EngineAssociation from .uproject file
@@ -130,7 +143,7 @@ pub fn run_configure() -> Result<Config> {
     let engine_version = read_engine_version(&default_project_path)?;
     println!("  Engine version: {}", engine_version);
 
-    let engine_path = match detect_engine_path(&engine_version) {
+    let engine_path = match detect_engine_path_by_version(&engine_version) {
         Some(path) => {
             println!("  Engine path: {:?}", path);
             path

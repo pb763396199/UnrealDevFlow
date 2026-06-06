@@ -39,13 +39,18 @@ fn run() -> Result<()> {
         .init();
 
     // Check if configured (except for configure command)
-    if !matches!(cli.command, Commands::Configure) && !config::Config::exists() {
+    if !matches!(cli.command, Commands::Configure { .. }) && !config::Config::exists() {
         return Err(error::UdfError::NotConfigured);
     }
 
     // Dispatch command
     match cli.command {
-        Commands::Configure => commands::configure::run()?,
+        Commands::Configure {
+            hosts_root,
+            plugin_path,
+            default_project,
+            engine_path,
+        } => commands::configure::run(hosts_root, plugin_path, default_project, engine_path)?,
         Commands::Create { description, id, yes } => commands::create::run(&description, id, yes)?,
         Commands::Switch { task_id, project, force } => {
             commands::switch::run(&task_id, project, force)?
