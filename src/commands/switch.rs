@@ -16,13 +16,7 @@ pub fn run(task_id: &str, projects: Option<Vec<PathBuf>>, force: bool) -> Result
     // Determine target project(s)
     let target_projects = match projects {
         Some(paths) => paths,
-        None => {
-            if let Some(default) = &config.default_project {
-                vec![default.clone()]
-            } else {
-                return Err(UdfError::Other("No project specified and no default project configured".to_string()));
-            }
-        }
+        None => vec![config.default_project.clone()],
     };
 
     // Check if Editor is running

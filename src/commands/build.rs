@@ -20,8 +20,7 @@ pub fn run(task_id: &str, background: bool, no_mutex: bool) -> Result<()> {
     }
 
     // Detect engine path
-    let engine_path = config.engine_path.as_ref()
-        .ok_or_else(|| UdfError::Other("Engine path not configured. Run `unrealdevflow configure`.".to_string()))?;
+    let engine_path = &config.engine_path;
 
     let build_bat = engine_path.join("Engine").join("Build").join("BatchFiles").join("Build.bat");
     if !build_bat.exists() {
