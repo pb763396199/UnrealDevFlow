@@ -6,14 +6,14 @@ use crate::git;
 use crate::host;
 use crate::output;
 
-pub fn run(task_id: &str, force: bool) -> Result<()> {
+pub fn run(task_id: &str, force: bool, skip_confirm: bool) -> Result<()> {
     let config = Config::load()?;
 
     // Get task host
     let host_dir = host::get_task_host(&config.hosts_root, task_id)?;
     let meta = host::read_meta(&host_dir)?;
 
-    if !force {
+    if !force && !skip_confirm {
         let confirmed = dialoguer::Confirm::new()
             .with_prompt(&format!(
                 "Delete task '{}' without merging?\n  This will permanently delete all changes in this task.",

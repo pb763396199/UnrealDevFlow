@@ -3,6 +3,7 @@
 pub mod validator;
 
 use crate::error::{JunctionError, Result, UdfError};
+use crate::output;
 use std::path::{Path, PathBuf};
 
 pub fn exists(path: &Path) -> Result<bool> {
@@ -19,9 +20,7 @@ pub fn create(target: &Path, junction: &Path) -> Result<()> {
         std::fs::create_dir_all(parent)?;
     }
 
-    // Create empty directory for junction
-    std::fs::create_dir_all(junction)?;
-
+    // junction::create will create the directory itself
     junction::create(target, junction).map_err(|e| JunctionError::JunctionCrate(e.to_string()).into())
 }
 
@@ -45,8 +44,21 @@ pub fn get_target(junction: &Path) -> Result<PathBuf> {
 }
 
 pub fn switch(target: &Path, junction: &Path) -> Result<()> {
-    if exists(junction)? {
-        delete(junction)?;
+    // Check if junction path exists
+    if junction.exists() {
+        if exists(junction)? {
+            // It's a junction, delete it
+            delete(junction)?;
+        } else {
+            // It's a regular directory, backup it
+            let backup_path = PathBuf::from(format!("{}.udf-backup", junction.to_string_lossy()));
+            if backup_path.exists() {
+                // Backup already exists, remove it first
+                std::fs::remove_dir_all(&backup_path)?;
+            }
+            output::print_info(&format!("Backing up existing directory to {:?}", backup_path));
+            std::fs::rename(junction, &backup_path)?;
+        }
     }
     create(target, junction)
 }

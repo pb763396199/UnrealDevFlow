@@ -31,9 +31,7 @@ pub fn create_host(host_dir: &Path, task_id: &str, engine_version: &str) -> Resu
     let uproject_content = uproject::generate(engine_version);
     fs::write(&uproject_path, uproject_content)?;
 
-    // Create Plugins directory
-    let plugins_dir = host_dir.join("Plugins");
-    fs::create_dir_all(&plugins_dir)?;
+    // Note: Plugins directory will be created by git worktree add
 
     Ok(())
 }

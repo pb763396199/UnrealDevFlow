@@ -39,6 +39,10 @@ pub enum Commands {
         /// Custom task ID (overrides auto-suggestion)
         #[arg(long)]
         id: Option<String>,
+
+        /// Skip confirmation prompts
+        #[arg(long, short = 'y')]
+        yes: bool,
     },
 
     /// Switch Junction to a specific task (affects next Editor launch)
@@ -83,6 +87,10 @@ pub enum Commands {
         /// Force merge even if there are conflicts
         #[arg(long)]
         force: bool,
+
+        /// Skip confirmation prompts
+        #[arg(long, short = 'y')]
+        yes: bool,
     },
 
     /// Delete a task without merging
@@ -93,5 +101,9 @@ pub enum Commands {
         /// Force delete without confirmation
         #[arg(long)]
         force: bool,
+
+        /// Skip confirmation prompts
+        #[arg(long, short = 'y')]
+        yes: bool,
     },
 }

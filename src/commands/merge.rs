@@ -7,7 +7,7 @@ use crate::host;
 use crate::output;
 use std::fs;
 
-pub fn run(task_id: &str, force: bool) -> Result<()> {
+pub fn run(task_id: &str, force: bool, _skip_confirm: bool) -> Result<()> {
     let config = Config::load()?;
 
     // Get task host

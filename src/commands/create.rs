@@ -8,7 +8,7 @@ use crate::output;
 use chrono::Utc;
 use std::path::PathBuf;
 
-pub fn run(description: &str, custom_id: Option<String>) -> Result<()> {
+pub fn run(description: &str, custom_id: Option<String>, skip_confirm: bool) -> Result<()> {
     let config = Config::load()?;
 
     // Suggest task ID from description
@@ -23,15 +23,19 @@ pub fn run(description: &str, custom_id: Option<String>) -> Result<()> {
         return Err(UdfError::TaskAlreadyExists(task_id));
     }
 
-    // Confirm with user
-    let confirmed = dialoguer::Confirm::new()
-        .with_prompt(&format!(
-            "Create task '{}' with ID '{}'?\n  Based on current commit (no WIP included)",
-            description, task_id
-        ))
-        .default(true)
-        .interact()
-        .map_err(|e| UdfError::Other(format!("Dialog error: {}", e)))?;
+    // Confirm with user (skip if --yes)
+    let confirmed = if skip_confirm {
+        true
+    } else {
+        dialoguer::Confirm::new()
+            .with_prompt(&format!(
+                "Create task '{}' with ID '{}'?\n  Based on current commit (no WIP included)",
+                description, task_id
+            ))
+            .default(true)
+            .interact()
+            .map_err(|e| UdfError::Other(format!("Dialog error: {}", e)))?
+    };
 
     if !confirmed {
         output::print_info("Task creation cancelled.");
@@ -45,16 +49,16 @@ pub fn run(description: &str, custom_id: Option<String>) -> Result<()> {
 
     output::print_info(&format!("Creating worktree from commit {}...", &commit[..8]));
 
-    // Create worktree
-    let worktree_path = host_dir.join("Plugins").join("AesWorld");
-    git::worktree::add(&config.plugin_path, &worktree_path, &commit, &branch_name)?;
-
-    // Create Host project
+    // Create Host project first (creates the directory structure)
     let engine_version = config.engine_path.as_ref()
         .map(|p| p.file_name().unwrap().to_string_lossy().replace("UE_", ""))
         .unwrap_or_else(|| "5.7".to_string());
 
     host::create_host(&host_dir, &task_id, &engine_version)?;
+
+    // Create worktree inside the Host's Plugins directory
+    let worktree_path = host_dir.join("Plugins").join("AesWorld");
+    git::worktree::add(&config.plugin_path, &worktree_path, &commit, &branch_name)?;
 
     // Create .udf-meta.json
     let meta = TaskMeta {

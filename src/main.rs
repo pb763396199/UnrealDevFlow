@@ -46,7 +46,7 @@ fn run() -> Result<()> {
     // Dispatch command
     match cli.command {
         Commands::Configure => commands::configure::run()?,
-        Commands::Create { description, id } => commands::create::run(&description, id)?,
+        Commands::Create { description, id, yes } => commands::create::run(&description, id, yes)?,
         Commands::Switch { task_id, project, force } => {
             commands::switch::run(&task_id, project, force)?
         }
@@ -57,8 +57,8 @@ fn run() -> Result<()> {
         } => commands::build::run(&task_id, background, no_mutex)?,
         Commands::List => commands::list::run(&cli.format)?,
         Commands::Status => commands::status::run(&cli.format)?,
-        Commands::Merge { task_id, force } => commands::merge::run(&task_id, force)?,
-        Commands::Delete { task_id, force } => commands::delete::run(&task_id, force)?,
+        Commands::Merge { task_id, force, yes } => commands::merge::run(&task_id, force, yes)?,
+        Commands::Delete { task_id, force, yes } => commands::delete::run(&task_id, force, yes)?,
     }
 
     Ok(())
