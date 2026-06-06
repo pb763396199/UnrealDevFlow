@@ -1,0 +1,65 @@
+[package]
+name = "unrealdevflow"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "Unreal Engine plugin parallel development workflow tool"
+authors = ["UnrealDevFlow Contributors"]
+license = "MIT"
+
+[[bin]]
+name = "unrealdevflow"
+path = "src/main.rs"
+
+[dependencies]
+# CLI framework
+clap = { version = "4.5", features = ["derive", "env"] }
+
+# Junction management
+junction = "2.0"
+
+# Git operations
+git2 = "0.19"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+
+# Error handling
+thiserror = "2.0"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Interactive CLI
+dialoguer = "0.11"
+indicatif = "0.17"
+
+# Process detection
+sysinfo = "0.32"
+
+# Path handling
+dunce = "1.0"
+path-absolutize = "3.1"
+
+# Date/time
+chrono = { version = "0.4", features = ["serde"] }
+
+# System directories
+dirs = "5.0"
+
+# Async runtime (for background builds)
+tokio = { version = "1.0", features = ["full"] }
+
+[dev-dependencies]
+tempfile = "3.10"
+assert_cmd = "2.0"
+predicates = "3.1"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
