@@ -34,22 +34,66 @@ pub fn run(task_id: &str, force: bool, skip_confirm: bool) -> Result<()> {
     // Open main repo
     let repo = git::open_repo(&config.plugin_path)?;
 
-    // Delete worktree
+    // Try to delete worktree
     let worktree_path = host_dir.join("Plugins").join("AesWorld");
-    if worktree_path.exists() {
+    let worktree_removed = if worktree_path.exists() {
         output::print_info("Removing worktree...");
-        git::worktree::remove(&worktree_path)?;
-    }
+        match git::worktree::remove(&worktree_path) {
+            Ok(_) => true,
+            Err(e) => {
+                output::print_warning(&format!("Failed to remove worktree: {}", e));
+                output::print_info("Attempting manual cleanup...");
+                
+                // Manual cleanup: prune worktrees
+                if let Err(e) = git::worktree::prune(&config.plugin_path) {
+                    output::print_warning(&format!("Failed to prune worktrees: {}", e));
+                }
+                
+                false
+            }
+        }
+    } else {
+        true
+    };
 
-    // Delete branch
+    // Try to delete branch
     output::print_info(&format!("Deleting branch '{}'...", meta.branch));
-    git::delete_branch(&repo, &meta.branch)?;
+    let branch_deleted = match git::delete_branch(&repo, &meta.branch) {
+        Ok(_) => true,
+        Err(e) => {
+            output::print_warning(&format!("Failed to delete branch: {}", e));
+            false
+        }
+    };
 
-    // Delete Host directory
+    // Try to delete Host directory
     output::print_info("Deleting Host directory...");
-    host::delete_host(&host_dir)?;
+    let host_deleted = match host::delete_host(&host_dir) {
+        Ok(_) => true,
+        Err(e) => {
+            output::print_warning(&format!("Failed to delete Host directory: {}", e));
+            false
+        }
+    };
 
-    output::print_success(&format!("Task '{}' deleted successfully!", task_id));
+    // Report results
+    if worktree_removed && branch_deleted && host_deleted {
+        output::print_success(&format!("Task '{}' deleted successfully!", task_id));
+    } else {
+        output::print_warning(&format!("Task '{}' partially deleted. Some resources may remain:", task_id));
+        if !worktree_removed {
+            output::print_warning(&format!("  - Worktree: {:?}", worktree_path));
+            output::print_info("    Run: git worktree prune");
+        }
+        if !branch_deleted {
+            output::print_warning(&format!("  - Branch: {}", meta.branch));
+            output::print_info(&format!("    Run: git branch -D {}", meta.branch));
+        }
+        if !host_deleted {
+            output::print_warning(&format!("  - Host directory: {:?}", host_dir));
+            output::print_info(&format!("    Run: Remove-Item -Recurse -Force {:?}", host_dir));
+        }
+    }
 
     Ok(())
 }
