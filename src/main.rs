@@ -62,7 +62,12 @@ fn run() -> Result<()> {
         } => commands::build::run(&task_id, background, no_mutex)?,
         Commands::List => commands::list::run(&cli.format)?,
         Commands::Status => commands::status::run(&cli.format)?,
-        Commands::Merge { task_id, force, yes } => commands::merge::run(&task_id, force, yes)?,
+        Commands::Merge {
+            task_id,
+            force,
+            yes,
+            dry_run,
+        } => commands::merge::run(&task_id, force, yes, dry_run)?,
         Commands::Delete {
             task_id,
             force,

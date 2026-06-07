@@ -107,6 +107,10 @@ pub enum Commands {
         /// Skip confirmation prompts
         #[arg(long, short = 'y')]
         yes: bool,
+
+        /// Show what would be merged without actually merging
+        #[arg(long)]
+        dry_run: bool,
     },
 
     /// Delete a task without merging
