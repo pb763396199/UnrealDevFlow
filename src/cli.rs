@@ -121,5 +121,9 @@ pub enum Commands {
         /// Skip confirmation prompts
         #[arg(long, short = 'y')]
         yes: bool,
+
+        /// Show what would be deleted without actually deleting
+        #[arg(long)]
+        dry_run: bool,
     },
 }

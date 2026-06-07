@@ -63,7 +63,12 @@ fn run() -> Result<()> {
         Commands::List => commands::list::run(&cli.format)?,
         Commands::Status => commands::status::run(&cli.format)?,
         Commands::Merge { task_id, force, yes } => commands::merge::run(&task_id, force, yes)?,
-        Commands::Delete { task_id, force, yes } => commands::delete::run(&task_id, force, yes)?,
+        Commands::Delete {
+            task_id,
+            force,
+            yes,
+            dry_run,
+        } => commands::delete::run(&task_id, force, yes, dry_run)?,
     }
 
     Ok(())
