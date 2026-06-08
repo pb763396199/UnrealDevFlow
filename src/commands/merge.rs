@@ -284,7 +284,7 @@ pub fn run(
     let merge_success = match strategy {
         crate::cli::MergeStrategy::Rebase => {
             output::print_info(&format!("Rebasing '{}' onto current branch...", meta.branch));
-            match git::rebase_branch(&config.plugin_path, &meta.branch) {
+            match git::rebase_branch(&config.plugin_path, &meta.branch, &meta.based_on) {
                 Ok(_) => {
                     output::print_success(&format!(
                         "Branch '{}' rebased successfully",
