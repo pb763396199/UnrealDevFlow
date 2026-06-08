@@ -7,6 +7,18 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+/// Build status information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BuildStatus {
+    pub state: String, // "building" | "success" | "failed" | "unknown"
+    pub started: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub finished: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exit_code: Option<i32>,
+    pub mutex_mode: String, // "WaitMutex" | "NoMutex"
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskMeta {
     pub id: String,
@@ -19,6 +31,15 @@ pub struct TaskMeta {
     pub prompt: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_built: Option<String>,
+    // Build tracking fields
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub build_pid: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub build_log: Option<PathBuf>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub console_log: Option<PathBuf>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub build_status: Option<BuildStatus>,
 }
 
 pub fn create_host(host_dir: &Path, task_id: &str, engine_version: &str) -> Result<()> {

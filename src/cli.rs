@@ -91,6 +91,16 @@ pub enum Commands {
         /// Skip mutex (for parallel builds)
         #[arg(long)]
         no_mutex: bool,
+
+        /// Force WaitMutex (safe mode for engine intermediate conflicts)
+        #[arg(long)]
+        safe: bool,
+    },
+
+    /// Check build status of a task
+    BuildStatus {
+        /// Task ID to check
+        task_id: String,
     },
 
     /// List all tasks

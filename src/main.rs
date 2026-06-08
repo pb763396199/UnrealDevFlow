@@ -59,7 +59,9 @@ fn run() -> Result<()> {
             task_id,
             background,
             no_mutex,
-        } => commands::build::run(&task_id, background, no_mutex)?,
+            safe,
+        } => commands::build::run(&task_id, background, no_mutex, safe)?,
+        Commands::BuildStatus { task_id } => commands::build_status::run(&task_id)?,
         Commands::List => commands::list::run(&cli.format)?,
         Commands::Status => commands::status::run(&cli.format)?,
         Commands::Merge {

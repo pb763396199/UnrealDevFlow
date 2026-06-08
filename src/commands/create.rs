@@ -71,6 +71,10 @@ pub fn run(description: &str, custom_id: Option<String>, prompt: Option<String>,
         status: "active".to_string(),
         prompt,
         last_built: None,
+        build_pid: None,
+        build_log: None,
+        console_log: None,
+        build_status: None,
     };
     host::write_meta(&host_dir, &meta)?;
 
