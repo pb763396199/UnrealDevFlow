@@ -27,17 +27,45 @@ pub fn add(repo_path: &Path, worktree_path: &Path, commit: &str, branch: &str) -
 }
 
 pub fn remove(worktree_path: &Path) -> Result<()> {
+    // First, try the standard `git worktree remove --force` command
     let output = Command::new("git")
         .args(["worktree", "remove", "--force", &worktree_path.to_string_lossy()])
         .current_dir(worktree_path)
         .output()?;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(GitError::Worktree(format!("Failed to remove worktree: {}", stderr)).into());
+    if output.status.success() {
+        return Ok(());
     }
 
-    Ok(())
+    // If that failed, the directory might already be gone
+    // Try `git worktree prune` to clean up stale references
+    // First, we need to run prune from the main repo, not the worktree
+    if let Some(parent) = worktree_path.parent() {
+        if let Some(grandparent) = parent.parent() {
+            let _ = Command::new("git")
+                .args(["worktree", "prune"])
+                .current_dir(grandparent)
+                .output();
+        }
+    }
+
+    // Check if the worktree reference is gone now
+    let check_output = Command::new("git")
+        .args(["worktree", "list", "--porcelain"])
+        .current_dir(worktree_path.parent().unwrap_or(worktree_path))
+        .output()?;
+
+    if check_output.status.success() {
+        let stdout = String::from_utf8_lossy(&check_output.stdout);
+        if !stdout.contains(&worktree_path.to_string_lossy().to_string()) {
+            // Worktree reference is gone
+            return Ok(());
+        }
+    }
+
+    // If still failing, return the original error
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    Err(GitError::Worktree(format!("Failed to remove worktree: {}", stderr)).into())
 }
 
 pub fn lock(worktree_path: &Path) -> Result<()> {
