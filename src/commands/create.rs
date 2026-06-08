@@ -8,7 +8,7 @@ use crate::output;
 use chrono::Utc;
 use std::path::PathBuf;
 
-pub fn run(description: &str, custom_id: Option<String>, skip_confirm: bool) -> Result<()> {
+pub fn run(description: &str, custom_id: Option<String>, prompt: Option<String>, skip_confirm: bool) -> Result<()> {
     let config = Config::load()?;
 
     // Suggest task ID from description
@@ -69,12 +69,14 @@ pub fn run(description: &str, custom_id: Option<String>, skip_confirm: bool) -> 
         created: Utc::now().to_rfc3339(),
         based_on: commit.clone(),
         status: "active".to_string(),
+        prompt,
         last_built: None,
     };
     host::write_meta(&host_dir, &meta)?;
 
     output::print_success(&format!("Task '{}' created successfully!", task_id));
     output::print_info(&format!("  Host: {:?}", host_dir));
+    output::print_info(&format!("  Worktree: {:?}", worktree_path));
     output::print_info(&format!("  Branch: {}", branch_name));
     output::print_info(&format!("  Based on: {}", &commit[..8]));
     output::print_info(&format!("  Build: unrealdevflow build {}", task_id));

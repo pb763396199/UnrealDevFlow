@@ -56,6 +56,10 @@ pub enum Commands {
         #[arg(long)]
         id: Option<String>,
 
+        /// Original prompt/task description to save in metadata
+        #[arg(long)]
+        prompt: Option<String>,
+
         /// Skip confirmation prompts
         #[arg(long, short = 'y')]
         yes: bool,

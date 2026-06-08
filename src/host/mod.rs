@@ -16,6 +16,8 @@ pub struct TaskMeta {
     pub based_on: String,
     pub status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub last_built: Option<String>,
 }
 
