@@ -94,7 +94,13 @@ fn delete_with_retry(path: &PathBuf, max_retries: u32) -> Result<()> {
     unreachable!()
 }
 
-pub fn run(task_id: &str, force: bool, skip_confirm: bool, dry_run: bool) -> Result<()> {
+pub fn run(
+    task_id: &str,
+    strategy: &crate::cli::MergeStrategy,
+    force: bool,
+    skip_confirm: bool,
+    dry_run: bool,
+) -> Result<()> {
     let config = Config::load()?;
 
     // Get task host
@@ -134,6 +140,7 @@ pub fn run(task_id: &str, force: bool, skip_confirm: bool, dry_run: bool) -> Res
     // === DRY RUN MODE ===
     if dry_run {
         output::print_info(&format!("Dry run: would merge task '{}'", task_id));
+        output::print_info(&format!("  Strategy: {:?}", strategy));
         output::print_info(&format!("  Branch: {} ({} commit(s) to merge)", meta.branch, commit_count));
         output::print_info(&format!("  Worktree: {:?}", worktree_path));
         output::print_info(&format!("  Host directory: {:?}", host_dir));
@@ -148,6 +155,22 @@ pub fn run(task_id: &str, force: bool, skip_confirm: bool, dry_run: bool) -> Res
             }
         }
 
+        // Strategy-specific preview
+        match strategy {
+            crate::cli::MergeStrategy::Rebase => {
+                output::print_info("  Rebase will replay task commits onto current branch (linear history)");
+            }
+            crate::cli::MergeStrategy::Merge => {
+                output::print_info("  Merge will create a merge commit, preserving task history");
+            }
+            crate::cli::MergeStrategy::Squash => {
+                output::print_info("  Squash will combine all task commits into a single commit");
+            }
+            crate::cli::MergeStrategy::FfOnly => {
+                output::print_info("  FF-only will only succeed if fast-forward is possible");
+            }
+        }
+
         return Ok(());
     }
 
@@ -155,6 +178,7 @@ pub fn run(task_id: &str, force: bool, skip_confirm: bool, dry_run: bool) -> Res
     println!();
     output::print_info(&format!("Merge task '{}'", task_id));
     println!("─────────────────────────────────────────────────────────────");
+    output::print_info(&format!("  Strategy: {:?}", strategy));
     output::print_info(&format!("  Branch:   {} ({} commit(s) to merge)", meta.branch, commit_count));
     output::print_info(&format!("  Worktree: {:?}", worktree_path));
     output::print_info(&format!("  Host dir: {:?}", host_dir));
@@ -176,7 +200,7 @@ pub fn run(task_id: &str, force: bool, skip_confirm: bool, dry_run: bool) -> Res
     // Confirmation
     if !(force && skip_confirm) {
         let confirmed = dialoguer::Confirm::new()
-            .with_prompt(&format!("Merge task '{}' into main repo?", task_id))
+            .with_prompt(&format!("Merge task '{}' using {:?} strategy?", task_id, strategy))
             .default(true)
             .interact()
             .map_err(|e| UdfError::Other(format!("Dialog error: {}", e)))?;
@@ -201,21 +225,99 @@ pub fn run(task_id: &str, force: bool, skip_confirm: bool, dry_run: bool) -> Res
         }
     }
 
-    output::print_info(&format!("Merging task '{}' into main repo...", task_id));
+    output::print_info(&format!(
+        "Merging task '{}' using {:?} strategy...",
+        task_id, strategy
+    ));
 
-    // Merge branch
-    match git::merge_branch(&repo, &meta.branch) {
-        Ok(_) => {
-            output::print_success(&format!("Branch '{}' merged successfully", meta.branch));
-        }
-        Err(e) => {
-            if force {
-                output::print_warning(&format!("Merge failed: {}. Forcing deletion...", e));
-            } else {
-                return Err(e);
+    // === EXECUTE STRATEGY ===
+    let merge_success = match strategy {
+        crate::cli::MergeStrategy::Rebase => {
+            output::print_info(&format!("Rebasing '{}' onto current branch...", meta.branch));
+            match git::rebase_branch(&config.plugin_path, &meta.branch) {
+                Ok(_) => {
+                    output::print_success(&format!(
+                        "Branch '{}' rebased successfully",
+                        meta.branch
+                    ));
+                    true
+                }
+                Err(e) => {
+                    output::print_error(&format!("Rebase failed: {}", e));
+                    output::print_info("The rebase has been aborted. Please resolve conflicts manually.");
+                    if force {
+                        output::print_warning("Force flag set, continuing with cleanup...");
+                        false
+                    } else {
+                        return Err(e);
+                    }
+                }
             }
         }
-    }
+        crate::cli::MergeStrategy::Merge => {
+            match git::merge_branch(&repo, &meta.branch) {
+                Ok(_) => {
+                    output::print_success(&format!(
+                        "Branch '{}' merged successfully",
+                        meta.branch
+                    ));
+                    true
+                }
+                Err(e) => {
+                    if force {
+                        output::print_warning(&format!("Merge failed: {}. Forcing deletion...", e));
+                        false
+                    } else {
+                        return Err(e);
+                    }
+                }
+            }
+        }
+        crate::cli::MergeStrategy::Squash => {
+            output::print_info(&format!("Squashing '{}' into current branch...", meta.branch));
+            match git::squash_branch(&config.plugin_path, &meta.branch) {
+                Ok(_) => {
+                    output::print_success(&format!(
+                        "Branch '{}' squashed successfully",
+                        meta.branch
+                    ));
+                    true
+                }
+                Err(e) => {
+                    output::print_error(&format!("Squash failed: {}", e));
+                    if force {
+                        output::print_warning("Force flag set, continuing with cleanup...");
+                        false
+                    } else {
+                        return Err(e);
+                    }
+                }
+            }
+        }
+        crate::cli::MergeStrategy::FfOnly => {
+            output::print_info(&format!(
+                "Fast-forward merging '{}' into current branch...",
+                meta.branch
+            ));
+            match git::ff_only_merge(&config.plugin_path, &meta.branch) {
+                Ok(_) => {
+                    output::print_success(&format!(
+                        "Branch '{}' fast-forward merged successfully",
+                        meta.branch
+                    ));
+                    true
+                }
+                Err(e) => {
+                    if force {
+                        output::print_warning(&format!("FF merge failed: {}. Forcing deletion...", e));
+                        false
+                    } else {
+                        return Err(e);
+                    }
+                }
+            }
+        }
+    };
 
     // === CLEANUP (safe order: host dir → worktree → branch) ===
 
@@ -242,7 +344,6 @@ pub fn run(task_id: &str, force: bool, skip_confirm: bool, dry_run: bool) -> Res
                 output::print_warning(&format!("Failed to remove worktree: {}", e));
                 output::print_info("Attempting manual cleanup...");
 
-                // Manual cleanup: prune worktrees
                 if let Err(e) = git::worktree::prune(&config.plugin_path) {
                     output::print_warning(&format!("Failed to prune worktrees: {}", e));
                 }
@@ -254,14 +355,21 @@ pub fn run(task_id: &str, force: bool, skip_confirm: bool, dry_run: bool) -> Res
         true
     };
 
-    // Step 3: Delete branch (last, as it's the hardest to recover from)
-    output::print_info(&format!("Deleting branch '{}'...", meta.branch));
-    let branch_deleted = match git::delete_branch(&repo, &meta.branch) {
-        Ok(_) => true,
-        Err(e) => {
-            output::print_warning(&format!("Failed to delete branch: {}", e));
-            false
+    // Step 3: Delete original task branch (user's choice: always delete after merge)
+    let branch_deleted = if merge_success {
+        output::print_info(&format!("Deleting original branch '{}'...", meta.branch));
+        match git::delete_branch_safe(&config.plugin_path, &meta.branch) {
+            Ok(_) => true,
+            Err(e) => {
+                output::print_warning(&format!("Failed to delete branch: {}", e));
+                false
+            }
         }
+    } else {
+        output::print_warning(&format!(
+            "Skipping branch deletion because merge did not complete successfully"
+        ));
+        false
     };
 
     // Step 4: Always run worktree prune to clean up any stale metadata
@@ -272,13 +380,19 @@ pub fn run(task_id: &str, force: bool, skip_confirm: bool, dry_run: bool) -> Res
 
     // === REPORT RESULTS ===
     println!();
-    if worktree_removed && branch_deleted && host_deleted {
-        output::print_success(&format!("Task '{}' merged and cleaned up successfully!", task_id));
+    if worktree_removed && branch_deleted && host_deleted && merge_success {
+        output::print_success(&format!(
+            "Task '{}' merged using {:?} and cleaned up successfully!",
+            task_id, strategy
+        ));
     } else {
         output::print_warning(&format!(
-            "Task '{}' merged but cleanup incomplete. Some resources may remain:",
+            "Task '{}' merge cleanup incomplete. Some resources may remain:",
             task_id
         ));
+        if !merge_success {
+            output::print_warning("  - Merge did not complete");
+        }
         if !worktree_removed {
             output::print_warning(&format!("  - Worktree: {:?}", worktree_path));
             output::print_info("    Run: git worktree prune");

@@ -26,6 +26,18 @@ pub enum OutputFormat {
     Human,
 }
 
+#[derive(Clone, Debug, clap::ValueEnum, PartialEq)]
+pub enum MergeStrategy {
+    /// Rebase task branch onto dev (default preference)
+    Rebase,
+    /// Create merge commit, preserve task history
+    Merge,
+    /// Squash all task commits into one
+    Squash,
+    /// Fast-forward only, fail if not possible
+    FfOnly,
+}
+
 #[derive(Subcommand)]
 pub enum Commands {
     /// First-time configuration (Hosts path, plugin path, engine path)
@@ -113,6 +125,11 @@ pub enum Commands {
     Merge {
         /// Task ID to merge
         task_id: String,
+
+        /// Merge strategy (required - agent must ask user)
+        /// Options: rebase, merge, squash, ff-only
+        #[arg(long, value_enum)]
+        strategy: MergeStrategy,
 
         /// Force merge even if there are conflicts
         #[arg(long)]
