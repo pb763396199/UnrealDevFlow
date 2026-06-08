@@ -264,6 +264,12 @@ pub fn run(task_id: &str, force: bool, skip_confirm: bool, dry_run: bool) -> Res
         }
     };
 
+    // Step 4: Always run worktree prune to clean up any stale metadata
+    output::print_info("Pruning worktree metadata...");
+    if let Err(e) = git::worktree::prune(&config.plugin_path) {
+        output::print_warning(&format!("Failed to prune worktrees: {}", e));
+    }
+
     // === REPORT RESULTS ===
     println!();
     if worktree_removed && branch_deleted && host_deleted {
