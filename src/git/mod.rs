@@ -221,3 +221,37 @@ pub fn delete_branch_safe(repo_path: &Path, branch_name: &str) -> Result<()> {
 
     Ok(())
 }
+
+/// Get commits that are in the current branch but not in the given branch
+pub fn get_commits_ahead(repo_path: &Path, branch_name: &str) -> Result<Vec<String>> {
+    use std::process::Command;
+
+    let output = Command::new("git")
+        .args(["log", "--oneline", &format!("{}..HEAD", branch_name)])
+        .current_dir(repo_path)
+        .output()?;
+
+    if !output.status.success() {
+        return Ok(Vec::new());
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    Ok(stdout.lines().map(|s| s.to_string()).collect())
+}
+
+/// Get commits that are in the given branch but not in the current branch
+pub fn get_commits_behind(repo_path: &Path, branch_name: &str) -> Result<Vec<String>> {
+    use std::process::Command;
+
+    let output = Command::new("git")
+        .args(["log", "--oneline", &format!("HEAD..{}", branch_name)])
+        .current_dir(repo_path)
+        .output()?;
+
+    if !output.status.success() {
+        return Ok(Vec::new());
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    Ok(stdout.lines().map(|s| s.to_string()).collect())
+}

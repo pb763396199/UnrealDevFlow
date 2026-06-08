@@ -137,6 +137,11 @@ pub fn run(
     // Get commit count
     let commit_count = get_commit_count(&repo, &meta.branch)?;
 
+    // === BRANCH STATE COMPARISON ===
+    // Check what's ahead (in current branch but not in task branch) and behind
+    let commits_ahead = git::get_commits_ahead(&config.plugin_path, &meta.branch).unwrap_or_default();
+    let commits_behind = git::get_commits_behind(&config.plugin_path, &meta.branch).unwrap_or_default();
+
     // === DRY RUN MODE ===
     if dry_run {
         output::print_info(&format!("Dry run: would merge task '{}'", task_id));
@@ -144,6 +149,26 @@ pub fn run(
         output::print_info(&format!("  Branch: {} ({} commit(s) to merge)", meta.branch, commit_count));
         output::print_info(&format!("  Worktree: {:?}", worktree_path));
         output::print_info(&format!("  Host directory: {:?}", host_dir));
+
+        if !commits_ahead.is_empty() {
+            output::print_warning(&format!(
+                "  Current branch is {} commit(s) ahead of task branch:",
+                commits_ahead.len()
+            ));
+            for commit in &commits_ahead {
+                output::print_warning(&format!("    {}", commit));
+            }
+        }
+
+        if !commits_behind.is_empty() {
+            output::print_warning(&format!(
+                "  Task branch is {} commit(s) ahead of current branch:",
+                commits_behind.len()
+            ));
+            for commit in &commits_behind {
+                output::print_warning(&format!("    {}", commit));
+            }
+        }
 
         if has_uncommitted {
             output::print_warning(&format!(
@@ -182,6 +207,31 @@ pub fn run(
     output::print_info(&format!("  Branch:   {} ({} commit(s) to merge)", meta.branch, commit_count));
     output::print_info(&format!("  Worktree: {:?}", worktree_path));
     output::print_info(&format!("  Host dir: {:?}", host_dir));
+
+    // Show branch divergence
+    if !commits_ahead.is_empty() {
+        println!();
+        output::print_warning(&format!(
+            "Current branch is {} commit(s) ahead of '{}':",
+            commits_ahead.len(),
+            meta.branch
+        ));
+        for commit in &commits_ahead {
+            output::print_info(&format!("  ↑ {}", commit));
+        }
+    }
+
+    if !commits_behind.is_empty() {
+        println!();
+        output::print_warning(&format!(
+            "Task branch '{}' is {} commit(s) ahead of current:",
+            meta.branch,
+            commits_behind.len()
+        ));
+        for commit in &commits_behind {
+            output::print_info(&format!("  ↓ {}", commit));
+        }
+    }
 
     if has_uncommitted {
         println!();
