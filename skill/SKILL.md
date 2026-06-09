@@ -6,6 +6,27 @@ argument-hint: '描述你要做的任务'
 
 # UnrealDevFlow — UE 插件并行开发工作流
 
+## 跨 Agent 通用入口
+
+> **opencode skill 加载入口**。如果你不是 opencode，请改读仓库根目录的 `AGENTS.md`：
+> - **Claude Code**: `CLAUDE.md`（更精简版本）
+> - **GitHub Copilot**: `.github/copilot-instructions.md`
+> - **Cursor / Codex / 其他**: `AGENTS.md`
+>
+> 本 SKILL.md 与 AGENTS.md 顶部「5 步标准工作流」保持一致，下方是详细展开。
+
+## 🚀 5 步标准工作流
+
+| 步骤 | 命令 | 关键点 |
+|---|---|---|
+| 1. CREATE | `unrealdevflow create "<desc>" --id <id> --prompt "<raw>" --yes` | 必带 `--prompt` 保存原始需求；多主插件用 `--primary` |
+| 2. WORK | 编辑 `{hosts_root}/T-<id>_Host/Plugins/<plugin>/Source/...` | 绝不动主仓库；commit 必须中文 + 反思 |
+| 3. BUILD | `unrealdevflow build <id>` （严格模式自动启用） | 严格 flag: `-FailIfGeneratedCodeChanges -NoUBTMakefiles -DisableAdaptiveUnity` |
+| 4. SWITCH | 告诉用户运行 `unrealdevflow switch <id>` + 重启 Editor | agent 不自己执行 switch |
+| 5. MERGE → CLEANUP | `unrealdevflow merge <id> --strategy <s>` → 用户确认后 `cleanup <id>` | `--strategy` 必填，必须询问用户；merge 后不要立即 cleanup |
+
+完整说明见后文「完整工作流」章节。
+
 ## When to Use
 
 当用户提出以下类型的任务时触发：

@@ -1,6 +1,175 @@
 # UnrealDevFlow Agent 指南
 
-本文档面向 AI agent（如 Codex、Copilot、Claude Code），说明如何使用 UnrealDevFlow 工具协助用户完成 UE 插件开发任务。
+本文档面向 AI agent（如 Codex、Copilot、Claude Code、Cursor、opencode），说明如何使用 UnrealDevFlow 工具协助用户完成 UE 插件开发任务。
+
+---
+
+## 🚀 5 步标准工作流（任何 AI agent 必读）
+
+> **这一节是给 agent 看的速查版本**。完整规范、详细解释、FAQ 在本文后半部分。
+> 如果你是 opencode，看到本文件等于已加载 `skill/SKILL.md` 的全部内容。
+> 如果你是 Claude Code / Copilot / Cursor，看到本文件即获得同等知识。
+
+### 第 1 步：CREATE — 创建任务
+
+```powershell
+unrealdevflow create "任务描述" --id task-id --prompt "用户原始prompt" --yes
+```
+
+工具自动：
+- 解析主插件 `.uplugin` 的依赖关系
+- 在 `Hosts/T-{id}_Host/` 下建 worktree + Host
+- 引擎自带依赖自动 enable，**项目内依赖**创建 Junction 链回主仓库（只读）
+- 写入 `.udf-meta.json`（v2 schema）
+
+**关键参数**：
+- `--id`：短英文 kebab-case
+- `--prompt`：**必须完整保存用户原始需求**，后续 agent 都要读
+- `--primary AesWorld,AesWorld_AI`：v2 多主插件
+- `--override-dep PCG=project` / `=engine` / `=<path>`：解决引擎/项目同名冲突
+- `--yes`：agent 自动化场景跳过确认
+
+### 第 2 步：WORK — 在 worktree 中工作
+
+```
+任务路径：{hosts_root}/T-{id}_Host/Plugins/<plugin-name>/Source/...
+元信息：  {hosts_root}/T-{id}_Host/.udf-meta.json
+```
+
+**所有代码操作都在 worktree 路径下**：
+- ✅ 读、改 worktree 中的代码
+- ✅ 在 worktree 里 `git add` + `git commit`（commit message 必须中文 + 反思格式）
+- ❌ **不要动主仓库**（`{plugins_root}/<plugin-name>/`）
+- ❌ **不要动其他任务的 worktree**
+- ❌ **不要动 DEV 项目**（Junction 切换由 switch 命令管）
+
+### 第 3 步：BUILD — 编译验证
+
+```powershell
+unrealdevflow build <id>                    # 前台编译（编全 Host .uproject）
+unrealdevflow build <id> --background       # 后台编译
+unrealdevflow build <id> --primary-only     # 只编主插件模块（增量）
+unrealdevflow build-status <id>             # 查状态
+```
+
+工具自动用严格模式（Task#006 修复）：
+- `-FailIfGeneratedCodeChanges` UHT 不一致立即 fail
+- `-NoUBTMakefiles` 不用 UBT 缓存
+- `-DisableAdaptiveUnity` 不让 Adaptive 跳过文件
+
+**遇到失败**：先看 `Build_<时间>.log`；依赖路径 dirty 会警告但**不阻塞**（依赖按 v2 设计是只读的）。
+
+### 第 4 步：SWITCH — 通知用户验收
+
+**这一步 agent 不要自己执行**！告诉用户：
+
+```
+✅ 任务 <id> 已完成，请验收：
+1. unrealdevflow switch <id>     ← 用户运行
+2. 重启 UE Editor
+3. 验证功能
+```
+
+switch 会：清 UBT 缓存 → 多 Junction 切到 Host 下所有主+依赖插件。
+遇到"目录被占用"让用户关 Rider/VSCode 后重试或加 `--force`。
+
+### 第 5 步：MERGE → CLEANUP（用户确认后才执行）
+
+**⚠️ merge 命令的 `--strategy` 是必填参数，不询问用户就报错。**
+
+```powershell
+# 1) 询问用户选择策略
+"请选择合并策略：1.rebase 2.merge 3.squash 4.ff-only"
+# 2) 执行 merge（仅合并，不删任何东西！）
+unrealdevflow merge <id> --strategy rebase
+# 3) 展示 git log 供用户检查
+git log --oneline -5
+# 4) ⚠️ 等用户明确确认后，再 cleanup
+unrealdevflow cleanup <id>
+```
+
+**多主插件任务**（v2）：
+```powershell
+unrealdevflow merge <id> --plugin AesWorld --strategy rebase    # 单插件
+unrealdevflow merge <id> --all --strategy rebase               # 全部逆序
+```
+
+---
+
+## 🛑 严格禁止行为（违者任务失败）
+
+| ❌ 禁止 | ✅ 改用 |
+|---|---|
+| `git merge` / `git rebase` / `git cherry-pick` | `unrealdevflow merge <id> --strategy <s>` |
+| `git branch -D` / `git worktree remove` / `git reset --hard` | `unrealdevflow cleanup <id>` / `unrealdevflow delete <id>` |
+| 自动调 cleanup（merge 后未确认就删） | merge 后等用户确认才 cleanup |
+| 不询问就指定 `--strategy rebase` | 询问 4 选 1，让用户选 |
+| 修改主仓库（`{plugins_root}/<plugin-name>/`） | 只在 worktree 路径下改 |
+| 自己跑 `Build.bat` / `RunUBT.bat` | `unrealdevflow build <id>` |
+
+---
+
+## 📜 命令速查
+
+| 命令 | 必须询问用户 | 用途 |
+|---|---|---|
+| `configure` | — | 首次配置（`--plugins-root` 是 v2 关键） |
+| `create <desc> --id <id> --prompt <p> --yes` | — | 创建任务 |
+| `build <id>` | — | 编译（严格模式默认） |
+| `build <id> --background` | — | 后台编译 |
+| `build <id> --primary-only` | — | 只编主插件模块 |
+| `build-status <id>` | — | 查编译状态 |
+| `switch <id>` | — | 切 Junction（多 Junction 自动） |
+| `list` / `status` | — | 看任务/状态 |
+| `merge <id> --strategy <s>` | **✅ 策略必问** | 合并（多主插件加 `--plugin` 或 `--all`） |
+| `cleanup <id>` | — | 合并后用户确认才执行 |
+| `delete <id>` | — | 验收不通过时删除 |
+
+完整版（参数、返回值、错误码）见后文「命令速查」章节。
+
+---
+
+## 🧠 核心架构（一图流）
+
+```
+{plugins_root}/                  ← 永远不动的主仓库们
+├─ AesWorld/         (独立 git)
+├─ AesWorld_AI/      (独立 git)
+└─ EarthPCG/         (独立 git)
+       ↓ git worktree
+{hosts_root}/T-{id}_Host/        ← 任务隔离工作空间
+├─ T-{id}_Host.uproject          ← 动态生成，enable 全插件
+├─ .udf-meta.json                ← v2 schema，记录 primary/dependency 列表
+├─ Logs/Build_<time>.log
+└─ Plugins/
+   ├─ AesWorld/      (worktree + branch task-{id}, 可写)    ← primary
+   ├─ AesWorld_AI/   (worktree + branch task-{id}, 可写)    ← primary
+   └─ EarthPCG/      (Junction → 主仓库, 只读)             ← dependency
+       ↓ unrealdevflow switch
+{default_project}/Plugins/        ← UE DEV 项目
+└─ AesWorld/        (Junction → T-{id}_Host/Plugins/AesWorld)
+```
+
+**主/依赖插件区分**（v2）：
+- **primary**：可写 worktree+branch，参与 merge
+- **dependency**：只读 Junction 直链主仓库，build/switch/merge 前会 dirty 检查（警告不阻塞）
+
+---
+
+## 📖 详细章节索引
+
+下面进入完整规范。如果你只读上面的"5 步标准工作流"已经能开箱即用，下面是参考细节：
+
+1. [完整职责清单](#核心职责)
+2. [v2 多插件工作流](#v2-多插件工作流自-task007)
+3. [Commit Message 格式](#commit-message-格式)
+4. [详细命令速查](#命令速查-1)
+5. [错误处理](#错误处理)
+6. [最佳实践](#最佳实践)
+7. [配置参考](#配置参考)
+8. [故障排查](#故障排查)
+
+---
 
 ## 核心职责
 
