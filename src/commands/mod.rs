@@ -10,3 +10,4 @@ pub mod status;
 pub mod merge;
 pub mod cleanup;
 pub mod delete;
+pub mod skills;

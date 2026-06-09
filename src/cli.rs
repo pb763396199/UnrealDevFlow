@@ -242,6 +242,39 @@ pub enum Commands {
         #[arg(long)]
         dry_run: bool,
     },
+
+    /// Install/inspect/remove the UnrealDevFlow skill for AI agent providers
+    /// (opencode / copilot / codex / claude code).
+    Skills {
+        #[command(subcommand)]
+        action: SkillsAction,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum SkillsAction {
+    /// Copy skills/<name>/SKILL.md into .agents/skills/ + .claude/skills/
+    Install {
+        /// Install to user home (~/.agents/ + ~/.claude/) instead of project
+        #[arg(long, short = 'g')]
+        global: bool,
+        /// Project root (default: current dir)
+        #[arg(long)]
+        project: Option<PathBuf>,
+    },
+    /// Show which providers have the skill installed (project + global)
+    List {
+        /// Project root (default: current dir)
+        #[arg(long)]
+        project: Option<PathBuf>,
+    },
+    /// Remove installed skills
+    Remove {
+        #[arg(long, short = 'g')]
+        global: bool,
+        #[arg(long)]
+        project: Option<PathBuf>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq)]

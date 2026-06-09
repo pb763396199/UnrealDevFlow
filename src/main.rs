@@ -95,6 +95,15 @@ fn run() -> Result<()> {
             yes,
             dry_run,
         } => commands::delete::run(&task_id, force, yes, dry_run)?,
+        Commands::Skills { action } => match action {
+            cli::SkillsAction::Install { global, project } => {
+                commands::skills::install(global, project)?
+            }
+            cli::SkillsAction::List { project } => commands::skills::list(project)?,
+            cli::SkillsAction::Remove { global, project } => {
+                commands::skills::remove(global, project)?
+            }
+        },
     }
 
     Ok(())
