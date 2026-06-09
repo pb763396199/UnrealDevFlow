@@ -39,3 +39,6 @@
 |---|---|---|---|
 | [UnrealDevFlow 多任务并行开发工具设计](../brainstorms/2026-06-05-001-multi-task-parallel-development-brainstorm.md) | brainstorm | active | ✅ 已审查 (go-with-conditions) |
 | [UnrealDevFlow 实现计划](../plans/2026-06-05-001-feat-unrealdevflow-implementation-plan.md) | plan | draft | ✅ 已修复所有审查问题 |
+| [多插件主次结构与依赖联动设计](../brainstorms/2026-06-09-001-multi-plugin-support-brainstorm.md) | brainstorm | active | - |
+| [v2 多插件支持实现计划](../plans/2026-06-09-001-feat-multi-plugin-support-implementation-plan.md) | plan | done | - |
+| [UBT 严格编译参数源码考据](../insights/2026-06-09-001-ubt-strict-build-flags-reference.md) | insight | active | - |

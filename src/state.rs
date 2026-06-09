@@ -14,13 +14,26 @@ pub struct GlobalState {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JunctionState {
+    pub plugin_name: String,
+    pub junction_path: PathBuf,
+    pub junction_target: PathBuf,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectState {
     pub path: PathBuf,
     pub active_task: Option<String>,
+    /// v1 legacy single-junction path. Kept for backward compatibility; mirror
+    /// of the first entry in `junctions` when populated.
     pub junction_path: PathBuf,
+    /// v1 legacy single-junction target.
     pub junction_target: Option<PathBuf>,
     pub last_switch: Option<DateTime<Utc>>,
     pub previous_task: Option<String>,
+    /// v2: all junctions managed for this project under the active task.
+    #[serde(default)]
+    pub junctions: Vec<JunctionState>,
 }
 
 impl GlobalState {
@@ -82,4 +95,9 @@ impl GlobalState {
 
         self.save()
     }
+}
+
+/// Compute the canonical junction path for a plugin inside a UE project.
+pub fn junction_path_for(project_path: &Path, plugin_name: &str) -> PathBuf {
+    project_path.join("Plugins").join(plugin_name)
 }

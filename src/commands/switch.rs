@@ -1,4 +1,4 @@
-//! Switch command implementation
+//! Switch command implementation (v2 multi-junction)
 
 use crate::config::Config;
 use crate::editor;
@@ -6,20 +6,18 @@ use crate::error::{Result, UdfError};
 use crate::host;
 use crate::junction;
 use crate::output;
-use crate::state::{GlobalState, ProjectState};
+use crate::state::{junction_path_for, GlobalState, JunctionState, ProjectState};
 use std::fs;
 use std::path::{Path, PathBuf};
 
 pub fn run(task_id: &str, projects: Option<Vec<PathBuf>>, force: bool) -> Result<()> {
     let config = Config::load()?;
 
-    // Determine target project(s)
     let target_projects = match projects {
         Some(paths) => paths,
         None => vec![config.default_project.clone()],
     };
 
-    // Check if Editor is running
     if !force && editor::is_editor_running() {
         output::print_warning("UnrealEditor is currently running.");
         output::print_warning("Junction switch will only take effect on next Editor launch.");
@@ -36,94 +34,157 @@ pub fn run(task_id: &str, projects: Option<Vec<PathBuf>>, force: bool) -> Result
         }
     }
 
-    // Get task host path
-    let task_host = if task_id == "main" {
-        config.plugin_path.clone()
+    // === Resolve switch targets ===
+    let switch_plan = if task_id == "main" {
+        // For "main", we revert every known junction target back to its main repo source.
+        // We need to know which plugins were active; we derive them from GlobalState.
+        let state = GlobalState::load()?;
+        let mut plan: Vec<(String, PathBuf)> = Vec::new();
+        for (_proj, ps) in state.projects.iter() {
+            for j in &ps.junctions {
+                if !plan.iter().any(|(n, _)| n == &j.plugin_name) {
+                    let main_path = config
+                        .effective_plugins_root()
+                        .map(|r| r.join(&j.plugin_name))
+                        .unwrap_or_else(|| j.junction_target.clone());
+                    plan.push((j.plugin_name.clone(), main_path));
+                }
+            }
+        }
+        if plan.is_empty() {
+            // Nothing in state; fall back to v1 single plugin if configured.
+            if let Some(legacy) = &config.plugin_path {
+                let name = legacy
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("AesWorld")
+                    .to_string();
+                plan.push((name, legacy.clone()));
+            }
+        }
+        plan
     } else {
         let host_dir = host::get_task_host(&config.hosts_root, task_id)?;
-        host_dir.join("Plugins").join("AesWorld")
+        let mut meta = host::read_meta(&host_dir)?;
+        crate::migration::backfill_source_repo(&mut meta, &config);
+
+        let mut plan: Vec<(String, PathBuf)> = Vec::new();
+        for primary in &meta.primary_plugins {
+            plan.push((primary.name.clone(), host_dir.join(&primary.worktree)));
+        }
+        for dep in &meta.dependency_plugins {
+            if let Some(rel) = &dep.junction {
+                plan.push((dep.name.clone(), host_dir.join(rel)));
+            }
+        }
+        plan
     };
 
-    if !task_host.exists() {
-        return Err(UdfError::TaskNotFound(task_id.to_string()));
+    if switch_plan.is_empty() {
+        return Err(UdfError::Other(format!(
+            "No junctions to switch for task '{}'",
+            task_id
+        )));
     }
 
-    // Switch Junction for each project
+    // === Switch every junction for every project ===
     for project_path in &target_projects {
-        let junction_path = project_path.join("Plugins").join("AesWorld");
         let project_name = project_path
             .file_name()
             .unwrap()
             .to_string_lossy()
             .to_string();
 
-        output::print_info(&format!("Switching project '{}' to task '{}'...", project_name, task_id));
+        output::print_info(&format!(
+            "Switching project '{}' to task '{}' ({} junction(s))...",
+            project_name,
+            task_id,
+            switch_plan.len()
+        ));
 
-        // Clear UBT intermediate cache
-        let ubt_cache = project_path
-            .join("Intermediate")
-            .join("Build")
-            .join("Win64")
-            .join("UnrealEditor")
-            .join("Development")
-            .join("AesWorld");
+        clear_ubt_cache(project_path);
 
-        if ubt_cache.exists() {
-            output::print_info("Clearing UBT intermediate cache...");
-            if let Err(e) = fs::remove_dir_all(&ubt_cache) {
-                output::print_warning(&format!("  Failed to clear UBT cache: {}", e));
+        let mut junctions_state: Vec<JunctionState> = Vec::new();
+        for (plugin_name, target_path) in &switch_plan {
+            if !target_path.exists() {
+                return Err(UdfError::Other(format!(
+                    "Junction target does not exist for plugin '{}': {:?}",
+                    plugin_name, target_path
+                )));
             }
+            let junction_path = junction_path_for(project_path, plugin_name);
+            if junction_path.exists() {
+                handle_existing_path(&junction_path, &project_name)?;
+            }
+            junction::create(target_path, &junction_path)?;
+            output::print_success(&format!(
+                "  {} -> {:?}",
+                plugin_name, target_path
+            ));
+            junctions_state.push(JunctionState {
+                plugin_name: plugin_name.clone(),
+                junction_path,
+                junction_target: target_path.clone(),
+            });
         }
 
-        // Handle existing path at junction target
-        if junction_path.exists() {
-            match handle_existing_path(&junction_path, &project_name) {
-                Ok(()) => {}
-                Err(e) => {
-                    return Err(e);
-                }
-            }
-        }
-
-        // Create Junction
-        junction::create(&task_host, &junction_path)?;
-
-        // Update state
         let mut state = GlobalState::load()?;
+        let previous_task = state
+            .get_project(&project_name)
+            .and_then(|p| p.active_task.clone());
+        let first = junctions_state.first().cloned();
         let project_state = ProjectState {
             path: project_path.clone(),
             active_task: Some(task_id.to_string()),
-            junction_path: junction_path.clone(),
-            junction_target: Some(task_host.clone()),
+            junction_path: first
+                .as_ref()
+                .map(|j| j.junction_path.clone())
+                .unwrap_or_default(),
+            junction_target: first.as_ref().map(|j| j.junction_target.clone()),
             last_switch: Some(chrono::Utc::now()),
-            previous_task: state
-                .get_project(&project_name)
-                .and_then(|p| p.active_task.clone()),
+            previous_task,
+            junctions: junctions_state,
         };
         state.set_project(project_name.clone(), project_state);
         state.save()?;
 
-        output::print_success(&format!("Project '{}' switched to task '{}'", project_name, task_id));
+        output::print_success(&format!(
+            "Project '{}' switched to task '{}'",
+            project_name, task_id
+        ));
     }
 
-    output::print_info("Restart UnrealEditor to load the new task DLL.");
-
+    output::print_info("Restart UnrealEditor to load the new task DLLs.");
     Ok(())
 }
 
-/// Handle existing path at the junction target location.
-/// Strategy:
-/// 1. If it's a Junction → delete it
-/// 2. If it's an empty directory → delete it directly
-/// 3. If it's a non-empty directory → prompt user to handle it
+fn clear_ubt_cache(project_path: &Path) {
+    let ubt_cache = project_path
+        .join("Intermediate")
+        .join("Build")
+        .join("Win64")
+        .join("UnrealEditor")
+        .join("Development");
+
+    if ubt_cache.exists() {
+        output::print_info("Clearing UBT intermediate cache (Development/*)...");
+        if let Ok(entries) = fs::read_dir(&ubt_cache) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    let _ = fs::remove_dir_all(&path);
+                }
+            }
+        }
+    }
+}
+
 fn handle_existing_path(junction_path: &Path, project_name: &str) -> Result<()> {
-    // Case 1: It's a Junction
     if junction::exists(junction_path).unwrap_or(false) {
         output::print_info(&format!("Removing existing junction at {:?}", junction_path));
         return junction::delete(junction_path);
     }
 
-    // Case 2: Empty directory → delete directly
     let is_empty = fs::read_dir(junction_path)
         .map(|mut entries| entries.next().is_none())
         .unwrap_or(false);
@@ -134,13 +195,11 @@ fn handle_existing_path(junction_path: &Path, project_name: &str) -> Result<()> 
             .map_err(|e| UdfError::Other(format!("Failed to remove empty directory: {}", e)));
     }
 
-    // Case 3: Non-empty directory → prompt user to handle it
     output::print_warning(&format!(
-        "Conflict: '{:?}' already contains an AesWorld plugin (not a Junction).",
-        junction_path
+        "Conflict: '{:?}' already contains a plugin (not a Junction) for project '{}'.",
+        junction_path, project_name
     ));
 
-    // Try to detect which processes are locking the path
     let locking_processes = detect_locking_processes(junction_path);
     if !locking_processes.is_empty() {
         output::print_warning("Detected processes that may be using this path:");
@@ -150,35 +209,16 @@ fn handle_existing_path(junction_path: &Path, project_name: &str) -> Result<()> 
         output::print_info("Please close these processes and run switch again.");
     }
 
-    output::print_info("To resolve this conflict, choose ONE of the following options:");
-    output::print_info("");
-    output::print_info("  Option A: Close all processes using the path, then re-run switch");
-    output::print_info("    Steps:");
-    output::print_info("      1. Close IDEs (Rider, VSCode) that may have the path open");
-    output::print_info("      2. Close any file explorer windows on the path");
-    output::print_info("      3. Close UE Editor if running");
-    output::print_info("      4. Run: unrealdevflow switch again");
-    output::print_info("");
+    output::print_info("To resolve this conflict:");
+    output::print_info("  A) Close IDEs / file explorers holding the path, then re-run switch");
     output::print_info(&format!(
-        "  Option B: Manually move/backup the directory, then re-run switch"
-    ));
-    output::print_info("    Steps:");
-    output::print_info(&format!(
-        "      1. Move or rename: move {:?} {{backup-location}}",
+        "  B) Manually move/backup: move {:?} {{backup-location}}",
         junction_path
     ));
-    output::print_info("      2. Run: unrealdevflow switch again");
-    output::print_info("");
     output::print_info(&format!(
-        "  Option C: Manually delete the directory (DESTRUCTIVE - will lose any uncommitted changes)"
-    ));
-    output::print_info("    Steps:");
-    output::print_info(&format!(
-        "      1. Delete: Remove-Item -Recurse -Force {:?}",
+        "  C) DESTRUCTIVE delete: Remove-Item -Recurse -Force {:?}",
         junction_path
     ));
-    output::print_info("      2. Run: unrealdevflow switch again");
-    output::print_info("");
 
     Err(UdfError::Other(format!(
         "Switch aborted. Please resolve the conflict at '{:?}' and try again.",
@@ -186,7 +226,6 @@ fn handle_existing_path(junction_path: &Path, project_name: &str) -> Result<()> 
     )))
 }
 
-/// Information about a process that may be locking a path
 #[derive(Debug, Clone)]
 struct ProcessInfo {
     name: String,
@@ -194,30 +233,24 @@ struct ProcessInfo {
     path: Option<String>,
 }
 
-/// Try to detect which processes are using a given path
 fn detect_locking_processes(path: &Path) -> Vec<ProcessInfo> {
     let mut result = Vec::new();
     let path_str = path.to_string_lossy().to_string();
 
-    // Method 1: Check processes whose executable path contains the project name
-    // or contains path components of the target
     if let Some(parent) = path.parent() {
         let project_name = parent
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_default();
 
-        // Get all processes and check various heuristics
         for proc in sysinfo_processes() {
             let proc_name = proc.name.to_lowercase();
             let proc_path = proc.path.as_deref().unwrap_or("").to_lowercase();
 
-            // Skip system processes
             if proc.path.is_none() {
                 continue;
             }
 
-            // Check if process path is within the project
             if !project_name.is_empty()
                 && (proc_path.contains(&project_name.to_lowercase())
                     || proc_path.contains(&path_str.to_lowercase()))
@@ -230,11 +263,9 @@ fn detect_locking_processes(path: &Path) -> Vec<ProcessInfo> {
                 continue;
             }
 
-            // Check by process name (common IDEs, editors, etc.)
             let known_locks = [
-                "rider", "rider64", "clion", "intellij",
-                "code", "codex", "devenv", "explorer",
-                "devenv", "smartgit", "sourcetree",
+                "rider", "rider64", "clion", "intellij", "code", "codex", "devenv", "explorer",
+                "smartgit", "sourcetree",
             ];
             for lock in &known_locks {
                 if proc_name.contains(lock) {
@@ -252,16 +283,14 @@ fn detect_locking_processes(path: &Path) -> Vec<ProcessInfo> {
     result
 }
 
-/// Simple process info
 struct SimpleProcess {
     name: String,
     pid: u32,
     path: Option<String>,
 }
 
-/// Get all running processes (cross-platform best-effort)
 fn sysinfo_processes() -> Vec<SimpleProcess> {
-    use sysinfo::{Pid, System};
+    use sysinfo::System;
     let mut sys = System::new();
     sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
 

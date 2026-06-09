@@ -1,25 +1,32 @@
-//! Build command implementation
+//! Build command implementation (v2 multi-plugin)
 
 use crate::config::Config;
 use crate::error::{BuildError, Result, UdfError};
-use crate::host::{self, BuildStatus};
+use crate::host::{self, BuildStatus, DependencyPlugin, DependencySource, PrimaryPlugin};
 use crate::output;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-pub fn run(task_id: &str, background: bool, no_mutex: bool, safe: bool) -> Result<()> {
+pub fn run(
+    task_id: &str,
+    background: bool,
+    no_mutex: bool,
+    safe: bool,
+    primary_only: bool,
+) -> Result<()> {
     let config = Config::load()?;
 
-    // Get task host
     let host_dir = host::get_task_host(&config.hosts_root, task_id)?;
+    let mut meta = host::read_meta(&host_dir)?;
+    crate::migration::backfill_source_repo(&mut meta, &config);
+
     let uproject_path = host_dir.join(format!("T-{}_Host.uproject", task_id));
 
     if !uproject_path.exists() {
         return Err(UdfError::TaskNotFound(task_id.to_string()));
     }
 
-    // Detect engine path
     let engine_path = &config.engine_path;
 
     let build_bat = engine_path
@@ -31,13 +38,14 @@ pub fn run(task_id: &str, background: bool, no_mutex: bool, safe: bool) -> Resul
         return Err(BuildError::BuildBatNotFound(build_bat).into());
     }
 
-    // === Log isolation: each build gets its own log file ===
+    // === Dependency dirty check (warn but don't block) ===
+    check_dependency_dirty(&meta.dependency_plugins);
+
     let log_dir = host_dir.join("Logs");
     fs::create_dir_all(&log_dir)?;
     let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
     let ubt_log = log_dir.join(format!("Build_{}.log", timestamp));
 
-    // === Smart mutex selection ===
     let mutex_mode = determine_mutex_mode(no_mutex, safe, engine_path);
 
     output::print_info(&format!("Building task '{}'...", task_id));
@@ -46,6 +54,10 @@ pub fn run(task_id: &str, background: bool, no_mutex: bool, safe: bool) -> Resul
     output::print_info(&format!("  Mutex: {}", mutex_mode));
     output::print_info(&format!("  UBT Log: {:?}", ubt_log));
     output::print_info("  Strict mode: -FailIfGeneratedCodeChanges -NoUBTMakefiles -DisableAdaptiveUnity");
+    if primary_only {
+        let modules: Vec<String> = meta.primary_plugins.iter().map(|p| p.name.clone()).collect();
+        output::print_info(&format!("  Scope: --primary-only ({} module(s))", modules.len()));
+    }
 
     // Build arguments - Strict mode (default)
     // Catches header/cpp mismatches that UBT optimizations may otherwise hide.
@@ -70,12 +82,16 @@ pub fn run(task_id: &str, background: bool, no_mutex: bool, safe: bool) -> Resul
         "-DisableAdaptiveUnity".to_string(),
     ];
 
-    // Execute build
+    if primary_only {
+        for plugin in &meta.primary_plugins {
+            args.push(format!("-Module={}", plugin.name));
+        }
+    }
+
     let mut cmd = Command::new(&build_bat);
     cmd.args(&args);
 
     if background {
-        // === Background mode: capture stdout/stderr to console log ===
         let console_log = log_dir.join(format!("Console_{}.log", timestamp));
         let log_file = std::fs::File::create(&console_log)?;
 
@@ -84,8 +100,6 @@ pub fn run(task_id: &str, background: bool, no_mutex: bool, safe: bool) -> Resul
 
         let child = cmd.spawn()?;
 
-        // Update meta with build status
-        let mut meta = host::read_meta(&host_dir)?;
         meta.build_pid = Some(child.id());
         meta.build_log = Some(ubt_log.clone());
         meta.console_log = Some(console_log.clone());
@@ -110,8 +124,6 @@ pub fn run(task_id: &str, background: bool, no_mutex: bool, safe: bool) -> Resul
     } else {
         let status = cmd.status()?;
 
-        // Update meta with build result
-        let mut meta = host::read_meta(&host_dir)?;
         meta.last_built = Some(chrono::Utc::now().to_rfc3339());
         meta.build_pid = None;
         meta.build_log = Some(ubt_log.clone());
@@ -141,34 +153,82 @@ pub fn run(task_id: &str, background: bool, no_mutex: bool, safe: bool) -> Resul
             return Err(BuildError::BuildFailed(status.code().unwrap_or(-1)).into());
         }
 
-        // Verify DLL was produced
+        // Verify a DLL was produced for every primary plugin.
+        verify_primary_dlls(&host_dir, &meta.primary_plugins)?;
+
+        output::print_success(&format!("Task '{}' built successfully!", task_id));
+        output::print_info(&format!("  UBT Log: {:?}", ubt_log));
+    }
+
+    Ok(())
+}
+
+fn verify_primary_dlls(host_dir: &Path, primary_plugins: &[PrimaryPlugin]) -> Result<()> {
+    if primary_plugins.is_empty() {
+        return Ok(());
+    }
+    for plugin in primary_plugins {
         let dll_path = host_dir
-            .join("Plugins")
-            .join("AesWorld")
+            .join(&plugin.worktree)
             .join("Binaries")
             .join("Win64")
-            .join("UnrealEditor-AesWorld.dll");
+            .join(format!("UnrealEditor-{}.dll", plugin.name));
 
         if !dll_path.exists() {
-            return Err(BuildError::DllNotProduced(dll_path).into());
+            // The plugin may produce module DLLs rather than a single
+            // top-level DLL. Don't fail hard, but warn loudly.
+            output::print_warning(&format!(
+                "Primary plugin DLL not found: {:?} (module-level DLLs may still be valid)",
+                dll_path
+            ));
+            continue;
         }
 
-        // Check DLL timestamp
         let dll_meta = fs::metadata(&dll_path)?;
         let dll_modified = dll_meta.modified()?;
         let now = std::time::SystemTime::now();
         let age = now.duration_since(dll_modified).unwrap_or_default();
 
         if age.as_secs() > 60 {
-            output::print_warning(&format!("DLL is {} seconds old", age.as_secs()));
+            output::print_warning(&format!(
+                "Primary plugin DLL is {} seconds old: {:?}",
+                age.as_secs(),
+                dll_path
+            ));
         }
 
-        output::print_success(&format!("Task '{}' built successfully!", task_id));
         output::print_info(&format!("  DLL: {:?}", dll_path));
-        output::print_info(&format!("  UBT Log: {:?}", ubt_log));
     }
-
     Ok(())
+}
+
+fn check_dependency_dirty(deps: &[DependencyPlugin]) {
+    for dep in deps {
+        if dep.source != DependencySource::Project {
+            continue;
+        }
+        let status = match Command::new("git")
+            .args(["status", "--porcelain"])
+            .current_dir(&dep.source_path)
+            .output()
+        {
+            Ok(o) => o,
+            Err(_) => continue,
+        };
+        if !status.status.success() {
+            continue;
+        }
+        let stdout = String::from_utf8_lossy(&status.stdout);
+        if !stdout.trim().is_empty() {
+            output::print_warning(&format!(
+                "Dependency '{}' has uncommitted changes in main repo {:?}",
+                dep.name, dep.source_path
+            ));
+            output::print_warning(
+                "  Dependencies are treated as read-only by UnrealDevFlow; commit or stash before build.",
+            );
+        }
+    }
 }
 
 /// Determine mutex mode based on flags and engine state
@@ -179,11 +239,10 @@ fn determine_mutex_mode(no_mutex: bool, safe: bool, engine_path: &Path) -> Strin
     if no_mutex {
         return "-NoMutex".to_string();
     }
-    // Default: smart detection
     if engine_intermediate_ready(engine_path) {
-        "-NoMutex".to_string() // Daily build, safe to parallelize
+        "-NoMutex".to_string()
     } else {
-        "-WaitMutex".to_string() // First build, need to queue
+        "-WaitMutex".to_string()
     }
 }
 
@@ -199,8 +258,12 @@ fn engine_intermediate_ready(engine_path: &Path) -> bool {
         return false;
     }
 
-    // Check if directory has any files (engine has been compiled before)
     fs::read_dir(&shared_dir)
         .map(|mut entries| entries.next().is_some())
         .unwrap_or(false)
+}
+
+#[allow(dead_code)]
+fn join_worktree(host_dir: &Path, rel: &Path) -> PathBuf {
+    host_dir.join(rel)
 }

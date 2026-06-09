@@ -8,7 +8,9 @@ mod error;
 mod git;
 mod host;
 mod junction;
+mod migration;
 mod output;
+mod plugin;
 mod state;
 
 use clap::Parser;
@@ -26,7 +28,6 @@ fn main() {
 fn run() -> Result<()> {
     let cli = Cli::parse();
 
-    // Initialize logging
     let filter = if cli.verbose {
         EnvFilter::new("debug")
     } else {
@@ -38,20 +39,26 @@ fn run() -> Result<()> {
         .with_target(false)
         .init();
 
-    // Check if configured (except for configure command)
     if !matches!(cli.command, Commands::Configure { .. }) && !config::Config::exists() {
         return Err(error::UdfError::NotConfigured);
     }
 
-    // Dispatch command
     match cli.command {
         Commands::Configure {
             hosts_root,
             plugin_path,
+            plugins_root,
             default_project,
             engine_path,
-        } => commands::configure::run(hosts_root, plugin_path, default_project, engine_path)?,
-        Commands::Create { description, id, prompt, yes } => commands::create::run(&description, id, prompt, yes)?,
+        } => commands::configure::run(hosts_root, plugin_path, plugins_root, default_project, engine_path)?,
+        Commands::Create {
+            description,
+            id,
+            prompt,
+            primary,
+            override_dep,
+            yes,
+        } => commands::create::run(&description, id, prompt, primary, override_dep, yes)?,
         Commands::Switch { task_id, project, force } => {
             commands::switch::run(&task_id, project, force)?
         }
@@ -60,17 +67,20 @@ fn run() -> Result<()> {
             background,
             no_mutex,
             safe,
-        } => commands::build::run(&task_id, background, no_mutex, safe)?,
+            primary_only,
+        } => commands::build::run(&task_id, background, no_mutex, safe, primary_only)?,
         Commands::BuildStatus { task_id } => commands::build_status::run(&task_id)?,
         Commands::List => commands::list::run(&cli.format)?,
         Commands::Status => commands::status::run(&cli.format)?,
         Commands::Merge {
             task_id,
             strategy,
+            plugin,
+            all,
             force,
             yes,
             dry_run,
-        } => commands::merge::run(&task_id, &strategy, force, yes, dry_run)?,
+        } => commands::merge::run(&task_id, &strategy, plugin, all, force, yes, dry_run)?,
         Commands::Cleanup {
             task_id,
             force,

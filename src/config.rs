@@ -3,15 +3,28 @@
 use crate::error::{Result, UdfError};
 use dialoguer::Input;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     pub hosts_root: PathBuf,
-    pub plugin_path: PathBuf,
+    /// v1 legacy field. Kept for backward compatibility. If `plugins_root` is
+    /// also set, `plugins_root` wins for discovery, but `plugin_path` is still
+    /// honored as the default primary candidate for tasks created interactively.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plugin_path: Option<PathBuf>,
     pub default_project: PathBuf,
     pub engine_path: PathBuf,
+    /// v2: root directory containing all project plugins (one Git repo per
+    /// plugin). When set, `create` will discover plugins automatically.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plugins_root: Option<PathBuf>,
+    /// v2: user overrides for plugin resolution. Map of plugin-name → absolute
+    /// path. Overrides win over engine/project auto-discovery.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub plugin_overrides: HashMap<String, PathBuf>,
 }
 
 impl Config {
@@ -50,6 +63,27 @@ impl Config {
     pub fn exists() -> bool {
         Self::config_path().map(|p| p.exists()).unwrap_or(false)
     }
+
+    /// Resolve the project plugins root, falling back to the parent of the v1
+    /// `plugin_path` if `plugins_root` is not set.
+    pub fn effective_plugins_root(&self) -> Option<PathBuf> {
+        if let Some(root) = &self.plugins_root {
+            return Some(root.clone());
+        }
+        self.plugin_path
+            .as_ref()
+            .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+    }
+
+    /// Resolve the default primary plugin candidate for interactive `create`,
+    /// derived from the legacy v1 `plugin_path` field if present.
+    pub fn legacy_primary_plugin(&self) -> Option<String> {
+        self.plugin_path
+            .as_ref()
+            .and_then(|p| p.file_name())
+            .and_then(|s| s.to_str())
+            .map(|s| s.to_string())
+    }
 }
 
 /// Detect engine path from EngineAssociation version string
@@ -74,7 +108,7 @@ fn detect_engine_path_by_version(version: &str) -> Option<PathBuf> {
 /// Detect engine path from .uproject file in the given project directory
 pub fn detect_engine_path(project_path: &PathBuf) -> Result<PathBuf> {
     let engine_version = read_engine_version(project_path)?;
-    
+
     match detect_engine_path_by_version(&engine_version) {
         Some(path) => Ok(path),
         None => Err(UdfError::Other(format!(
@@ -122,10 +156,10 @@ pub fn run_configure() -> Result<Config> {
         .interact_text()
         .map_err(|e| UdfError::Other(format!("Input error: {}", e)))?;
 
-    // 2. Plugin main repository path (required)
-    let plugin_path: String = Input::new()
-        .with_prompt("Plugin main repository path (Git repo root)")
-        .default("F:\\ShanghaiP4\\neon\\Plugins\\AesWorld".to_string())
+    // 2. Plugins root directory (v2: replaces single plugin_path)
+    let plugins_root: String = Input::new()
+        .with_prompt("Plugins root directory (folder containing all project plugin Git repos)")
+        .default("F:\\ShanghaiP4\\neon\\Plugins".to_string())
         .interact_text()
         .map_err(|e| UdfError::Other(format!("Input error: {}", e)))?;
 
@@ -160,9 +194,11 @@ pub fn run_configure() -> Result<Config> {
 
     let config = Config {
         hosts_root: PathBuf::from(hosts_root),
-        plugin_path: PathBuf::from(plugin_path),
+        plugin_path: None,
         default_project: default_project_path,
         engine_path,
+        plugins_root: Some(PathBuf::from(plugins_root)),
+        plugin_overrides: HashMap::new(),
     };
 
     config.save()?;

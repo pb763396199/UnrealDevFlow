@@ -282,6 +282,66 @@ unrealdevflow cleanup <task-id>
 | `cleanup` | 清理 worktree | merge 后用户确认清理时 | ❌ |
 | `delete` | 删除任务 | 用户验收不通过时 | ❌ |
 
+## v2 多插件工作流（自 Task#007）
+
+UnrealDevFlow 已支持一个任务跨多个插件协同开发：
+
+- **主插件 (primary)**：可写，独立 Git worktree+branch，参与 merge
+- **依赖插件 (dependency)**：只读，Junction 直链主仓库，跟随主仓库 dev
+
+### 创建多插件任务
+
+```powershell
+# 多个主插件
+unrealdevflow create "调查 EarthPrefab 保存丢失" `
+    --id prefab-bug `
+    --primary AesWorld,AesWorld_AI `
+    --yes
+
+# 当依赖在引擎和项目同时存在时，必须用 --override-dep 解决冲突
+unrealdevflow create "..." --id xxx `
+    --primary AesWorld `
+    --override-dep PCG=project `
+    --override-dep GeometryProcessing=engine
+```
+
+依赖自动扫描流程：
+1. 解析每个主插件的 `.uplugin` 的 `Plugins` 数组
+2. 对每个依赖在 `<engine>/Engine/Plugins` 和 `plugins_root` 两处查找
+3. 引擎自带 → 自动 enable，不创建 Junction
+4. 项目内 → 在 Host 下创建 Junction 链回主仓库
+5. 引擎+项目同时有 → 必须 `--override-dep <name>=engine|project` 选边
+6. 都没有 → 必须 `--override-dep <name>=<absolute-path>` 提供
+
+### 多插件编译
+
+`build` 编译整个 Host `.uproject`，所有主插件 + 项目依赖 + 引擎依赖一起编。
+依赖插件 dirty 时只警告不阻塞（依赖按 v2 设计是只读的）。
+
+```powershell
+unrealdevflow build prefab-bug                # 全编（默认，跨插件依赖能 100% 暴露）
+unrealdevflow build prefab-bug --primary-only # 只编主插件模块（增量验证）
+```
+
+### 多插件 merge
+
+每个主插件都是独立 Git 仓库，必须明确指定操作目标：
+
+```powershell
+# 指定单个主插件
+unrealdevflow merge prefab-bug --plugin AesWorld --strategy rebase
+
+# 全部主插件按逆序逐个 merge（每个独立确认）
+unrealdevflow merge prefab-bug --all --strategy rebase
+```
+
+**依赖插件永远不参与 merge**。如果依赖代码确实改了，用户应该单独提交到主仓库。
+
+### v1 任务自动迁移
+
+工具读旧版 `.udf-meta.json` 时会自动升级为 v2，同时备份原文件为
+`.udf-meta.json.v1.bak`。无需手动操作。
+
 ## Commit Message 格式
 
 **所有 git commit 必须使用中文 message**，格式如下：

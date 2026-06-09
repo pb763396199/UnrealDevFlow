@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+pub const CURRENT_SCHEMA_VERSION: u32 = 2;
+
 /// Build status information
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BuildStatus {
@@ -19,12 +21,55 @@ pub struct BuildStatus {
     pub mutex_mode: String, // "WaitMutex" | "NoMutex"
 }
 
+/// A primary (writable) plugin participating in a task.
+///
+/// Each primary plugin gets its own Git worktree + branch, and participates in
+/// the merge workflow.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PrimaryPlugin {
+    pub name: String,
+    pub source_repo: PathBuf,
+    /// Relative to the Host directory, e.g. `Plugins/AesWorld`.
+    pub worktree: PathBuf,
+    pub branch: String,
+    pub based_on: String,
+}
+
+/// Source of a dependency plugin.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DependencySource {
+    Engine,
+    Project,
+}
+
+/// A dependency (read-only) plugin participating in a task.
+///
+/// Engine dependencies are automatically enabled via `.uproject` and need no
+/// junction. Project dependencies get a Junction in the Host plugins folder
+/// pointing at the main repository checkout.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DependencyPlugin {
+    pub name: String,
+    pub source: DependencySource,
+    pub source_path: PathBuf,
+    /// Relative to the Host directory; only present for `Project` source.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub junction: Option<PathBuf>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskMeta {
+    /// Schema version. Absent in v1 metadata; v2+ writes this explicitly.
+    #[serde(default)]
+    pub schema_version: u32,
     pub id: String,
     pub name: String,
+    /// v1 legacy single-branch field. Still emitted for tooling that reads it
+    /// (matches the first primary plugin's branch in v2).
     pub branch: String,
     pub created: String,
+    /// v1 legacy single-commit field (matches the first primary plugin).
     pub based_on: String,
     pub status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -40,21 +85,53 @@ pub struct TaskMeta {
     pub console_log: Option<PathBuf>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub build_status: Option<BuildStatus>,
+    /// v2 primary plugins. For v1 metadata loaded via migration, contains a
+    /// single entry derived from the legacy fields.
+    #[serde(default)]
+    pub primary_plugins: Vec<PrimaryPlugin>,
+    /// v2 dependency plugins. Always empty in migrated v1 metadata.
+    #[serde(default)]
+    pub dependency_plugins: Vec<DependencyPlugin>,
+}
+
+impl TaskMeta {
+    /// Iterator over absolute worktree paths for all primary plugins.
+    pub fn primary_worktree_paths(&self, host_dir: &Path) -> Vec<PathBuf> {
+        self.primary_plugins
+            .iter()
+            .map(|p| host_dir.join(&p.worktree))
+            .collect()
+    }
 }
 
 pub fn create_host(host_dir: &Path, task_id: &str, engine_version: &str) -> Result<()> {
+    create_host_with_plugins(host_dir, task_id, engine_version, &[], &[])
+}
+
+pub fn create_host_with_plugins(
+    host_dir: &Path,
+    task_id: &str,
+    engine_version: &str,
+    primary_names: &[String],
+    project_dependency_names: &[String],
+) -> Result<()> {
     if host_dir.exists() {
         return Err(HostError::AlreadyExists(host_dir.to_path_buf()).into());
     }
 
     fs::create_dir_all(host_dir)?;
 
-    // Create .uproject
+    // Create .uproject with all primary + project-dependency plugins enabled.
     let uproject_path = host_dir.join(format!("T-{}_Host.uproject", task_id));
-    let uproject_content = uproject::generate(engine_version);
+    let mut enabled = Vec::new();
+    enabled.extend(primary_names.iter().cloned());
+    enabled.extend(project_dependency_names.iter().cloned());
+    if enabled.is_empty() {
+        // Backward-compatible fallback used by tests and v1 callers.
+        enabled.push("AesWorld".to_string());
+    }
+    let uproject_content = uproject::generate(engine_version, &enabled);
     fs::write(&uproject_path, uproject_content)?;
-
-    // Note: Plugins directory will be created by git worktree add
 
     Ok(())
 }
@@ -66,14 +143,17 @@ pub fn write_meta(host_dir: &Path, meta: &TaskMeta) -> Result<()> {
     Ok(())
 }
 
+/// Read `.udf-meta.json` from a Host directory, auto-migrating v1 metadata to
+/// v2 in-memory (the caller decides whether to persist the upgrade).
 pub fn read_meta(host_dir: &Path) -> Result<TaskMeta> {
     let meta_path = host_dir.join(".udf-meta.json");
     if !meta_path.exists() {
         return Err(HostError::InvalidMeta("File not found".to_string()).into());
     }
     let content = fs::read_to_string(&meta_path)?;
-    let meta: TaskMeta = serde_json::from_str(&content)
+    let mut meta: TaskMeta = serde_json::from_str(&content)
         .map_err(|e| HostError::InvalidMeta(format!("JSON parse error: {}", e)))?;
+    crate::migration::migrate_in_place(&mut meta);
     Ok(meta)
 }
 

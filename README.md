@@ -9,6 +9,7 @@ UE 插件多任务并行开发工具。基于 Git Worktree + NTFS Junction，实
 - **安全合并**：4 种合并策略（rebase/merge/squash/ff-only），延迟清理机制
 - **编译隔离**：独立日志、智能 Mutex、后台编译支持
 - **状态追踪**：任务状态、编译状态、Junction 状态一目了然
+- **v2 多插件**：单任务跨多插件协同开发（主插件可写 + 依赖插件只读 + 智能扫描依赖）
 
 ## 安装
 
@@ -31,36 +32,52 @@ $env:Path += ";F:\AiProject\UnrealDevFlow\target\release"
 
 ### 预编译二进制
 
-从 [Releases](https://github.com/your-org/unrealdevflow/releases) 下载 `unrealdevflow.exe`，放到任意 PATH 目录。
+从 [Releases](https://github.com/pb763396199/UnrealDevFlow/releases) 下载 `unrealdevflow.exe`，放到任意 PATH 目录。
 
-## 快速开始
+## 快速开始（v2 多插件）
 
-### 1. 配置
+### 1. 配置（v2 plugins_root 取代 v1 plugin_path）
 
 ```powershell
 unrealdevflow configure `
-    --hosts-root "F:\ShanghaiP4\neon\Hosts" `
-    --plugin-path "F:\ShanghaiP4\neon\Plugins\AesWorld" `
+    --hosts-root      "F:\ShanghaiP4\neon\Hosts" `
+    --plugins-root    "F:\ShanghaiP4\neon\Plugins" `
     --default-project "F:\ShanghaiP4\neon\UGA\DEV"
+
+# 仍兼容 v1 旧字段
+# unrealdevflow configure --plugin-path "F:\ShanghaiP4\neon\Plugins\AesWorld" ...
 ```
 
-### 2. 创建任务
+### 2. 创建任务（多主插件 + 智能依赖扫描）
 
 ```powershell
+# 多主插件
 unrealdevflow create "修复 EarthPrefabActor 保存后 Component 丢失" `
     --id prefab-save-bug `
-    --prompt "用户原始需求描述" `
+    --primary AesWorld,AesWorld_AI `
+    --prompt "原始需求描述" `
     --yes
+
+# 引擎/项目同名依赖必须显式选边
+unrealdevflow create "..." --id xxx `
+    --primary AesWorld `
+    --override-dep PCG=project `
+    --override-dep GeometryProcessing=engine
 ```
+
+工具会自动：解析主插件的 `.uplugin` → 提取依赖 → 在引擎/项目两边查找 → 引擎自带自动 enable，项目内创建 Junction。
 
 ### 3. 编译
 
 ```powershell
-# 前台编译
+# 前台编译（编全 Host .uproject：主插件 + 项目依赖 + 引擎依赖）
 unrealdevflow build prefab-save-bug
 
 # 后台编译
 unrealdevflow build prefab-save-bug --background
+
+# 只编主插件模块（增量验证）
+unrealdevflow build prefab-save-bug --primary-only
 
 # 查看编译状态
 unrealdevflow build-status prefab-save-bug
@@ -76,8 +93,11 @@ unrealdevflow switch prefab-save-bug
 ### 5. 合并
 
 ```powershell
-# 合并（保留 worktree 和分支供检查）
-unrealdevflow merge prefab-save-bug --strategy rebase
+# 单个主插件
+unrealdevflow merge prefab-save-bug --plugin AesWorld --strategy rebase
+
+# 全部主插件按逆序逐个 merge
+unrealdevflow merge prefab-save-bug --all --strategy rebase
 
 # 检查 merge 结果
 git log --oneline -5
@@ -86,23 +106,18 @@ git log --oneline -5
 unrealdevflow cleanup prefab-save-bug
 ```
 
-或者一步到位（跳过检查）：
-```powershell
-unrealdevflow merge prefab-save-bug --strategy rebase --cleanup
-```
-
 ## 命令参考
 
 | 命令 | 说明 |
 |---|---|
-| `configure` | 首次配置（Hosts 路径、插件路径、项目路径） |
-| `create` | 创建任务（worktree + Host） |
-| `build` | 编译任务 |
+| `configure` | 首次配置（Hosts 路径、plugins_root、项目路径） |
+| `create` | 创建任务（多主插件 + 智能依赖扫描） |
+| `build` | 编译任务（全 Host .uproject，可 `--primary-only`） |
 | `build-status` | 查看编译状态 |
-| `switch` | 切换 Junction 到指定任务 |
+| `switch` | 切换 Junction 到指定任务（多 Junction 遍历） |
 | `list` | 列出所有任务 |
 | `status` | 查看当前 Junction 状态 |
-| `merge` | 合并任务到主仓库 |
+| `merge` | 合并任务到主仓库（`--plugin` / `--all` 选边） |
 | `cleanup` | 清理 worktree 和分支 |
 | `delete` | 删除任务（不合并） |
 
@@ -124,31 +139,50 @@ unrealdevflow merge prefab-save-bug --strategy rebase --cleanup
 | `squash` | 压缩所有任务提交成一个 | 任务提交很零散 |
 | `ff-only` | 只在能快进时合并 | 严格线性工作流 |
 
+## v1 任务迁移
+
+旧版单插件 `.udf-meta.json`（无 `schema_version` 字段）会被工具自动迁移为 v2 格式：
+- 合成 `primary_plugins[0] = AesWorld`（v1 硬编码默认值）
+- 原始文件备份为 `.udf-meta.json.v1.bak`
+- 无需任何手动操作
+
 ## 工作流示例
 
 ```
-用户说："调查 EarthPrefabActor 保存后 Component 丢失的问题"
+用户说："调查 EarthPrefabActor 保存后 Component 丢失的问题，EarthPCG 也得跟着改"
 
-1. 创建任务
-   unrealdevflow create "EarthPrefabActor 保存后 Component 丢失问题调查" \
-       --id prefab-save-bug \
-       --prompt "调查 EarthPrefabActor 在关卡中保存后重新打开时 Component 丢失的问题" \
+1. 创建多插件任务
+   unrealdevflow create "EarthPrefabActor 保存丢失 + EarthPCG 联动修复" `
+       --id prefab-save-bug `
+       --primary AesWorld `
+       --override-dep EarthPCG=project `
+       --prompt "..." `
        --yes
 
-2. 在 worktree 中调查代码
-   F:\ShanghaiP4\neon\Hosts\T-prefab-save-bug_Host\Plugins\AesWorld\Source\...
+2. 工具智能扫描：
+   [Engine] GeometryProcessing  ✓ 自动 enable
+   [Engine] OpenCV              ✓ 自动 enable
+   [Project] EarthPCG           ✓ 创建 Junction 链回主仓库
+   [Project] EarthModeler       ✓ 创建 Junction 链回主仓库
+   ...
+   在两个 worktree 里修代码：
+   F:\...\Hosts\T-..._Host\Plugins\AesWorld\Source\...
+   (EarthPCG 通过 Junction 直接看到 AesWorld 改动)
 
 3. 编译
    unrealdevflow build prefab-save-bug
+   # UBT 看到 .uproject enable 了 AesWorld + EarthPCG
+   # 两个插件的源码一起编译，跨插件 API 不一致立即暴露
 
 4. 切换验收
    unrealdevflow switch prefab-save-bug
    # 重启 UE Editor
 
 5. 验收通过后合并
-   unrealdevflow merge prefab-save-bug --strategy rebase
-   git log --oneline -5  # 检查
-   unrealdevflow cleanup prefab-save-bug  # 确认无误后清理
+   unrealdevflow merge prefab-save-bug --plugin AesWorld --strategy rebase
+   git log --oneline -5
+   # EarthPCG 的改动用户在主仓库自己 commit
+   unrealdevflow cleanup prefab-save-bug
 ```
 
 ## 常见问题
@@ -163,6 +197,17 @@ unrealdevflow switch <task-id> --force
 ### Q: 合并后想回退怎么办？
 
 A: 使用 `git reflog` 找到合并前的 commit，然后 `git reset --hard <commit>`。
+
+### Q: 引擎和项目都有同名依赖插件，怎么办？
+
+A: 用 `--override-dep <name>=engine` 强制使用引擎版，或 `=<name>=project` 强制使用项目版：
+```powershell
+unrealdevflow create "..." --primary AesWorld --override-dep PCG=project
+```
+
+### Q: 依赖插件的源码被改动了，会被工具发现吗？
+
+A: 不会立刻拦截，但 build / switch / merge 前会 `git status --porcelain` 检查，dirty 时打印警告。
 
 ### Q: 如何查看任务状态？
 
@@ -183,11 +228,20 @@ A: 每个任务的编译日志在：
 ## 架构说明
 
 ```
-主仓库 (Plugins/AesWorld)     ← 用户日常开发，永远不动
-    ↓ git worktree
-任务 Host (Hosts/T-xxx_Host)  ← 隔离的工作空间，独立编译
-    ↓ NTFS Junction
-UE 项目 (DEV/Plugins/AesWorld) ← 验收时切换指向
+项目插件根 (Plugins/)        ← v2 配置 plugins_root
+├─ AesWorld/ (独立 git)
+├─ AesWorld_AI/ (独立 git)
+├─ EarthPCG/ (独立 git)
+└─ ...
+
+主仓库 AesWorld (Plugins/AesWorld)     ← 用户日常开发，永远不动
+    ↓ git worktree (per primary plugin)
+任务 Host (Hosts/T-xxx_Host)            ← 隔离工作空间，独立编译
+    ├─ Plugins/AesWorld/         (worktree, 可写)
+    ├─ Plugins/AesWorld_AI/      (worktree, 可写)
+    └─ Plugins/EarthPCG/         (Junction → 主仓库, 只读)
+        ↓ NTFS Junction
+UE 项目 (DEV/Plugins/AesWorld + DEV/Plugins/AesWorld_AI + ...)  ← 验收时切换指向
 ```
 
 ## 许可证

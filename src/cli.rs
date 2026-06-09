@@ -40,15 +40,19 @@ pub enum MergeStrategy {
 
 #[derive(Subcommand)]
 pub enum Commands {
-    /// First-time configuration (Hosts path, plugin path, engine path)
+    /// First-time configuration (Hosts path, plugins root, engine path)
     Configure {
         /// Hosts root directory (skip prompt if provided)
         #[arg(long)]
         hosts_root: Option<String>,
 
-        /// Plugin main repository path (skip prompt if provided)
+        /// v1 legacy single-plugin repository path (use --plugins-root in v2)
         #[arg(long)]
         plugin_path: Option<String>,
+
+        /// v2 plugins root directory (folder containing all project plugin Git repos)
+        #[arg(long)]
+        plugins_root: Option<String>,
 
         /// Default UE project path (skip prompt if provided)
         #[arg(long)]
@@ -71,6 +75,16 @@ pub enum Commands {
         /// Original prompt/task description to save in metadata
         #[arg(long)]
         prompt: Option<String>,
+
+        /// v2: primary plugin names (comma-separated). If omitted, falls back
+        /// to the legacy `plugin_path` configured plugin.
+        #[arg(long, value_delimiter = ',')]
+        primary: Option<Vec<String>>,
+
+        /// v2: dependency override mappings as `name=engine` / `name=project` /
+        /// `name=<absolute-path>`. Repeatable.
+        #[arg(long = "override-dep", value_parser = parse_dep_override)]
+        override_dep: Vec<DepOverride>,
 
         /// Skip confirmation prompts
         #[arg(long, short = 'y')]
@@ -107,6 +121,10 @@ pub enum Commands {
         /// Force WaitMutex (safe mode for engine intermediate conflicts)
         #[arg(long)]
         safe: bool,
+
+        /// v2: only compile primary plugin modules (passes `-Module=` per primary)
+        #[arg(long)]
+        primary_only: bool,
     },
 
     /// Check build status of a task
@@ -125,6 +143,10 @@ pub enum Commands {
     ///
     /// ⚠️ THIS COMMAND ONLY MERGES - IT NEVER DELETES ANYTHING
     /// After merge, you MUST manually run `cleanup <task-id>` to remove worktree/branch
+    ///
+    /// v2: tasks may have multiple primary plugins. Use --plugin to merge a
+    /// specific plugin, or --all to iterate in reverse order with independent
+    /// confirmations per plugin.
     ///
     /// Commit message format (Chinese required):
     ///   Task#[number] [content]
@@ -145,6 +167,16 @@ pub enum Commands {
         /// Options: rebase, merge, squash, ff-only
         #[arg(long, value_enum)]
         strategy: MergeStrategy,
+
+        /// v2: target a specific primary plugin (required when task has >1
+        /// primary plugin unless --all is set)
+        #[arg(long)]
+        plugin: Option<String>,
+
+        /// v2: merge every primary plugin in reverse declaration order, with
+        /// independent confirmation per plugin
+        #[arg(long)]
+        all: bool,
 
         /// Force merge even if there are conflicts
         #[arg(long)]
@@ -190,4 +222,34 @@ pub enum Commands {
         #[arg(long)]
         dry_run: bool,
     },
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum DepOverrideKind {
+    Engine,
+    Project,
+    CustomPath(PathBuf),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct DepOverride {
+    pub name: String,
+    pub kind: DepOverrideKind,
+}
+
+fn parse_dep_override(raw: &str) -> std::result::Result<DepOverride, String> {
+    let (name, value) = raw
+        .split_once('=')
+        .ok_or_else(|| format!("invalid --override-dep '{}', expected NAME=VALUE", raw))?;
+    let name = name.trim().to_string();
+    if name.is_empty() {
+        return Err(format!("invalid --override-dep '{}': empty name", raw));
+    }
+    let value = value.trim();
+    let kind = match value {
+        "engine" => DepOverrideKind::Engine,
+        "project" => DepOverrideKind::Project,
+        other => DepOverrideKind::CustomPath(PathBuf::from(other)),
+    };
+    Ok(DepOverride { name, kind })
 }
