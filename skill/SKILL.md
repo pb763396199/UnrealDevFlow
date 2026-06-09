@@ -86,7 +86,19 @@ unrealdevflow build {task-id}
 
 用户验收通过后：
 ```powershell
-unrealdevflow merge {task-id} --yes --force
+# 合并（不立即清理，保留 worktree 和分支供检查）
+unrealdevflow merge {task-id} --strategy rebase
+
+# 检查 merge 结果
+git log --oneline -5
+
+# 确认无误后清理
+unrealdevflow cleanup {task-id}
+```
+
+或者一步到位（跳过检查，有风险）：
+```powershell
+unrealdevflow merge {task-id} --strategy rebase --cleanup
 ```
 
 用户验收不通过：
@@ -166,13 +178,15 @@ Task#001 添加建筑轮廓线拍平功能
 | 命令 | 说明 |
 |---|---|
 | `configure --hosts-root ... --plugin-path ... --default-project ...` | 配置 |
-| `create "描述" --id xxx --prompt "原始prompt" --yes` | 创建任务 |
+| `create "描述" --id xxx --prompt "原始 prompt" --yes` | 创建任务 |
 | `build <id>` | 编译 |
 | `switch <id> --force` | 切换 Junction |
 | `list` | 列出任务 |
 | `status` | 查看状态 |
-| `merge <id> --yes --force` | 合并并清理 |
-| `delete <id> --yes --force` | 删除并清理 |
+| `merge <id> --strategy <策略>` | 合并（保留 worktree 和分支） |
+| `merge <id> --strategy <策略> --cleanup` | 合并并立即清理 |
+| `cleanup <id>` | 手动清理 worktree 和分支 |
+| `delete <id> --yes --force` | 删除并清理（不合并） |
 | `merge <id> --dry-run` | 预览合并 |
 | `delete <id> --dry-run` | 预览删除 |
 
