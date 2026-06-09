@@ -154,6 +154,24 @@ pub enum Commands {
         /// Show what would be merged without actually merging
         #[arg(long)]
         dry_run: bool,
+
+        /// Cleanup worktree and branch after merge (default: false for safety)
+        #[arg(long)]
+        cleanup: bool,
+    },
+
+    /// Cleanup worktree and branch after merge verification
+    Cleanup {
+        /// Task ID to cleanup
+        task_id: String,
+
+        /// Force cleanup without confirmation
+        #[arg(long)]
+        force: bool,
+
+        /// Skip confirmation prompts
+        #[arg(long, short = 'y')]
+        yes: bool,
     },
 
     /// Delete a task without merging

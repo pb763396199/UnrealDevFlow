@@ -70,7 +70,13 @@ fn run() -> Result<()> {
             force,
             yes,
             dry_run,
-        } => commands::merge::run(&task_id, &strategy, force, yes, dry_run)?,
+            cleanup,
+        } => commands::merge::run(&task_id, &strategy, force, yes, dry_run, cleanup)?,
+        Commands::Cleanup {
+            task_id,
+            force,
+            yes,
+        } => commands::cleanup::run(&task_id, force, yes)?,
         Commands::Delete {
             task_id,
             force,
