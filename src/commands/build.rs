@@ -45,8 +45,18 @@ pub fn run(task_id: &str, background: bool, no_mutex: bool, safe: bool) -> Resul
     output::print_info(&format!("  Engine: {:?}", engine_path));
     output::print_info(&format!("  Mutex: {}", mutex_mode));
     output::print_info(&format!("  UBT Log: {:?}", ubt_log));
+    output::print_info("  Strict mode: -FailIfGeneratedCodeChanges -NoUBTMakefiles -DisableAdaptiveUnity");
 
-    // Build arguments
+    // Build arguments - Strict mode (default)
+    // Catches header/cpp mismatches that UBT optimizations may otherwise hide.
+    //
+    // Source: UE_5.5/Engine/Source/Programs/UnrealBuildTool/Configuration/
+    //   BuildConfiguration.cs, TargetDescriptor.cs, TargetRules.cs
+    //
+    // Strict flags (~10-20% slower, but catches dependency bugs):
+    //   -FailIfGeneratedCodeChanges  Fail if UHT-generated .generated.h is stale
+    //   -NoUBTMakefiles              Bypass UBT dependency-graph cache
+    //   -DisableAdaptiveUnity        Disable heuristic that excludes "working set" files
     let mut args = vec![
         "UnrealEditor".to_string(),
         "Win64".to_string(),
@@ -55,6 +65,9 @@ pub fn run(task_id: &str, background: bool, no_mutex: bool, safe: bool) -> Resul
         "-architecture=x64".to_string(),
         format!("-Log={}", ubt_log.to_string_lossy()),
         mutex_mode.clone(),
+        "-FailIfGeneratedCodeChanges".to_string(),
+        "-NoUBTMakefiles".to_string(),
+        "-DisableAdaptiveUnity".to_string(),
     ];
 
     // Execute build
