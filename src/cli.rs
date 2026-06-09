@@ -123,12 +123,17 @@ pub enum Commands {
 
     /// Merge a task into main repo and clean up
     ///
-    /// NOTE: All commit messages MUST be in Chinese, following ue-commit-scribe format:
+    /// Commit message format (Chinese required):
     ///   Task#[number] [content]
     ///
     ///   修改内容：
     ///   - [change 1]
-    ///   - [change 2]
+    ///
+    ///   过程反思：
+    ///   - [lesson learned]
+    ///
+    ///   后续注意：
+    ///   - [avoid in future]
     Merge {
         /// Task ID to merge
         task_id: String,
