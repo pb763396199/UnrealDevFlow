@@ -1,15 +1,21 @@
 //! `unrealdevflow skills {install,list,remove}` — minimal cross-provider skill
-//! distribution for the 4 providers we target:
+//! distribution for the 4 providers we target. **Each install location is
+//! verified against the provider's official docs** (sources below):
 //!
-//!   opencode / copilot / codex → .agents/skills/unrealdevflow/SKILL.md
-//!   claude code                  → .claude/skills/unrealdevflow/SKILL.md
+//! | Provider         | Reads `<base>/...`                          | Source                                           |
+//! |------------------|--------------------------------------------|--------------------------------------------------|
+//! | opencode         | `.opencode/`, `.claude/`, `.agents/` (proj + global) | sst/opencode `skills.mdx`              |
+//! | codex            | `.agents/` (REPO + USER + ADMIN + SYSTEM)  | developers.openai.com/codex/skills                |
+//! | claude code      | `.claude/`                                  | anthropics/claude-code plugins/README.md         |
+//! | github copilot   | (not supported — no skills concept)        | github/copilot-cli README only mentions LSP      |
 //!
 //! Design (simplest possible):
 //! - The source of truth is `<repo>/skills/unrealdevflow/SKILL.md`.
-//! - `install` copies the source into both project (`./.agents/`, `./.claude/`)
-//!   and/or global (`~/.agents/`, `~/.claude/`) locations.
-//! - `list` reports presence/absence of each (project + global × 2 providers).
-//! - `remove` deletes the 2 dirs (project or global).
+//! - `install` copies the source into project (`./.agents/`, `./.claude/`,
+//!   `./.opencode/`) and/or global (`~/.agents/`, `~/.claude/`,
+//!   `~/.config/opencode/skills/`) locations.
+//! - `list` reports presence/absence of each (project + global × 3 dirs).
+//! - `remove` deletes the 3 dirs (project or global).
 //!
 //! No junctions, no hash tracking, no auto-sync. The user is the version source:
 //! `git pull` the UnrealDevFlow repo → re-run `unrealdevflow skills install`.
@@ -73,16 +79,21 @@ fn source_skill_file() -> Result<PathBuf> {
     )))
 }
 
-/// The two install locations that matter for our 4 providers.
-fn target_paths_for(base: &Path) -> [(PathBuf, &'static str); 2] {
+/// The install locations that matter for our 3 supported providers
+/// (copilot has no skill support so it's intentionally absent).
+fn target_paths_for(base: &Path) -> [(PathBuf, &'static str); 3] {
     [
         (
             base.join(".agents").join("skills").join(SKILL_NAME),
-            "opencode / copilot / codex",
+            "codex + opencode (universal)",
         ),
         (
             base.join(".claude").join("skills").join(SKILL_NAME),
             "claude code",
+        ),
+        (
+            base.join(".opencode").join("skills").join(SKILL_NAME),
+            "opencode (native)",
         ),
     ]
 }
