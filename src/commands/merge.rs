@@ -100,7 +100,6 @@ pub fn run(
     force: bool,
     skip_confirm: bool,
     dry_run: bool,
-    cleanup: bool,
 ) -> Result<()> {
     let config = Config::load()?;
 
@@ -370,122 +369,30 @@ pub fn run(
         }
     };
 
-    // === CLEANUP (safe order: host dir → worktree → branch) ===
-    // Only cleanup if --cleanup flag is provided
-    if cleanup {
-        output::print_info("=== Cleanup Phase ===");
+    // === NO CLEANUP - merge only ===
+    // Worktree and branch are RETAINED for user inspection
+    // User must manually run: unrealdevflow cleanup <task-id>
 
-        // Step 1: Delete Host directory (with retry for Windows file locking)
-        output::print_info("Deleting Host directory...");
-        let host_deleted = if host_dir.exists() {
-            match delete_with_retry(&host_dir, 3) {
-                Ok(_) => true,
-                Err(e) => {
-                    output::print_warning(&format!("Failed to delete Host directory: {}", e));
-                    false
-                }
-            }
-        } else {
-            true
-        };
-
-        // Step 2: Remove worktree
-        let worktree_removed = if worktree_path.exists() {
-            output::print_info("Removing worktree...");
-            match git::worktree::remove(&worktree_path) {
-                Ok(_) => true,
-                Err(e) => {
-                    output::print_warning(&format!("Failed to remove worktree: {}", e));
-                    output::print_info("Attempting manual cleanup...");
-
-                    if let Err(e) = git::worktree::prune(&config.plugin_path) {
-                        output::print_warning(&format!("Failed to prune worktrees: {}", e));
-                    }
-
-                    false
-                }
-            }
-        } else {
-            true
-        };
-
-        // Step 3: Delete original task branch (user's choice: always delete after merge)
-        let branch_deleted = if merge_success {
-            output::print_info(&format!("Deleting original branch '{}'...", meta.branch));
-            match git::delete_branch_safe(&config.plugin_path, &meta.branch) {
-                Ok(_) => true,
-                Err(e) => {
-                    output::print_warning(&format!("Failed to delete branch: {}", e));
-                    false
-                }
-            }
-        } else {
-            output::print_warning(&format!(
-                "Skipping branch deletion because merge did not complete successfully"
-            ));
-            false
-        };
-
-        // Step 4: Always run worktree prune to clean up any stale metadata
-        output::print_info("Pruning worktree metadata...");
-        if let Err(e) = git::worktree::prune(&config.plugin_path) {
-            output::print_warning(&format!("Failed to prune worktrees: {}", e));
-        }
-
-        // === REPORT RESULTS ===
-        println!();
-        if worktree_removed && branch_deleted && host_deleted && merge_success {
-            output::print_success(&format!(
-                "Task '{}' merged using {:?} and cleaned up successfully!",
-                task_id, strategy
-            ));
-        } else {
-            output::print_warning(&format!(
-                "Task '{}' merge cleanup incomplete. Some resources may remain:",
-                task_id
-            ));
-            if !merge_success {
-                output::print_warning("  - Merge did not complete");
-            }
-            if !worktree_removed {
-                output::print_warning(&format!("  - Worktree: {:?}", worktree_path));
-                output::print_info("    Run: git worktree prune");
-            }
-            if !branch_deleted {
-                output::print_warning(&format!("  - Branch: {}", meta.branch));
-                output::print_info(&format!("    Run: git branch -D {}", meta.branch));
-            }
-            if !host_deleted {
-                output::print_warning(&format!("  - Host directory: {:?}", host_dir));
-                output::print_info(&format!(
-                    "    Run: Remove-Item -Recurse -Force {:?}",
-                    host_dir
-                ));
-            }
-        }
+    println!();
+    if merge_success {
+        output::print_success(&format!(
+            "Task '{}' merged using {:?} successfully!",
+            task_id, strategy
+        ));
+        output::print_info("⚠️  Worktree and branch RETAINED for inspection.");
+        output::print_info(&format!("  Worktree: {:?}", worktree_path));
+        output::print_info(&format!("  Branch:   {}", meta.branch));
+        output::print_info(&format!("  Host dir: {:?}", host_dir));
+        output::print_info("");
+        output::print_info("To cleanup after verification:");
+        output::print_info(&format!("  unrealdevflow cleanup {}", task_id));
     } else {
-        // No cleanup - inform user about retained resources
-        println!();
-        if merge_success {
-            output::print_success(&format!(
-                "Task '{}' merged using {:?} successfully!",
-                task_id, strategy
-            ));
-            output::print_info("Worktree and branch retained for inspection.");
-            output::print_info(&format!("  Worktree: {:?}", worktree_path));
-            output::print_info(&format!("  Branch:   {}", meta.branch));
-            output::print_info(&format!("  Host dir: {:?}", host_dir));
-            output::print_info("");
-            output::print_info("To cleanup after verification:");
-            output::print_info(&format!("  unrealdevflow cleanup {}", task_id));
-        } else {
-            output::print_warning(&format!(
-                "Task '{}' merge failed. Worktree and branch retained for debugging.",
-                task_id
-            ));
-            output::print_info(&format!("  Worktree: {:?}", worktree_path));
-            output::print_info(&format!("  Branch:   {}", meta.branch));
-        }
+        output::print_warning(&format!(
+            "Task '{}' merge failed. Worktree and branch retained for debugging.",
+            task_id
+        ));
+        output::print_info(&format!("  Worktree: {:?}", worktree_path));
+        output::print_info(&format!("  Branch:   {}", meta.branch));
     }
 
     Ok(())

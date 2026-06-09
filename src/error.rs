@@ -5,43 +5,43 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum UdfError {
-    #[error("UnrealDevFlow not configured. Run `unrealdevflow configure` first.")]
+    #[error("UnrealDevFlow 未配置。请先运行 `unrealdevflow configure`")]
     NotConfigured,
 
-    #[error("Config file not found: {0}")]
+    #[error("配置文件不存在：{0}")]
     ConfigNotFound(PathBuf),
 
-    #[error("Invalid config: {0}")]
+    #[error("配置无效：{0}")]
     InvalidConfig(String),
 
-    #[error("Junction error: {0}")]
+    #[error("Junction 错误：{0}")]
     Junction(#[from] JunctionError),
 
-    #[error("Git error: {0}")]
+    #[error("Git 错误：{0}")]
     Git(#[from] GitError),
 
-    #[error("Host error: {0}")]
+    #[error("Host 错误：{0}")]
     Host(#[from] HostError),
 
-    #[error("Build error: {0}")]
+    #[error("编译错误：{0}")]
     Build(#[from] BuildError),
 
-    #[error("Editor is running for project: {0}")]
+    #[error("编辑器正在运行：{0}")]
     EditorRunning(PathBuf),
 
-    #[error("Task not found: {0}")]
+    #[error("任务不存在：{0}")]
     TaskNotFound(String),
 
-    #[error("Task already exists: {0}")]
+    #[error("任务已存在：{0}")]
     TaskAlreadyExists(String),
 
-    #[error("IO error: {0}")]
+    #[error("IO 错误：{0}")]
     Io(#[from] std::io::Error),
 
-    #[error("JSON error: {0}")]
+    #[error("JSON 错误：{0}")]
     Json(#[from] serde_json::Error),
 
-    #[error("TOML error: {0}")]
+    #[error("TOML 错误：{0}")]
     Toml(#[from] toml::de::Error),
 
     #[error("{0}")]
@@ -50,43 +50,43 @@ pub enum UdfError {
 
 #[derive(Error, Debug)]
 pub enum JunctionError {
-    #[error("Junction does not exist: {0}")]
+    #[error("Junction 不存在：{0}")]
     NotExists(PathBuf),
 
-    #[error("Junction target does not exist: {0}")]
+    #[error("Junction 目标不存在：{0}")]
     TargetNotFound(PathBuf),
 
-    #[error("Path is not a junction: {0}")]
+    #[error("路径不是 Junction：{0}")]
     NotAJunction(PathBuf),
 
-    #[error("Failed to create junction: {0}")]
+    #[error("创建 Junction 失败：{0}")]
     CreateFailed(String),
 
-    #[error("Failed to delete junction: {0}")]
+    #[error("删除 Junction 失败：{0}")]
     DeleteFailed(String),
 
-    #[error("Junction crate error: {0}")]
+    #[error("Junction crate 错误：{0}")]
     JunctionCrate(String),
 }
 
 #[derive(Error, Debug)]
 pub enum GitError {
-    #[error("Not a git repository: {0}")]
+    #[error("不是 Git 仓库：{0}")]
     NotARepo(PathBuf),
 
-    #[error("Git2 error: {0}")]
+    #[error("Git2 错误：{0}")]
     Git2(#[from] git2::Error),
 
-    #[error("Worktree error: {0}")]
+    #[error("Worktree 错误：{0}")]
     Worktree(String),
 
-    #[error("Branch error: {0}")]
+    #[error("分支错误：{0}")]
     Branch(String),
 
-    #[error("Merge conflict: {0}")]
+    #[error("合并冲突：{0}")]
     MergeConflict(String),
 
-    #[error("Git command failed: {0}")]
+    #[error("Git 命令失败：{0}")]
     CommandFailed(String),
 }
 
@@ -98,34 +98,34 @@ impl From<git2::Error> for UdfError {
 
 #[derive(Error, Debug)]
 pub enum HostError {
-    #[error("Host directory does not exist: {0}")]
+    #[error("Host 目录不存在：{0}")]
     NotExists(PathBuf),
 
-    #[error("Host already exists: {0}")]
+    #[error("Host 已存在：{0}")]
     AlreadyExists(PathBuf),
 
-    #[error("Invalid .uproject: {0}")]
+    #[error(".uproject 无效：{0}")]
     InvalidUproject(String),
 
-    #[error("Invalid .udf-meta.json: {0}")]
+    #[error(".udf-meta.json 无效：{0}")]
     InvalidMeta(String),
 }
 
 #[derive(Error, Debug)]
 pub enum BuildError {
-    #[error("Engine not found: {0}")]
+    #[error("引擎未找到：{0}")]
     EngineNotFound(String),
 
-    #[error("Build.bat not found: {0}")]
+    #[error("Build.bat 不存在：{0}")]
     BuildBatNotFound(PathBuf),
 
-    #[error("Build failed with exit code: {0}")]
+    #[error("编译失败，退出码：{0}")]
     BuildFailed(i32),
 
-    #[error("DLL not produced: {0}")]
+    #[error("DLL 未生成：{0}")]
     DllNotProduced(PathBuf),
 
-    #[error("DLL is stale (older than source): {0}")]
+    #[error("DLL 过时（旧于源码）：{0}")]
     DllStale(PathBuf),
 }
 

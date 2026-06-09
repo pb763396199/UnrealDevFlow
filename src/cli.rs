@@ -121,7 +121,10 @@ pub enum Commands {
     /// Show current Junction status and active task
     Status,
 
-    /// Merge a task into main repo and clean up
+    /// Merge a task into main repo
+    ///
+    /// ⚠️ THIS COMMAND ONLY MERGES - IT NEVER DELETES ANYTHING
+    /// After merge, you MUST manually run `cleanup <task-id>` to remove worktree/branch
     ///
     /// Commit message format (Chinese required):
     ///   Task#[number] [content]
@@ -154,10 +157,6 @@ pub enum Commands {
         /// Show what would be merged without actually merging
         #[arg(long)]
         dry_run: bool,
-
-        /// Cleanup worktree and branch after merge (default: false for safety)
-        #[arg(long)]
-        cleanup: bool,
     },
 
     /// Cleanup worktree and branch after merge verification
