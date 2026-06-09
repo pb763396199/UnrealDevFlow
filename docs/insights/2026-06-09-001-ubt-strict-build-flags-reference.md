@@ -45,9 +45,9 @@ date: 2026-06-09
 
 ---
 
-## 3. 严格度档位组合
+## 3. 严格度档位组合（UnrealDevFlow `BuildProfile` 枚举）
 
-### Light（日常开发默认，推荐）
+### `light`（日常开发默认，推荐）
 ```
 -FailIfGeneratedCodeChanges
 -NoUBTMakefiles
@@ -56,38 +56,79 @@ date: 2026-06-09
 - 编译时间：+10~20%
 - 覆盖：90% 的"改头文件 cpp 没重编"问题
 
-### Medium（PR 前验证）
+### `medium`（PR 前验证）
 ```
-Light + -WarningsAsErrors -ShadowVariableErrors
+light + -WarningsAsErrors
 ```
 - 编译时间：+10~25%
 - 覆盖：90% + 所有警告
+- 注意：`-ShadowVariableErrors` 不在 medium 里（保留灵活性）
+  - 警告变错误已能覆盖大部分误用
 
-### Heavy（接近 Install Build）
+### `heavy`（接近 Install Build）
 ```
--Rebuild -DisableUnity -NoSharedPCH
--FailIfGeneratedCodeChanges -ForceHeaderGeneration
+-FailIfGeneratedCodeChanges
+-ForceHeaderGeneration
+-Rebuild
+-DisableUnity
+-NoSharedPCH
+-WarningsAsErrors
 ```
 - 编译时间：**5-10 倍**（10-30 分钟）
-- 覆盖：100% 不会遗漏，但日常太慢
+- 覆盖：100% 不会遗漏
+- 适用：合并前最后验证
+
+### 选档指南
+
+| 场景 | profile |
+|---|---|
+| 日常开发、写代码后快速验证 | `light`（默认） |
+| PR 提交前 | `medium` |
+| merge 之前最后验证 | `heavy` |
+
+CLI 入口：`unrealdevflow build <id> --profile <light|medium|heavy>`
 
 ---
 
-## 4. UnrealDevFlow 当前默认（Task#006）
+## 4. Mutex 模式（UnrealDevFlow `MutexMode` 枚举）
+
+UBT 是同引擎单实例：`-WaitMutex` 让进程排队， `-NoMutex` 让进程并行。
+正确的 mutex 选择直接影响吞吐和稳定性。
+
+| 模式 | CLI | 行为 |
+|---|---|---|
+| `auto` | `--mutex auto`（默认） | engine Intermediate/Build/Shared 缺失 → `-WaitMutex`；准备好 → `-NoMutex` |
+| `wait` | `--mutex wait`（旧 `--safe`） | 总是 `-WaitMutex`（首次构建/引擎重编） |
+| `nomutex` | `--mutex nomutex`（旧 `--no-mutex`） | 总是 `-NoMutex`（PCH 已建好，竞速） |
+
+### Validator 模式（`--validator`）
+
+CI / Validator 调用与 IDE 调用语义不同：
+- IDE 用户：希望看到 "排上队了" 的反馈，等一等就行
+- Validator：希望 "检测到忙碌就退出"，不要等
+
+`--validator` hint 在 `--mutex auto` 下会强制走 `-NoMutex`：
+- 不排队 → 失败时立即返回
+- 失败码被 validator 解释为 "工程里有别人在编译"
+
+实现：`src/build_profile.rs::resolve_mutex(mode, validator_hint, engine_ready)`
+
+---
+
+## 5. UnrealDevFlow 当前默认（Task#009 升级）
 
 ```rust
-"-FailIfGeneratedCodeChanges"
-"-NoUBTMakefiles"
-"-DisableAdaptiveUnity"
+profile = light
+mutex   = auto (with validator hint)
+log_dir = <host>/Logs/UBT/Build_<profile>_<timestamp>.log
 ```
 
-Light 档位。命中 90% 痛点，编译时间增量可接受。
-如果用户日后需要 Heavy 验证，应该加 `unrealdevflow build --rebuild` 标志，
-内部追加 `-Rebuild -DisableUnity -NoSharedPCH`。
+命中 90% 痛点，编译时间增量可接受。
+profile 加严只需改 `--profile` 标志，**不改任何代码**。
 
 ---
 
-## 5. 验证参数存在性的标准流程
+## 6. 验证参数存在性的标准流程
 
 任何"听说有这个参数"的传闻都必须按下面验证：
 

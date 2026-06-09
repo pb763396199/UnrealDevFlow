@@ -46,18 +46,23 @@ unrealdevflow create "任务描述" --id task-id --prompt "用户原始prompt" -
 ### 第 3 步：BUILD — 编译验证
 
 ```powershell
-unrealdevflow build <id>                    # 前台编译（编全 Host .uproject）
-unrealdevflow build <id> --background       # 后台编译
-unrealdevflow build <id> --primary-only     # 只编主插件模块（增量）
-unrealdevflow build-status <id>             # 查状态
+unrealdevflow build <id>                          # 前台编译（编全 Host .uproject）
+unrealdevflow build <id> --background             # 后台编译
+unrealdevflow build <id> --primary-only           # 只编主插件模块（增量）
+unrealdevflow build <id> --profile medium|heavy   # 加严严格度（PR/merge 前）
+unrealdevflow build <id> --mutex wait|nomutex     # 强制 mutex 模式
+unrealdevflow build <id> --validator              # 标记为 CI/Validator 调用
+unrealdevflow build-status <id>                   # 查状态
 ```
 
-工具自动用严格模式（Task#006 修复）：
-- `-FailIfGeneratedCodeChanges` UHT 不一致立即 fail
-- `-NoUBTMakefiles` 不用 UBT 缓存
-- `-DisableAdaptiveUnity` 不让 Adaptive 跳过文件
+工具自动用严格模式（Task#006 修复 + Task#009 profile 化）：
+- **light（默认）**：` -FailIfGeneratedCodeChanges -NoUBTMakefiles -DisableAdaptiveUnity`
+- **medium**：light + `-WarningsAsErrors`
+- **heavy**：完整重建 + 强制 UHT 重生成
 
-**遇到失败**：先看 `Build_<时间>.log`；依赖路径 dirty 会警告但**不阻塞**（依赖按 v2 设计是只读的）。
+**Mutex 三态**（`--mutex auto|wait|nomutex`）：auto 模式根据 engine 中间产物是否就绪自动选择，validator hint 会偏向 no-mutex。
+
+**遇到失败**：先看 `Build_<profile>_<时间>.log`（默认在 `<host>/Logs/UBT/`）；依赖路径 dirty 会警告但**不阻塞**（依赖按 v2 设计是只读的）。
 
 ### 第 4 步：SWITCH — 通知用户验收
 

@@ -1,5 +1,6 @@
 //! UnrealDevFlow - Unreal Engine plugin parallel development workflow tool
 
+mod build_profile;
 mod cli;
 mod commands;
 mod config;
@@ -65,10 +66,12 @@ fn run() -> Result<()> {
         Commands::Build {
             task_id,
             background,
-            no_mutex,
-            safe,
+            mutex,
+            validator,
             primary_only,
-        } => commands::build::run(&task_id, background, no_mutex, safe, primary_only)?,
+            profile,
+            build_log_dir,
+        } => commands::build::run(&task_id, background, mutex, validator, primary_only, profile, build_log_dir)?,
         Commands::BuildStatus { task_id } => commands::build_status::run(&task_id)?,
         Commands::List => commands::list::run(&cli.format)?,
         Commands::Status => commands::status::run(&cli.format)?,

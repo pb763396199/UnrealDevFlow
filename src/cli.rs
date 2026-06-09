@@ -114,17 +114,37 @@ pub enum Commands {
         #[arg(long)]
         background: bool,
 
-        /// Skip mutex (for parallel builds)
-        #[arg(long)]
-        no_mutex: bool,
+        /// Mutex mode: auto (default) / wait / nomutex
+        ///
+        /// auto  : -WaitMutex if engine Intermediate/Build/Shared is missing,
+        ///         -NoMutex once shared PCH is ready. Validator hint biases
+        ///         to -NoMutex.
+        /// wait  : always -WaitMutex (queue if another build is running)
+        /// nomutex: always -NoMutex (parallel; fastest when PCH cached)
+        #[arg(long, value_enum, default_value = "auto", alias = "safe", alias = "no-mutex")]
+        mutex: crate::build_profile::MutexMode,
 
-        /// Force WaitMutex (safe mode for engine intermediate conflicts)
+        /// Hint: build is invoked by a validator / CI (not an IDE).
+        /// When `--mutex auto`, prefers -NoMutex so the validator can
+        /// detect contention instead of queueing.
         #[arg(long)]
-        safe: bool,
+        validator: bool,
 
         /// v2: only compile primary plugin modules (passes `-Module=` per primary)
         #[arg(long)]
         primary_only: bool,
+
+        /// Build strictness profile. Default: light.
+        ///   light  : -FailIfGeneratedCodeChanges -NoUBTMakefiles -DisableAdaptiveUnity
+        ///   medium : light + -WarningsAsErrors
+        ///   heavy  : -ForceHeaderGeneration -Rebuild -DisableUnity -NoSharedPCH -WarningsAsErrors
+        ///           (still keeps -FailIfGeneratedCodeChanges)
+        #[arg(long, value_enum, default_value = "light")]
+        profile: crate::build_profile::BuildProfile,
+
+        /// Override the UBT log directory. Default: <host>/Logs/UBT/
+        #[arg(long)]
+        build_log_dir: Option<std::path::PathBuf>,
     },
 
     /// Check build status of a task

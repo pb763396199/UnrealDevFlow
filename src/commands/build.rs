@@ -1,5 +1,6 @@
-//! Build command implementation (v2 multi-plugin)
+//! Build command implementation (v2 multi-plugin, profile-aware)
 
+use crate::build_profile::{resolve_mutex, BuildProfile, MutexMode};
 use crate::config::Config;
 use crate::error::{BuildError, Result, UdfError};
 use crate::host::{self, BuildStatus, DependencyPlugin, DependencySource, PrimaryPlugin};
@@ -11,9 +12,11 @@ use std::process::{Command, Stdio};
 pub fn run(
     task_id: &str,
     background: bool,
-    no_mutex: bool,
-    safe: bool,
+    mutex_mode: MutexMode,
+    validator_hint: bool,
     primary_only: bool,
+    profile: BuildProfile,
+    build_log_dir: Option<PathBuf>,
 ) -> Result<()> {
     let config = Config::load()?;
 
@@ -41,47 +44,55 @@ pub fn run(
     // === Dependency dirty check (warn but don't block) ===
     check_dependency_dirty(&meta.dependency_plugins);
 
-    let log_dir = host_dir.join("Logs");
+    // === Log directory: structured, profile-prefixed, overridable ===
+    let log_dir = build_log_dir.unwrap_or_else(|| host_dir.join("Logs").join("UBT"));
     fs::create_dir_all(&log_dir)?;
     let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
-    let ubt_log = log_dir.join(format!("Build_{}.log", timestamp));
+    let ubt_log = log_dir.join(format!("Build_{}_{}.log", profile.label(), timestamp));
 
-    let mutex_mode = determine_mutex_mode(no_mutex, safe, engine_path);
+    let engine_ready = engine_intermediate_ready(engine_path);
+    let effective_mutex = resolve_mutex(mutex_mode, validator_hint, engine_ready);
 
     output::print_info(&format!("Building task '{}'...", task_id));
     output::print_info(&format!("  Project: {:?}", uproject_path));
-    output::print_info(&format!("  Engine: {:?}", engine_path));
-    output::print_info(&format!("  Mutex: {}", mutex_mode));
+    output::print_info(&format!("  Engine:  {:?}", engine_path));
+    output::print_info(&format!("  Profile: {}", profile.label()));
+    output::print_info(&format!(
+        "  Mutex:   {} (mode={:?} validator={} engine_ready={})",
+        effective_mutex.as_arg(),
+        mutex_mode,
+        validator_hint,
+        engine_ready
+    ));
     output::print_info(&format!("  UBT Log: {:?}", ubt_log));
-    output::print_info("  Strict mode: -FailIfGeneratedCodeChanges -NoUBTMakefiles -DisableAdaptiveUnity");
+    if validator_hint {
+        output::print_info("  ⚠ Validator mode: -NoMutex preferred to avoid queueing.");
+    }
     if primary_only {
         let modules: Vec<String> = meta.primary_plugins.iter().map(|p| p.name.clone()).collect();
-        output::print_info(&format!("  Scope: --primary-only ({} module(s))", modules.len()));
+        output::print_info(&format!(
+            "  Scope:   --primary-only ({} module(s))",
+            modules.len()
+        ));
     }
 
-    // Build arguments - Strict mode (default)
-    // Catches header/cpp mismatches that UBT optimizations may otherwise hide.
-    //
-    // Source: UE_5.5/Engine/Source/Programs/UnrealBuildTool/Configuration/
-    //   BuildConfiguration.cs, TargetDescriptor.cs, TargetRules.cs
-    //
-    // Strict flags (~10-20% slower, but catches dependency bugs):
-    //   -FailIfGeneratedCodeChanges  Fail if UHT-generated .generated.h is stale
-    //   -NoUBTMakefiles              Bypass UBT dependency-graph cache
-    //   -DisableAdaptiveUnity        Disable heuristic that excludes "working set" files
-    let mut args = vec![
+    // === Build the UBT argument vector. NEVER fall back to string concat. ===
+    let mut args: Vec<String> = vec![
         "UnrealEditor".to_string(),
         "Win64".to_string(),
         "Development".to_string(),
         format!("-Project={}", uproject_path.to_string_lossy()),
         "-architecture=x64".to_string(),
         format!("-Log={}", ubt_log.to_string_lossy()),
-        mutex_mode.clone(),
-        "-FailIfGeneratedCodeChanges".to_string(),
-        "-NoUBTMakefiles".to_string(),
-        "-DisableAdaptiveUnity".to_string(),
+        effective_mutex.as_arg().to_string(),
     ];
 
+    // Strict-compilation flags from the profile
+    for flag in profile.flags() {
+        args.push((*flag).to_string());
+    }
+
+    // Optional -Module= per primary plugin (used for incremental single-plugin builds)
     if primary_only {
         for plugin in &meta.primary_plugins {
             args.push(format!("-Module={}", plugin.name));
@@ -92,7 +103,7 @@ pub fn run(
     cmd.args(&args);
 
     if background {
-        let console_log = log_dir.join(format!("Console_{}.log", timestamp));
+        let console_log = log_dir.join(format!("Console_{}_{}.log", profile.label(), timestamp));
         let log_file = std::fs::File::create(&console_log)?;
 
         cmd.stdout(Stdio::from(log_file.try_clone()?))
@@ -108,7 +119,7 @@ pub fn run(
             started: chrono::Utc::now().to_rfc3339(),
             finished: None,
             exit_code: None,
-            mutex_mode: mutex_mode.clone(),
+            mutex_mode: effective_mutex.as_arg().to_string(),
         });
         host::write_meta(&host_dir, &meta)?;
 
@@ -140,7 +151,7 @@ pub fn run(
                 .unwrap_or_else(|| chrono::Utc::now().to_rfc3339()),
             finished: Some(chrono::Utc::now().to_rfc3339()),
             exit_code: Some(status.code().unwrap_or(-1)),
-            mutex_mode: mutex_mode.clone(),
+            mutex_mode: effective_mutex.as_arg().to_string(),
         });
         host::write_meta(&host_dir, &meta)?;
 
@@ -175,8 +186,6 @@ fn verify_primary_dlls(host_dir: &Path, primary_plugins: &[PrimaryPlugin]) -> Re
             .join(format!("UnrealEditor-{}.dll", plugin.name));
 
         if !dll_path.exists() {
-            // The plugin may produce module DLLs rather than a single
-            // top-level DLL. Don't fail hard, but warn loudly.
             output::print_warning(&format!(
                 "Primary plugin DLL not found: {:?} (module-level DLLs may still be valid)",
                 dll_path
@@ -228,21 +237,6 @@ fn check_dependency_dirty(deps: &[DependencyPlugin]) {
                 "  Dependencies are treated as read-only by UnrealDevFlow; commit or stash before build.",
             );
         }
-    }
-}
-
-/// Determine mutex mode based on flags and engine state
-fn determine_mutex_mode(no_mutex: bool, safe: bool, engine_path: &Path) -> String {
-    if safe {
-        return "-WaitMutex".to_string();
-    }
-    if no_mutex {
-        return "-NoMutex".to_string();
-    }
-    if engine_intermediate_ready(engine_path) {
-        "-NoMutex".to_string()
-    } else {
-        "-WaitMutex".to_string()
     }
 }
 
