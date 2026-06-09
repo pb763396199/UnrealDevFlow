@@ -101,6 +101,38 @@ unrealdevflow delete {task-id} --yes --force
 3. **不要自动 switch** — switch 需要用户手动执行（涉及 Editor 重启）
 4. **编译用 build 命令** — 不要自己调 Build.bat
 5. **完成后通知用户** — 告诉用户怎么验收
+6. **Commit message 必须是中文** — 遵循 ue-commit-scribe 格式要求
+
+## Commit Message 格式要求
+
+**所有 git commit 必须使用中文 message**，格式借鉴 ue-commit-scribe 技能：
+
+```
+Task#[number] [内容摘要]
+
+修改内容：
+- [具体修改 1]
+- [具体修改 2]
+- [具体修改 3]
+```
+
+### 示例
+
+```
+Task#001 添加建筑轮廓线拍平功能
+
+修改内容：
+- 新增 FlattenContour 右键菜单命令
+- 实现按平均高度拍平建筑轮廓线
+- 添加命令可见性判断逻辑
+```
+
+### 规则
+
+- **必须中文**：subject 和 body 都用中文
+- **简洁具体**：直接描述做了什么，不要废话
+- **不要 Co-authored-by**：禁止包含协作作者信息
+- **可粘贴**：格式要适合直接粘贴到 git commit -m ""
 
 ## 命令速查
 
