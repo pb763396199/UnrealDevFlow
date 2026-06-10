@@ -1,4 +1,27 @@
 //! Configuration management for UnrealDevFlow
+//!
+//! ## Design (post Task#015 rollback)
+//!
+//! **One global config only**: `~/.unrealdevflow/config.toml`. This is the
+//! project's only configuration surface for machine-level environment
+//! settings (hosts_root, plugins_root, engine_path, default_project).
+//!
+//! Why not "project-level config" or "cwd path inference"?
+//! - hosts_root / plugins_root / engine_path are **project-level constants**,
+//!   not cwd-level or task-level values. They don't change just because
+//!   you `cd` into a plugin repo.
+//! - task identity (the unit that needs to be uniquely identified) lives
+//!   entirely in `.udf-meta.json` via primary_plugins/dependency_plugins
+//!   fields. Each task already knows its absolute paths.
+//! - The "switch to a different main project" operation is a
+//!   `unrealdevflow configure` re-run, not a cwd-driven auto-switch.
+//!
+//! This is the simplest design that handles the real scenarios:
+//! 1. One main project on one machine → one global config
+//! 2. Multiple machines (e.g. work + home) → each machine has its own
+//!    `~/.unrealdevflow/config.toml`
+//! 3. Multiple main projects on the same machine (rare) → user runs
+//!    `unrealdevflow configure` to switch (explicit, not implicit).
 
 use crate::error::{Result, UdfError};
 use dialoguer::Input;
@@ -39,6 +62,7 @@ impl Config {
         Ok(Self::config_dir()?.join("config.toml"))
     }
 
+    /// Load the global config. Required for every command.
     pub fn load() -> Result<Self> {
         let path = Self::config_path()?;
         if !path.exists() {
@@ -120,7 +144,6 @@ pub fn detect_engine_path(project_path: &PathBuf) -> Result<PathBuf> {
 
 /// Read EngineAssociation from .uproject file
 fn read_engine_version(project_path: &PathBuf) -> Result<String> {
-    // Find .uproject file in project directory
     let mut uproject_path = None;
     if let Ok(entries) = fs::read_dir(project_path) {
         for entry in entries.flatten() {
@@ -149,21 +172,18 @@ fn read_engine_version(project_path: &PathBuf) -> Result<String> {
 pub fn run_configure() -> Result<Config> {
     println!("Welcome to UnrealDevFlow configuration!\n");
 
-    // 1. Hosts root directory (required)
     let hosts_root: String = Input::new()
         .with_prompt("Hosts root directory (where task Hosts will be created)")
         .default("F:\\ShanghaiP4\\neon\\Hosts".to_string())
         .interact_text()
         .map_err(|e| UdfError::Other(format!("Input error: {}", e)))?;
 
-    // 2. Plugins root directory (v2: replaces single plugin_path)
     let plugins_root: String = Input::new()
         .with_prompt("Plugins root directory (folder containing all project plugin Git repos)")
         .default("F:\\ShanghaiP4\\neon\\Plugins".to_string())
         .interact_text()
         .map_err(|e| UdfError::Other(format!("Input error: {}", e)))?;
 
-    // 3. Default UE project path (required)
     let default_project: String = Input::new()
         .with_prompt("Default UE project path (will read EngineAssociation from .uproject)")
         .default("F:\\ShanghaiP4\\neon\\UGA\\DEV".to_string())
@@ -172,7 +192,6 @@ pub fn run_configure() -> Result<Config> {
 
     let default_project_path = PathBuf::from(&default_project);
 
-    // 4. Auto-detect engine path from .uproject
     println!("\nDetecting engine path from .uproject...");
     let engine_version = read_engine_version(&default_project_path)?;
     println!("  Engine version: {}", engine_version);
