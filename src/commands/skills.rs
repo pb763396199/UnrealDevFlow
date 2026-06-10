@@ -79,9 +79,9 @@ fn source_skill_file() -> Result<PathBuf> {
     )))
 }
 
-/// The install locations that matter for our 3 supported providers
+/// Project-scope install locations. 3 paths for 3 supported providers
 /// (copilot has no skill support so it's intentionally absent).
-fn target_paths_for(base: &Path) -> [(PathBuf, &'static str); 3] {
+fn target_paths_for_project(base: &Path) -> [(PathBuf, &'static str); 3] {
     [
         (
             base.join(".agents").join("skills").join(SKILL_NAME),
@@ -98,11 +98,37 @@ fn target_paths_for(base: &Path) -> [(PathBuf, &'static str); 3] {
     ]
 }
 
+/// Global-scope install locations.
+///
+/// **Note** the opencode path differs from project: `~/.config/opencode/` (XDG)
+/// not `~/.opencode/`. This is per opencode's official docs (skills.mdx).
+fn target_paths_for_global(base: &Path) -> [(PathBuf, &'static str); 3] {
+    [
+        (
+            base.join(".agents").join("skills").join(SKILL_NAME),
+            "codex + opencode (universal)",
+        ),
+        (
+            base.join(".claude").join("skills").join(SKILL_NAME),
+            "claude code",
+        ),
+        (
+            base.join(".config").join("opencode").join("skills").join(SKILL_NAME),
+            "opencode (native, XDG path)",
+        ),
+    ]
+}
+
 fn install_to_base(base: &Path, source: &Path, scope: &str) -> Result<()> {
     let content = fs::read_to_string(source)
         .map_err(|e| UdfError::Other(format!("读取源 SKILL.md 失败：{}", e)))?;
 
-    let targets = target_paths_for(base);
+    let targets = match scope {
+        "project" => target_paths_for_project(base).to_vec(),
+        "global" => target_paths_for_global(base).to_vec(),
+        _ => return Err(UdfError::Other(format!("内部错误：未知 scope '{}'", scope))),
+    };
+
     let mut installed = 0usize;
     for (dir, label) in &targets {
         fs::create_dir_all(dir)?;
@@ -163,7 +189,12 @@ pub fn list(project: Option<PathBuf>) -> Result<()> {
     for (scope, base) in &scopes {
         println!();
         output::print_info(&format!("Scope: {} (base: {:?})", scope, base));
-        for (dir, label) in target_paths_for(base) {
+        let targets = match *scope {
+            "project" => target_paths_for_project(base).to_vec(),
+            "global" => target_paths_for_global(base).to_vec(),
+            _ => Vec::new(),
+        };
+        for (dir, label) in &targets {
             total += 1;
             let skill_file = dir.join(SKILL_FILE);
             if skill_file.exists() {
@@ -171,14 +202,14 @@ pub fn list(project: Option<PathBuf>) -> Result<()> {
                 let meta = fs::metadata(&skill_file).ok();
                 let size = meta.map(|m| m.len()).unwrap_or(0);
                 output::print_success(&format!(
-                    "  ✓ {:<28} {:?}  ({} bytes)",
+                    "  ✓ {:<38} {:?}  ({} bytes)",
                     label,
                     skill_file,
                     size
                 ));
             } else {
                 output::print_warning(&format!(
-                    "  ✗ {:<28} not found: {:?}",
+                    "  ✗ {:<38} not found: {:?}",
                     label,
                     dir
                 ));
@@ -216,7 +247,12 @@ pub fn remove(global: bool, project: Option<PathBuf>) -> Result<()> {
 
     let mut removed = 0usize;
     for (scope, base) in &scopes {
-        for (dir, label) in target_paths_for(base) {
+        let targets = match *scope {
+            "project" => target_paths_for_project(base).to_vec(),
+            "global" => target_paths_for_global(base).to_vec(),
+            _ => Vec::new(),
+        };
+        for (dir, label) in &targets {
             if dir.exists() {
                 fs::remove_dir_all(&dir)?;
                 output::print_success(&format!(
