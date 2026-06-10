@@ -392,6 +392,23 @@ fn regenerate_project_files(config: &Config, target_projects: &[PathBuf]) -> Res
             .arg("-Mode=GenerateProjectFiles")
             .arg(format!("-Project={}", uproject.to_string_lossy()))
             .arg("-Game")
+            // `-NoLog` is critical: UBT's `Log.BackupLogFile()` calls
+            // `File.Move()` on the existing log file at startup. If the
+            // previous UBT log is held by an IDE (Rider/VS/Explorer) that
+            // shares the `Log_<Mode>.txt` path under
+            // `%LOCALAPPDATA%\UnrealBuildTool\`, the move throws
+            // `IOException: file used by another process` and UBT aborts
+            // before generating any project files. `-NoLog` is a real
+            // UBT flag (see `Modes/BuildMode.cs:139`,
+            // `Modes/UnrealHeaderToolMode.cs:505`) that skips log creation
+            // and bypasses the backup entirely.
+            //
+            // We confirmed this empirically with the manual Epic Launcher
+            // entry "Generate Visual Studio project files" succeeding while
+            // Rider was open — the right-click path is a wrapper that
+            // doesn't trip the log-backup race either. `-NoLog` is the
+            // simplest equivalent for our unattended invocation.
+            .arg("-NoLog")
             .status();
 
         match status {
