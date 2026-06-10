@@ -103,6 +103,12 @@ pub enum Commands {
         /// Force switch even if Editor is running
         #[arg(long)]
         force: bool,
+
+        /// Skip the automatic "Generate Visual Studio project files" step that
+        /// normally runs after all Junctions are updated. Use this when you
+        /// are switching between tasks and want to defer IDE re-indexing.
+        #[arg(long)]
+        skip_regen_project_files: bool,
     },
 
     /// Build a task's Host project

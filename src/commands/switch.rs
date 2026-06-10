@@ -9,8 +9,14 @@ use crate::output;
 use crate::state::{junction_path_for, GlobalState, JunctionState, ProjectState};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
-pub fn run(task_id: &str, projects: Option<Vec<PathBuf>>, force: bool) -> Result<()> {
+pub fn run(
+    task_id: &str,
+    projects: Option<Vec<PathBuf>>,
+    force: bool,
+    skip_regen_project_files: bool,
+) -> Result<()> {
     let config = Config::load()?;
 
     let target_projects = match projects {
@@ -152,6 +158,17 @@ pub fn run(task_id: &str, projects: Option<Vec<PathBuf>>, force: bool) -> Result
             "Project '{}' switched to task '{}'",
             project_name, task_id
         ));
+    }
+
+    // === Regenerate IDE project files (last step) ===
+    // After Junctions are re-pointed, VS/Rider/VSCode need to re-scan the
+    // `<project>/Plugins/` directory so their IntelliSense / file view
+    // reflects the new worktrees. We invoke UBT's GenerateProjectFiles mode
+    // (one per target project). See UE 5.5 UnrealBuildTool.cs L252.
+    if !skip_regen_project_files {
+        let _ = regenerate_project_files(&config, &target_projects);
+    } else {
+        output::print_info("Skipped: --skip-regen-project-files (run UBT manually to refresh IDE)");
     }
 
     output::print_info("Restart UnrealEditor to load the new task DLLs.");
@@ -302,4 +319,108 @@ fn sysinfo_processes() -> Vec<SimpleProcess> {
             path: process.exe().map(|p| p.to_string_lossy().to_string()),
         })
         .collect()
+}
+
+/// Find the main `.uproject` file inside a UE project directory.
+/// Returns the first `.uproject` found in the top-level project dir.
+/// (Engine projects like `F:\ShanghaiP4\neon\UGA\DEV\` contain exactly one.)
+fn find_main_uproject(project_dir: &Path) -> Result<PathBuf> {
+    for entry in fs::read_dir(project_dir).map_err(|e| {
+        UdfError::Other(format!("读取项目目录失败 {:?}: {}", project_dir, e))
+    })? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_file() && path.extension().map(|e| e == "uproject").unwrap_or(false) {
+            return Ok(path);
+        }
+    }
+    Err(UdfError::Other(format!(
+        "项目目录里找不到 .uproject: {:?}",
+        project_dir
+    )))
+}
+
+/// Invoke UnrealBuildTool to regenerate IDE project files for each target
+/// project. After Junction rewiring, VS/Rider/VSCode need a fresh
+/// `*.sln` / `*.vcxproj` / `compile_commands.json` that re-scans
+/// `<project>/Plugins/` (which now points at the new worktree).
+///
+/// We call `UnrealBuildTool.exe -Mode=GenerateProjectFiles` directly
+/// (not through `Build.bat`) so we don't have to fake a target name.
+/// `UnrealBuildTool.exe` is shipped at
+/// `<engine>/Engine/Binaries/DotNET/UnrealBuildTool/UnrealBuildTool.exe`.
+///
+/// Per UE 5.5 `UnrealBuildTool.cs:252`, `-ProjectFiles` (alias of
+/// `-Mode=GenerateProjectFiles`) auto-detects the IDE installed on the
+/// current machine (VS / Rider / VSCode / CLion / etc.).
+fn regenerate_project_files(config: &Config, target_projects: &[PathBuf]) -> Result<()> {
+    let ubt_exe = config
+        .engine_path
+        .join("Engine")
+        .join("Binaries")
+        .join("DotNET")
+        .join("UnrealBuildTool")
+        .join("UnrealBuildTool.exe");
+
+    if !ubt_exe.exists() {
+        output::print_warning(&format!(
+            "UnrealBuildTool.exe 不存在：{:?}，跳过 IDE 项目文件重新生成。",
+            ubt_exe
+        ));
+        return Ok(());
+    }
+
+    let mut any_regen = false;
+    for project_path in target_projects {
+        let uproject = match find_main_uproject(project_path) {
+            Ok(p) => p,
+            Err(e) => {
+                output::print_warning(&format!(
+                    "无法为 {:?} 生成项目文件：{}",
+                    project_path, e
+                ));
+                continue;
+            }
+        };
+
+        output::print_info(&format!(
+            "Regenerating IDE project files for {:?} ...",
+            uproject
+        ));
+
+        let status = Command::new(&ubt_exe)
+            .arg("-Mode=GenerateProjectFiles")
+            .arg(format!("-Project={}", uproject.to_string_lossy()))
+            .arg("-Game")
+            .status();
+
+        match status {
+            Ok(s) if s.success() => {
+                output::print_success(&format!(
+                    "  ✓ {:?} 的项目文件已重新生成（IDE 重新扫描完成）",
+                    project_path.file_name().unwrap_or_default()
+                ));
+                any_regen = true;
+            }
+            Ok(s) => {
+                output::print_warning(&format!(
+                    "  ⚠ GenerateProjectFiles 退出码 {}（{:?}）",
+                    s.code().unwrap_or(-1),
+                    project_path
+                ));
+            }
+            Err(e) => {
+                output::print_warning(&format!(
+                    "  ⚠ 启动 UBT 失败：{}（{:?}）",
+                    e, project_path
+                ));
+            }
+        }
+    }
+
+    if !any_regen {
+        output::print_warning("未重新生成任何 IDE 项目文件——请手动跑 UBT 一次。");
+    }
+
+    Ok(())
 }

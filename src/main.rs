@@ -60,8 +60,8 @@ fn run() -> Result<()> {
             override_dep,
             yes,
         } => commands::create::run(&description, id, prompt, primary, override_dep, yes)?,
-        Commands::Switch { task_id, project, force } => {
-            commands::switch::run(&task_id, project, force)?
+        Commands::Switch { task_id, project, force, skip_regen_project_files } => {
+            commands::switch::run(&task_id, project, force, skip_regen_project_files)?
         }
         Commands::Build {
             task_id,
