@@ -2,6 +2,7 @@
 
 use crate::build_profile::{resolve_mutex, BuildProfile, MutexMode};
 use crate::config::Config;
+use crate::editor;
 use crate::error::{BuildError, Result, UdfError};
 use crate::host::{self, BuildStatus, DependencyPlugin, DependencySource, PrimaryPlugin};
 use crate::output;
@@ -74,6 +75,23 @@ pub fn run(
             "  Scope:   --primary-only ({} module(s))",
             modules.len()
         ));
+    }
+
+    // === Mutex safety checks ===
+    if effective_mutex == MutexMode::NoMutex {
+        // NoMutex mode: check if another UBT is running (data safety)
+        if editor::is_ubt_running() {
+            output::print_warning("⚠ Another UBT process is running.");
+            output::print_warning("  -NoMutex may cause file conflicts in Engine/Intermediate/Build/Shared/.");
+            output::print_warning("  Consider using --mutex wait to queue safely.");
+        }
+    } else if effective_mutex == MutexMode::Wait {
+        // WaitMutex mode: check if Editor is running (user experience)
+        if editor::is_editor_running() {
+            output::print_warning("⚠ UnrealEditor is currently running.");
+            output::print_warning("  UBT will wait until you close the Editor.");
+            output::print_warning("  Please close the Editor to proceed, or use Ctrl+C to cancel.");
+        }
     }
 
     // === Build the UBT argument vector. NEVER fall back to string concat. ===

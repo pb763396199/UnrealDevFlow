@@ -1,4 +1,4 @@
-//! Editor process detection and management
+//! Editor and UBT process detection and management
 
 use crate::error::{Result, UdfError};
 use sysinfo::System;
@@ -25,6 +25,33 @@ pub fn get_editor_processes() -> Vec<sysinfo::Pid> {
         .filter(|(_, p)| p.name().to_string_lossy().contains("UnrealEditor"))
         .map(|(pid, _)| *pid)
         .collect()
+}
+
+/// Check if UnrealBuildTool is currently running.
+/// Detects both UnrealBuildTool.exe and dotnet processes running UnrealBuildTool.dll.
+pub fn is_ubt_running() -> bool {
+    let mut sys = System::new();
+    sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+    
+    for process in sys.processes().values() {
+        let name = process.name().to_string_lossy();
+        // Check for UnrealBuildTool.exe
+        if name.contains("UnrealBuildTool") {
+            return true;
+        }
+        // Check for dotnet running UnrealBuildTool.dll
+        if name.contains("dotnet") {
+            let cmd = process.cmd();
+            let cmd_str: String = cmd.iter()
+                .map(|s| s.to_string_lossy())
+                .collect::<Vec<_>>()
+                .join(" ");
+            if cmd_str.contains("UnrealBuildTool") {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 pub fn check_editor_and_warn() -> Result<bool> {
