@@ -14,6 +14,16 @@ argument-hint: "<task description>"
 - The change must be compiled against a real UE Editor target (with strict dependency checks)
 - A primary plugin depends on other plugins (e.g. `EarthPCG` depends on `AesWorld`) — both need to compile together
 
+## Binary location
+
+The `unrealdevflow` CLI should be in PATH. If `Get-Command unrealdevflow` fails, use the absolute path:
+
+```
+F:\AiProject\UnrealDevFlow\target\release\unrealdevflow.exe
+```
+
+You can set a session alias: `Set-Alias unrealdevflow "F:\AiProject\UnrealDevFlow\target\release\unrealdevflow.exe"`
+
 ## 5-step workflow (the only correct one)
 
 ### 1. CREATE — create isolated task workspace
