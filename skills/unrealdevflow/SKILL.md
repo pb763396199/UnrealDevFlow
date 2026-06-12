@@ -68,16 +68,24 @@ unrealdevflow build-status <id>
 - Light profile: `-FailIfGeneratedCodeChanges -NoUBTMakefiles -DisableAdaptiveUnity`.
 - Failure log: `<host>/Logs/UBT/Build_<profile>_<timestamp>.log`.
 
-### 4. SWITCH — let user verify in UE Editor (do NOT run yourself)
+### 4. SWITCH — NEVER run without explicit user authorization
 
-Tell the user:
+**⛔ HARD RULE: You MUST NOT run `unrealdevflow switch` unless the user explicitly says to do so.**
+
+This is not a suggestion. This is a hard prohibition. Reasons:
+- `switch` rewrites NTFS Junctions that the running UE Editor depends on
+- Running it while Editor is open will corrupt the Editor session
+- The user must close UE Editor first, then authorize the switch
+
+When the build succeeds, **tell the user** and **wait for their explicit instruction**:
 
 ```
 ✅ Task <id> built successfully.
 
-1. unrealdevflow switch <id>   ← user runs this
-2. Restart UE Editor
-3. Verify the feature
+To verify, please:
+1. Close UE Editor (if running)
+2. Tell me to run: unrealdevflow switch <id>
+3. Then restart UE Editor and verify the feature
 
 After verification:
   unrealdevflow merge <id> --strategy <user picks>
@@ -87,7 +95,7 @@ If verification failed:
   unrealdevflow delete <id> --yes --force
 ```
 
-`switch` clears UBT cache and rebuilds Junctions for every primary + dependency plugin.
+Even if the user says "帮我切" or "switch it", you should confirm the exact command before executing, because switch is destructive to the running Editor session.
 
 ### 5. MERGE — only after user confirms
 
@@ -111,6 +119,7 @@ unrealdevflow cleanup <id>
 
 | ❌ Forbidden | ✅ Use instead |
 |---|---|
+| **Running `unrealdevflow switch` without explicit user authorization** | **Tell user the command, wait for them to say "run it"** |
 | `git merge` / `git rebase` / `git cherry-pick` | `unrealdevflow merge` |
 | `git branch -D` / `git worktree remove` / `git reset --hard` | `unrealdevflow cleanup` / `delete` |
 | Auto-`cleanup` right after merge | Wait for explicit user confirmation |
