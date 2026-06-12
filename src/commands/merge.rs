@@ -296,6 +296,13 @@ fn merge_single_plugin(
     }
 
     let repo = git::open_repo(&source_repo)?;
+    
+    // === Fetch latest from origin before merge ===
+    if let Err(e) = git::fetch_origin(&source_repo) {
+        output::print_warning(&format!("Failed to fetch from origin: {}", e));
+        output::print_warning("Proceeding with local state only. Remote changes may not be detected.");
+    }
+    
     output::print_info(&format!(
         "Merging plugin '{}' using {:?} strategy...",
         primary.name, strategy

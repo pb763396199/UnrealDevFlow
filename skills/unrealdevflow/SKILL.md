@@ -99,6 +99,10 @@ Even if the user says "帮我切" or "switch it", you should confirm the exact c
 
 ### 5. MERGE — only after user confirms
 
+**⚠️ IMPORTANT: `unrealdevflow merge` automatically fetches from origin before merging.**
+
+This ensures you're merging against the latest remote state. If other tasks have been merged to dev while you were working, the merge will include those changes.
+
 `--strategy` is **required** and you **must ask the user** which one (1.rebase / 2.merge / 3.squash / 4.ff-only). Never pick a default for them.
 
 ```powershell

@@ -11,6 +11,25 @@ pub fn open_repo(path: &Path) -> Result<Repository> {
     Repository::open(path).map_err(|_| GitError::NotARepo(path.to_path_buf()).into())
 }
 
+/// Fetch latest from origin (git fetch origin)
+pub fn fetch_origin(repo_path: &Path) -> Result<()> {
+    use std::process::Command;
+
+    output::print_info("Fetching latest from origin...");
+    let output = Command::new("git")
+        .args(["fetch", "origin"])
+        .current_dir(repo_path)
+        .output()?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(GitError::CommandFailed(format!("Failed to fetch from origin: {}", stderr)).into());
+    }
+
+    output::print_success("Fetch completed");
+    Ok(())
+}
+
 pub fn get_current_commit(repo: &Repository) -> Result<String> {
     let head = repo.head()?;
     let commit = head.peel_to_commit()?;

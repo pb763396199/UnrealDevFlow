@@ -82,6 +82,10 @@ switch 会：清 UBT 缓存 → 多 Junction 切到 Host 下所有主+依赖插�
 
 **⚠️ merge 命令的 `--strategy` 是必填参数，不询问用户就报错。**
 
+**⚠️ IMPORTANT: `unrealdevflow merge` automatically fetches from origin before merging.**
+
+This ensures you're merging against the latest remote state. If other tasks have been merged to dev while you were working, the merge will include those changes.
+
 ```powershell
 # 1) 询问用户选择策略
 "请选择合并策略：1.rebase 2.merge 3.squash 4.ff-only"
