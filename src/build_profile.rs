@@ -80,7 +80,11 @@ impl MutexMode {
 /// - Validator (e.g. CI smoke test) wants to detect the build is busy,
 ///   not queue for it. So when Auto + validator_hint, prefer NoMutex.
 /// - IDE (no hint) keeps the legacy "queue if uncertain" behaviour.
-pub fn resolve_mutex(mode: MutexMode, validator_hint: bool, engine_intermediate_ready: bool) -> MutexMode {
+pub fn resolve_mutex(
+    mode: MutexMode,
+    validator_hint: bool,
+    engine_intermediate_ready: bool,
+) -> MutexMode {
     match mode {
         MutexMode::Wait => MutexMode::Wait,
         MutexMode::NoMutex => MutexMode::NoMutex,

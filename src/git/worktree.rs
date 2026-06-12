@@ -1,7 +1,6 @@
 //! Git worktree management
 
 use crate::error::{GitError, Result};
-use git2::Repository;
 use std::path::Path;
 use std::process::Command;
 
@@ -29,7 +28,12 @@ pub fn add(repo_path: &Path, worktree_path: &Path, commit: &str, branch: &str) -
 pub fn remove(worktree_path: &Path) -> Result<()> {
     // First, try the standard `git worktree remove --force` command
     let output = Command::new("git")
-        .args(["worktree", "remove", "--force", &worktree_path.to_string_lossy()])
+        .args([
+            "worktree",
+            "remove",
+            "--force",
+            &worktree_path.to_string_lossy(),
+        ])
         .current_dir(worktree_path)
         .output()?;
 

@@ -72,7 +72,7 @@ pub fn run(task_id: &str, force: bool, skip_confirm: bool) -> Result<()> {
 
     if !(force && skip_confirm) {
         let confirmed = dialoguer::Confirm::new()
-            .with_prompt(&format!(
+            .with_prompt(format!(
                 "Cleanup task '{}'? This will delete worktrees, branches, junctions and Host dir.",
                 task_id
             ))

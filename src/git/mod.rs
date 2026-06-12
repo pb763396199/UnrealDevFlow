@@ -23,7 +23,9 @@ pub fn fetch_origin(repo_path: &Path) -> Result<()> {
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(GitError::CommandFailed(format!("Failed to fetch from origin: {}", stderr)).into());
+        return Err(
+            GitError::CommandFailed(format!("Failed to fetch from origin: {}", stderr)).into(),
+        );
     }
 
     output::print_success("Fetch completed");
@@ -66,8 +68,6 @@ pub fn merge_branch(repo: &Repository, branch_name: &str) -> Result<()> {
 
     // Find merge base
     let merge_base = repo.merge_base(head_commit.id(), branch_commit.id())?;
-    let merge_base_commit = repo.find_commit(merge_base)?;
-
     // Check if already up to date
     if merge_base == branch_commit.id() {
         return Ok(());
@@ -77,11 +77,9 @@ pub fn merge_branch(repo: &Repository, branch_name: &str) -> Result<()> {
     let mut index = repo.merge_commits(&head_commit, &branch_commit, None)?;
 
     if index.has_conflicts() {
-        return Err(GitError::MergeConflict(format!(
-            "Merge conflicts in branch: {}",
-            branch_name
-        ))
-        .into());
+        return Err(
+            GitError::MergeConflict(format!("Merge conflicts in branch: {}", branch_name)).into(),
+        );
     }
 
     // Create merge commit
@@ -114,10 +112,16 @@ pub fn merge_branch(repo: &Repository, branch_name: &str) -> Result<()> {
 pub fn rebase_branch(repo_path: &Path, branch_name: &str, based_on: &str) -> Result<()> {
     use std::process::Command;
 
-    output::print_info(&format!("Rebasing '{}' onto dev (3-step process)", branch_name));
+    output::print_info(&format!(
+        "Rebasing '{}' onto dev (3-step process)",
+        branch_name
+    ));
 
     // Step 1: Reset dev to based_on
-    output::print_info(&format!("  Step 1: Reset dev to based_on ({})", &based_on[..8.min(based_on.len())]));
+    output::print_info(&format!(
+        "  Step 1: Reset dev to based_on ({})",
+        &based_on[..8.min(based_on.len())]
+    ));
     let output = Command::new("git")
         .args(["reset", "--hard", based_on])
         .current_dir(repo_path)
@@ -125,7 +129,11 @@ pub fn rebase_branch(repo_path: &Path, branch_name: &str, based_on: &str) -> Res
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(GitError::CommandFailed(format!("Failed to reset dev to based_on: {}", stderr)).into());
+        return Err(GitError::CommandFailed(format!(
+            "Failed to reset dev to based_on: {}",
+            stderr
+        ))
+        .into());
     }
 
     // Step 2: Cherry-pick dev's original new commits (chronological order)
@@ -133,7 +141,12 @@ pub fn rebase_branch(repo_path: &Path, branch_name: &str, based_on: &str) -> Res
 
     // Get the list of commits that were in HEAD before reset, in reverse order (oldest first)
     let log_output = Command::new("git")
-        .args(["log", "--oneline", "--reverse", &format!("{}..HEAD@{{1}}", based_on)])
+        .args([
+            "log",
+            "--oneline",
+            "--reverse",
+            &format!("{}..HEAD@{{1}}", based_on),
+        ])
         .current_dir(repo_path)
         .output()?;
 
@@ -144,7 +157,10 @@ pub fn rebase_branch(repo_path: &Path, branch_name: &str, based_on: &str) -> Res
         .collect();
 
     for commit in &commits_to_pick {
-        output::print_info(&format!("    Cherry-picking {}", &commit[..8.min(commit.len())]));
+        output::print_info(&format!(
+            "    Cherry-picking {}",
+            &commit[..8.min(commit.len())]
+        ));
         let cherry_output = Command::new("git")
             .args(["cherry-pick", commit])
             .current_dir(repo_path)
@@ -161,20 +177,32 @@ pub fn rebase_branch(repo_path: &Path, branch_name: &str, based_on: &str) -> Res
                     .output();
                 return Err(GitError::MergeConflict(format!(
                     "Cherry-pick conflict on {}. Aborted. Please resolve manually.",
-                                    &commit[..8.min(commit.len())]
-                                ))
-                                .into());
+                    &commit[..8.min(commit.len())]
+                ))
+                .into());
             }
-            return Err(GitError::CommandFailed(format!("Cherry-pick failed for {}: {}", commit, stderr)).into());
+            return Err(GitError::CommandFailed(format!(
+                "Cherry-pick failed for {}: {}",
+                commit, stderr
+            ))
+            .into());
         }
     }
 
     // Step 3: Cherry-pick task branch's commits
-    output::print_info(&format!("  Step 3: Cherry-pick task branch '{}' commits", branch_name));
+    output::print_info(&format!(
+        "  Step 3: Cherry-pick task branch '{}' commits",
+        branch_name
+    ));
 
     // Get task branch commits (in chronological order, oldest first)
     let task_log_output = Command::new("git")
-        .args(["log", "--oneline", "--reverse", &format!("{}..{}", based_on, branch_name)])
+        .args([
+            "log",
+            "--oneline",
+            "--reverse",
+            &format!("{}..{}", based_on, branch_name),
+        ])
         .current_dir(repo_path)
         .output()?;
 
@@ -185,7 +213,10 @@ pub fn rebase_branch(repo_path: &Path, branch_name: &str, based_on: &str) -> Res
         .collect();
 
     for commit in &task_commits {
-        output::print_info(&format!("    Cherry-picking task commit {}", &commit[..8.min(commit.len())]));
+        output::print_info(&format!(
+            "    Cherry-picking task commit {}",
+            &commit[..8.min(commit.len())]
+        ));
         let cherry_output = Command::new("git")
             .args(["cherry-pick", commit])
             .current_dir(repo_path)
@@ -200,11 +231,15 @@ pub fn rebase_branch(repo_path: &Path, branch_name: &str, based_on: &str) -> Res
                     .output();
                 return Err(GitError::MergeConflict(format!(
                     "Cherry-pick conflict on task commit {}. Aborted. Please resolve manually.",
-                                    &commit[..8.min(commit.len())]
-                                ))
-                                .into());
+                    &commit[..8.min(commit.len())]
+                ))
+                .into());
             }
-            return Err(GitError::CommandFailed(format!("Cherry-pick failed for {}: {}", commit, stderr)).into());
+            return Err(GitError::CommandFailed(format!(
+                "Cherry-pick failed for {}: {}",
+                commit, stderr
+            ))
+            .into());
         }
     }
 
@@ -249,11 +284,7 @@ pub fn squash_branch(repo_path: &Path, branch_name: &str) -> Result<()> {
 
     if !commit_output.status.success() {
         let stderr = String::from_utf8_lossy(&commit_output.stderr);
-        return Err(GitError::CommandFailed(format!(
-            "Failed to commit squash: {}",
-            stderr
-        ))
-        .into());
+        return Err(GitError::CommandFailed(format!("Failed to commit squash: {}", stderr)).into());
     }
 
     Ok(())
@@ -270,7 +301,8 @@ pub fn ff_only_merge(repo_path: &Path, branch_name: &str) -> Result<()> {
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        if stderr.contains("Not possible to fast-forward") || stderr.contains("not a fast-forward") {
+        if stderr.contains("Not possible to fast-forward") || stderr.contains("not a fast-forward")
+        {
             return Err(GitError::MergeConflict(format!(
                 "Fast-forward not possible for branch '{}'. Try a different strategy.",
                 branch_name

@@ -1,6 +1,6 @@
 //! Build command implementation (v2 multi-plugin, profile-aware)
 
-use crate::build_profile::{resolve_mutex, BuildProfile, MutexMode};
+use crate::build_profile::{BuildProfile, MutexMode, resolve_mutex};
 use crate::config::Config;
 use crate::editor;
 use crate::error::{BuildError, Result, UdfError};
@@ -70,7 +70,11 @@ pub fn run(
         output::print_info("  ⚠ Validator mode: -NoMutex preferred to avoid queueing.");
     }
     if primary_only {
-        let modules: Vec<String> = meta.primary_plugins.iter().map(|p| p.name.clone()).collect();
+        let modules: Vec<String> = meta
+            .primary_plugins
+            .iter()
+            .map(|p| p.name.clone())
+            .collect();
         output::print_info(&format!(
             "  Scope:   --primary-only ({} module(s))",
             modules.len()
@@ -82,7 +86,9 @@ pub fn run(
         // NoMutex mode: check if another UBT is running (data safety)
         if editor::is_ubt_running() {
             output::print_warning("⚠ Another UBT process is running.");
-            output::print_warning("  -NoMutex may cause file conflicts in Engine/Intermediate/Build/Shared/.");
+            output::print_warning(
+                "  -NoMutex may cause file conflicts in Engine/Intermediate/Build/Shared/.",
+            );
             output::print_warning("  Consider using --mutex wait to queue safely.");
         }
     } else if effective_mutex == MutexMode::Wait {

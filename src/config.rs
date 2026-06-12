@@ -52,9 +52,8 @@ pub struct Config {
 
 impl Config {
     pub fn config_dir() -> Result<PathBuf> {
-        let home = dirs::home_dir().ok_or_else(|| {
-            UdfError::Other("Could not determine home directory".to_string())
-        })?;
+        let home = dirs::home_dir()
+            .ok_or_else(|| UdfError::Other("Could not determine home directory".to_string()))?;
         Ok(home.join(".unrealdevflow"))
     }
 
@@ -155,9 +154,8 @@ fn read_engine_version(project_path: &PathBuf) -> Result<String> {
         }
     }
 
-    let uproject_path = uproject_path.ok_or_else(|| {
-        UdfError::Other(format!("No .uproject file found in {:?}", project_path))
-    })?;
+    let uproject_path = uproject_path
+        .ok_or_else(|| UdfError::Other(format!("No .uproject file found in {:?}", project_path)))?;
 
     let content = fs::read_to_string(&uproject_path)?;
     let json: serde_json::Value = serde_json::from_str(&content)
@@ -202,7 +200,10 @@ pub fn run_configure() -> Result<Config> {
             path
         }
         None => {
-            println!("  Could not auto-detect engine path for version {}", engine_version);
+            println!(
+                "  Could not auto-detect engine path for version {}",
+                engine_version
+            );
             let manual_path: String = Input::new()
                 .with_prompt("Please enter UE engine path manually")
                 .interact_text()

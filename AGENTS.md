@@ -2,6 +2,16 @@
 
 本文档面向 AI agent（如 Codex、Copilot、Claude Code、Cursor、opencode），说明如何使用 UnrealDevFlow 工具协助用户完成 UE 插件开发任务。
 
+## 发布流程硬规则
+
+当用户要求发布、打包、创建 GitHub Release、准备版本或修复安装分发流程时，必须先读取并遵守 `skills/unrealdevflow-release/SKILL.md` 与 `docs/RELEASE.md`。
+
+- 禁止跳过 `scripts/release-preflight.ps1 -Strict`。
+- 禁止在 `cargo fmt`、`cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`、`cargo test` 或 release build 失败时打 tag。
+- 禁止手写 GitHub Release 资产；必须通过 `scripts/package-release.ps1` 生成。
+- GitHub Release 必须先创建 draft，资产齐全并验证 installer 后才能 publish。
+- 默认安装入口必须是 GitHub Release installer，不是 clone 仓库后本地编译。
+
 ---
 
 ## 🚀 5 步标准工作流（任何 AI agent 必读）

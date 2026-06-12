@@ -3,7 +3,6 @@
 use crate::config::Config;
 use crate::error::Result;
 use crate::junction;
-use crate::output;
 use crate::state::GlobalState;
 use serde::Serialize;
 
@@ -66,8 +65,14 @@ pub fn run(format: &crate::cli::OutputFormat) -> Result<()> {
                 println!("Active Projects:");
                 for status in &project_statuses {
                     println!("  Project: {}", status.project);
-                    println!("    Active task: {}", status.active_task.as_deref().unwrap_or("none"));
-                    println!("    Junction valid: {}", if status.junction_valid { "✓" } else { "✗" });
+                    println!(
+                        "    Active task: {}",
+                        status.active_task.as_deref().unwrap_or("none")
+                    );
+                    println!(
+                        "    Junction valid: {}",
+                        if status.junction_valid { "✓" } else { "✗" }
+                    );
                     if let Some(target) = &status.junction_target {
                         println!("    Junction target: {}", target);
                     }

@@ -6,7 +6,7 @@ use crate::error::{Result, UdfError};
 use crate::host;
 use crate::junction;
 use crate::output;
-use crate::state::{junction_path_for, GlobalState, JunctionState, ProjectState};
+use crate::state::{GlobalState, JunctionState, ProjectState, junction_path_for};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -123,10 +123,7 @@ pub fn run(
                 handle_existing_path(&junction_path, &project_name)?;
             }
             junction::create(target_path, &junction_path)?;
-            output::print_success(&format!(
-                "  {} -> {:?}",
-                plugin_name, target_path
-            ));
+            output::print_success(&format!("  {} -> {:?}", plugin_name, target_path));
             junctions_state.push(JunctionState {
                 plugin_name: plugin_name.clone(),
                 junction_path,
@@ -208,7 +205,10 @@ fn handle_existing_path(junction_path: &Path, project_name: &str) -> Result<()> 
     }
 
     if junction::exists(junction_path).unwrap_or(false) {
-        output::print_info(&format!("Removing existing junction at {:?}", junction_path));
+        output::print_info(&format!(
+            "Removing existing junction at {:?}",
+            junction_path
+        ));
         return junction::delete(junction_path);
     }
 
@@ -257,7 +257,6 @@ fn handle_existing_path(junction_path: &Path, project_name: &str) -> Result<()> 
 struct ProcessInfo {
     name: String,
     pid: u32,
-    path: Option<String>,
 }
 
 fn detect_locking_processes(path: &Path) -> Vec<ProcessInfo> {
@@ -285,21 +284,27 @@ fn detect_locking_processes(path: &Path) -> Vec<ProcessInfo> {
                 result.push(ProcessInfo {
                     name: proc.name,
                     pid: proc.pid,
-                    path: proc.path,
                 });
                 continue;
             }
 
             let known_locks = [
-                "rider", "rider64", "clion", "intellij", "code", "codex", "devenv", "explorer",
-                "smartgit", "sourcetree",
+                "rider",
+                "rider64",
+                "clion",
+                "intellij",
+                "code",
+                "codex",
+                "devenv",
+                "explorer",
+                "smartgit",
+                "sourcetree",
             ];
             for lock in &known_locks {
                 if proc_name.contains(lock) {
                     result.push(ProcessInfo {
                         name: proc.name,
                         pid: proc.pid,
-                        path: proc.path.clone(),
                     });
                     break;
                 }
@@ -335,9 +340,9 @@ fn sysinfo_processes() -> Vec<SimpleProcess> {
 /// Returns the first `.uproject` found in the top-level project dir.
 /// (Engine projects like `F:\ShanghaiP4\neon\UGA\DEV\` contain exactly one.)
 fn find_main_uproject(project_dir: &Path) -> Result<PathBuf> {
-    for entry in fs::read_dir(project_dir).map_err(|e| {
-        UdfError::Other(format!("读取项目目录失败 {:?}: {}", project_dir, e))
-    })? {
+    for entry in fs::read_dir(project_dir)
+        .map_err(|e| UdfError::Other(format!("读取项目目录失败 {:?}: {}", project_dir, e)))?
+    {
         let entry = entry?;
         let path = entry.path();
         if path.is_file() && path.extension().map(|e| e == "uproject").unwrap_or(false) {
@@ -385,10 +390,7 @@ fn regenerate_project_files(config: &Config, target_projects: &[PathBuf]) -> Res
         let uproject = match find_main_uproject(project_path) {
             Ok(p) => p,
             Err(e) => {
-                output::print_warning(&format!(
-                    "无法为 {:?} 生成项目文件：{}",
-                    project_path, e
-                ));
+                output::print_warning(&format!("无法为 {:?} 生成项目文件：{}", project_path, e));
                 continue;
             }
         };
@@ -437,10 +439,7 @@ fn regenerate_project_files(config: &Config, target_projects: &[PathBuf]) -> Res
                 ));
             }
             Err(e) => {
-                output::print_warning(&format!(
-                    "  ⚠ 启动 UBT 失败：{}（{:?}）",
-                    e, project_path
-                ));
+                output::print_warning(&format!("  ⚠ 启动 UBT 失败：{}（{:?}）", e, project_path));
             }
         }
     }

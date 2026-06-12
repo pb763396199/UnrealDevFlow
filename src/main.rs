@@ -1,5 +1,9 @@
 //! UnrealDevFlow - Unreal Engine plugin parallel development workflow tool
 
+// The CLI keeps several recovery/inspection helpers and structured error
+// variants that are intentionally not wired into every release yet.
+#![allow(dead_code)]
+
 mod build_profile;
 mod cli;
 mod commands;
@@ -40,7 +44,11 @@ fn run() -> Result<()> {
         .with_target(false)
         .init();
 
-    if !matches!(cli.command, Commands::Configure { .. }) && !config::Config::exists() {
+    if !matches!(
+        cli.command,
+        Commands::Configure { .. } | Commands::Skills { .. }
+    ) && !config::Config::exists()
+    {
         return Err(error::UdfError::NotConfigured);
     }
 
@@ -51,7 +59,13 @@ fn run() -> Result<()> {
             plugins_root,
             default_project,
             engine_path,
-        } => commands::configure::run(hosts_root, plugin_path, plugins_root, default_project, engine_path)?,
+        } => commands::configure::run(
+            hosts_root,
+            plugin_path,
+            plugins_root,
+            default_project,
+            engine_path,
+        )?,
         Commands::Create {
             description,
             id,
@@ -60,9 +74,12 @@ fn run() -> Result<()> {
             override_dep,
             yes,
         } => commands::create::run(&description, id, prompt, primary, override_dep, yes)?,
-        Commands::Switch { task_id, project, force, skip_regen_project_files } => {
-            commands::switch::run(&task_id, project, force, skip_regen_project_files)?
-        }
+        Commands::Switch {
+            task_id,
+            project,
+            force,
+            skip_regen_project_files,
+        } => commands::switch::run(&task_id, project, force, skip_regen_project_files)?,
         Commands::Build {
             task_id,
             background,
@@ -71,7 +88,15 @@ fn run() -> Result<()> {
             primary_only,
             profile,
             build_log_dir,
-        } => commands::build::run(&task_id, background, mutex, validator, primary_only, profile, build_log_dir)?,
+        } => commands::build::run(
+            &task_id,
+            background,
+            mutex,
+            validator,
+            primary_only,
+            profile,
+            build_log_dir,
+        )?,
         Commands::BuildStatus { task_id } => commands::build_status::run(&task_id)?,
         Commands::List => commands::list::run(&cli.format)?,
         Commands::Status => commands::status::run(&cli.format)?,

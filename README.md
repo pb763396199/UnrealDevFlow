@@ -13,26 +13,25 @@ UE 插件多任务并行开发工具。基于 Git Worktree + NTFS Junction，实
 
 ## 安装
 
-### 从源码编译
+普通用户只需要一条命令，不需要安装 Rust，不需要 clone 仓库：
 
 ```powershell
-# 1. 安装 Rust（如果还没有）
-winget install Rustlang.Rustup
-
-# 2. 克隆仓库
-git clone <repo-url>
-cd UnrealDevFlow
-
-# 3. 编译
-cargo build --release
-
-# 4. 添加到 PATH（可选）
-$env:Path += ";F:\AiProject\UnrealDevFlow\target\release"
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/pb763396199/UnrealDevFlow/releases/latest/download/unrealdevflow-installer.ps1 | iex"
 ```
 
-### 预编译二进制
+安装器会自动：
 
-从 [Releases](https://github.com/pb763396199/UnrealDevFlow/releases) 下载 `unrealdevflow.exe`，放到任意 PATH 目录。
+- 下载最新 GitHub Release 中的 Windows 预编译包
+- 安装到 `%USERPROFILE%\.unrealdevflow\bin`
+- 写入 User PATH，并刷新当前 PowerShell 会话 PATH
+- 安装 Codex / Claude Code / opencode 可用的 AI skill
+- 验证 `unrealdevflow --version`
+
+开发者本地源码安装：
+
+```powershell
+pwsh scripts/install.ps1 -FromSource
+```
 
 ## 快速开始（v2 多插件）
 
@@ -120,6 +119,18 @@ unrealdevflow cleanup prefab-save-bug
 | `merge` | 合并任务到主仓库（`--plugin` / `--all` 选边） |
 | `cleanup` | 清理 worktree 和分支 |
 | `delete` | 删除任务（不合并） |
+
+## 发布流程
+
+发布流程已经标准化，详见 [docs/RELEASE.md](docs/RELEASE.md)。
+
+发布前必须通过：
+
+```powershell
+pwsh scripts/release-preflight.ps1 -Strict
+```
+
+GitHub Release 由 `v*.*.*` tag 触发，并自动生成 draft release、Windows exe、zip、installer 和 checksum。
 
 ### 全局参数
 

@@ -1,94 +1,217 @@
 #!/usr/bin/env pwsh
-# UnrealDevFlow 安装脚本
-# 用法：.\install.ps1 [-InstallPath <path>] [-AddToPath]
+<#
+.SYNOPSIS
+Install or upgrade UnrealDevFlow from GitHub Releases.
+
+.DESCRIPTION
+Default mode downloads the latest release zip, extracts unrealdevflow.exe and
+bundled skills/, installs them to ~/.unrealdevflow/bin, updates User PATH and
+the current PowerShell session PATH, then installs the global AI skill.
+
+Use -FromSource only when developing this repository locally.
+#>
 
 param(
+    [string]$Repo = "pb763396199/UnrealDevFlow",
+    [string]$Version = "latest",
     [string]$InstallPath = "$env:USERPROFILE\.unrealdevflow\bin",
+    [switch]$NoPath,
+    [switch]$NoSkill,
+    [switch]$FromSource,
+    [string]$SourceRoot,
     [switch]$AddToPath
 )
 
 $ErrorActionPreference = "Stop"
 
-Write-Host "UnrealDevFlow 安装脚本" -ForegroundColor Cyan
-Write-Host "========================" -ForegroundColor Cyan
-Write-Host ""
-
-# 1. 检查 Rust 环境
-Write-Host "[1/5] 检查 Rust 环境..." -ForegroundColor Yellow
-try {
-    $rustc = rustc --version
-    Write-Host "  ✓ Rust 已安装：$rustc" -ForegroundColor Green
-} catch {
-    Write-Host "  ✗ Rust 未安装" -ForegroundColor Red
-    Write-Host "  请先安装 Rust: https://rustup.rs/" -ForegroundColor Yellow
-    Write-Host "  或运行：winget install Rustlang.Rustup" -ForegroundColor Yellow
-    exit 1
+function Write-Step {
+    param([string]$Message)
+    Write-Host ""
+    Write-Host $Message -ForegroundColor Cyan
 }
 
-# 2. 检查 Git
-Write-Host "[2/5] 检查 Git 环境..." -ForegroundColor Yellow
-try {
-    $git = git --version
-    Write-Host "  ✓ Git 已安装：$git" -ForegroundColor Green
-} catch {
-    Write-Host "  ✗ Git 未安装" -ForegroundColor Red
-    Write-Host "  请先安装 Git: https://git-scm.com/" -ForegroundColor Yellow
-    exit 1
+function Write-Ok {
+    param([string]$Message)
+    Write-Host "  OK $Message" -ForegroundColor Green
 }
 
-# 3. 编译
-Write-Host "[3/5] 编译 UnrealDevFlow..." -ForegroundColor Yellow
-$projectRoot = Split-Path -Parent $PSScriptRoot
-Set-Location $projectRoot
+function Get-ReleaseAssetUrl {
+    param([string]$AssetName)
 
-try {
-    cargo build --release 2>&1 | Out-Null
-    Write-Host "  ✓ 编译成功" -ForegroundColor Green
-} catch {
-    Write-Host "  ✗ 编译失败：$_" -ForegroundColor Red
-    exit 1
-}
-
-# 4. 复制到安装目录
-Write-Host "[4/5] 安装到 $InstallPath..." -ForegroundColor Yellow
-if (-not (Test-Path $InstallPath)) {
-    New-Item -ItemType Directory -Path $InstallPath -Force | Out-Null
-}
-
-$exeSource = "$projectRoot\target\release\unrealdevflow.exe"
-$exeTarget = "$InstallPath\unrealdevflow.exe"
-
-Copy-Item -Path $exeSource -Destination $exeTarget -Force
-Write-Host "  ✓ 已复制 unrealdevflow.exe" -ForegroundColor Green
-
-# 5. 添加到 PATH
-if ($AddToPath) {
-    Write-Host "[5/5] 添加到 PATH..." -ForegroundColor Yellow
-    $currentPath = [Environment]::GetEnvironmentVariable("Path", "User")
-    if ($currentPath -notlike "*$InstallPath*") {
-        [Environment]::SetEnvironmentVariable("Path", "$currentPath;$InstallPath", "User")
-        Write-Host "  ✓ 已添加到用户 PATH" -ForegroundColor Green
-        Write-Host "  ⚠ 需要重启终端才能生效" -ForegroundColor Yellow
-    } else {
-        Write-Host "  ✓ 已在 PATH 中" -ForegroundColor Green
+    if ($Version -eq "latest") {
+        return "https://github.com/$Repo/releases/latest/download/$AssetName"
     }
+
+    $tag = $Version
+    if (-not $tag.StartsWith("v")) {
+        $tag = "v$tag"
+    }
+    return "https://github.com/$Repo/releases/download/$tag/$AssetName"
+}
+
+function Add-UserPath {
+    param([string]$PathToAdd)
+
+    $normalized = [System.IO.Path]::GetFullPath($PathToAdd)
+    $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+    $parts = @()
+    if (-not [string]::IsNullOrWhiteSpace($userPath)) {
+        $parts = $userPath.Split(";") | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+    }
+
+    $alreadyInUserPath = $false
+    foreach ($part in $parts) {
+        if ([string]::Equals([System.IO.Path]::GetFullPath($part), $normalized, [StringComparison]::OrdinalIgnoreCase)) {
+            $alreadyInUserPath = $true
+            break
+        }
+    }
+
+    if (-not $alreadyInUserPath) {
+        $newUserPath = if ([string]::IsNullOrWhiteSpace($userPath)) { $normalized } else { "$userPath;$normalized" }
+        [Environment]::SetEnvironmentVariable("Path", $newUserPath, "User")
+        Write-Ok "added to User PATH"
+    } else {
+        Write-Ok "already in User PATH"
+    }
+
+    $sessionParts = $env:Path.Split(";") | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+    $alreadyInSessionPath = $false
+    foreach ($part in $sessionParts) {
+        if ([string]::Equals([System.IO.Path]::GetFullPath($part), $normalized, [StringComparison]::OrdinalIgnoreCase)) {
+            $alreadyInSessionPath = $true
+            break
+        }
+    }
+
+    if (-not $alreadyInSessionPath) {
+        $env:Path = "$env:Path;$normalized"
+        Write-Ok "added to current session PATH"
+    } else {
+        Write-Ok "already in current session PATH"
+    }
+}
+
+function Install-FromRelease {
+    param([string]$Destination)
+
+    $assetName = "unrealdevflow-x86_64-pc-windows-msvc.zip"
+    $assetUrl = Get-ReleaseAssetUrl -AssetName $assetName
+    $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("unrealdevflow-install-" + [Guid]::NewGuid().ToString("N"))
+    $zipPath = Join-Path $tempRoot $assetName
+    $extractPath = Join-Path $tempRoot "extract"
+
+    New-Item -ItemType Directory -Force -Path $tempRoot, $extractPath | Out-Null
+    try {
+        Write-Host "  Downloading $assetUrl"
+        Invoke-WebRequest -Uri $assetUrl -OutFile $zipPath -UseBasicParsing
+        Expand-Archive -LiteralPath $zipPath -DestinationPath $extractPath -Force
+
+        $exe = Get-ChildItem -LiteralPath $extractPath -Recurse -Filter "unrealdevflow.exe" | Select-Object -First 1
+        if (-not $exe) {
+            throw "Release zip did not contain unrealdevflow.exe"
+        }
+
+        Copy-Item -LiteralPath $exe.FullName -Destination (Join-Path $Destination "unrealdevflow.exe") -Force
+
+        $skillsSource = Get-ChildItem -LiteralPath $extractPath -Recurse -Directory |
+            Where-Object { $_.FullName -match "\\skills\\unrealdevflow$" } |
+            Select-Object -First 1
+        if (-not $skillsSource) {
+            throw "Release zip did not contain skills/unrealdevflow"
+        }
+
+        $skillsTarget = Join-Path $Destination "skills\unrealdevflow"
+        if (Test-Path $skillsTarget) {
+            Remove-Item -LiteralPath $skillsTarget -Recurse -Force
+        }
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $skillsTarget) | Out-Null
+        Copy-Item -LiteralPath $skillsSource.FullName -Destination $skillsTarget -Recurse -Force
+    } finally {
+        if (Test-Path $tempRoot) {
+            Remove-Item -LiteralPath $tempRoot -Recurse -Force
+        }
+    }
+}
+
+function Install-FromSource {
+    param(
+        [string]$Root,
+        [string]$Destination
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Root)) {
+        $Root = Split-Path -Parent $PSScriptRoot
+    }
+    $Root = [System.IO.Path]::GetFullPath($Root)
+    if (-not (Test-Path (Join-Path $Root "Cargo.toml"))) {
+        throw "SourceRoot is not an UnrealDevFlow repository: $Root"
+    }
+
+    Write-Host "  Building from source: $Root"
+    Push-Location $Root
+    try {
+        cargo build --release --locked
+    } finally {
+        Pop-Location
+    }
+
+    Copy-Item -LiteralPath (Join-Path $Root "target\release\unrealdevflow.exe") -Destination (Join-Path $Destination "unrealdevflow.exe") -Force
+
+    $skillsTarget = Join-Path $Destination "skills\unrealdevflow"
+    if (Test-Path $skillsTarget) {
+        Remove-Item -LiteralPath $skillsTarget -Recurse -Force
+    }
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $skillsTarget) | Out-Null
+    Copy-Item -LiteralPath (Join-Path $Root "skills\unrealdevflow") -Destination $skillsTarget -Recurse -Force
+}
+
+Write-Host "UnrealDevFlow installer" -ForegroundColor Cyan
+Write-Host "======================="
+
+Write-Step "[1/5] Preparing install directory"
+New-Item -ItemType Directory -Force -Path $InstallPath | Out-Null
+$InstallPath = [System.IO.Path]::GetFullPath($InstallPath)
+Write-Ok $InstallPath
+
+Write-Step "[2/5] Installing binary and bundled skill source"
+if ($FromSource) {
+    Install-FromSource -Root $SourceRoot -Destination $InstallPath
 } else {
-    Write-Host "[5/5] 跳过 PATH 添加（使用 -AddToPath 参数启用）" -ForegroundColor Yellow
+    Install-FromRelease -Destination $InstallPath
+}
+Write-Ok "files installed"
+
+Write-Step "[3/5] Updating PATH"
+if ($NoPath) {
+    Write-Host "  Skipped PATH update because -NoPath was set" -ForegroundColor Yellow
+} else {
+    Add-UserPath -PathToAdd $InstallPath
 }
 
-# 验证安装
-Write-Host ""
-Write-Host "验证安装..." -ForegroundColor Cyan
-try {
-    & $exeTarget --version
-    Write-Host "✓ 安装成功！" -ForegroundColor Green
-} catch {
-    Write-Host "✗ 验证失败：$_" -ForegroundColor Red
-    exit 1
+Write-Step "[4/5] Verifying command"
+$exeTarget = Join-Path $InstallPath "unrealdevflow.exe"
+& $exeTarget --version
+if ($NoPath) {
+    Write-Host "  Skipped PATH command lookup because -NoPath was set" -ForegroundColor Yellow
+} else {
+    $cmd = Get-Command unrealdevflow -ErrorAction SilentlyContinue
+    if (-not $cmd) {
+        throw "unrealdevflow.exe was installed but is still not visible via PATH in this session"
+    }
+    Write-Ok "PATH command resolves to $($cmd.Source)"
+}
+
+Write-Step "[5/5] Installing AI skill"
+if ($NoSkill) {
+    Write-Host "  Skipped skill install because -NoSkill was set" -ForegroundColor Yellow
+} else {
+    & $exeTarget skills install --global
+    Write-Ok "global AI skill installed"
 }
 
 Write-Host ""
-Write-Host "下一步：" -ForegroundColor Cyan
-Write-Host "  1. 运行：unrealdevflow configure" -ForegroundColor White
-Write-Host "  2. 或查看帮助：unrealdevflow --help" -ForegroundColor White
+Write-Host "Installed successfully." -ForegroundColor Green
 Write-Host ""
+Write-Host "Next step:" -ForegroundColor Cyan
+Write-Host "  unrealdevflow configure" -ForegroundColor White

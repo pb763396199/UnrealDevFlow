@@ -168,7 +168,13 @@ pub fn list_tasks(hosts_root: &Path) -> Result<Vec<TaskMeta>> {
         let entry = entry?;
         let path = entry.path();
 
-        if path.is_dir() && path.file_name().unwrap().to_string_lossy().starts_with("T-") {
+        if path.is_dir()
+            && path
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("T-")
+        {
             match read_meta(&path) {
                 Ok(meta) => tasks.push(meta),
                 Err(_) => continue,

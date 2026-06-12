@@ -1,0 +1,61 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+      - "v*.*.*-*"
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  windows-release:
+    name: Windows release
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Release preflight
+        shell: pwsh
+        run: scripts/release-preflight.ps1 -Strict
+
+      - name: Generate release notes
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart("v")
+          scripts/generate-release-notes.ps1 -Version $version -OutputPath dist/RELEASE_NOTES.md
+
+      - name: Package release
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart("v")
+          scripts/package-release.ps1 -Version $version -SkipBuild
+
+      - name: Create draft GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          name: UnrealDevFlow ${{ github.ref_name }}
+          body_path: dist/RELEASE_NOTES.md
+          files: |
+            dist/unrealdevflow.exe
+            dist/unrealdevflow-x86_64-pc-windows-msvc.zip
+            dist/unrealdevflow-installer.ps1
+            dist/SHA256SUMS.txt
+            dist/RELEASE_NOTES.md
+

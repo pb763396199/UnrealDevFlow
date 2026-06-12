@@ -25,10 +25,7 @@ struct UPluginFile {
 /// Locate the `.uplugin` file inside a plugin directory.
 pub fn find_uplugin_file(plugin_dir: &Path) -> Result<PathBuf> {
     if !plugin_dir.is_dir() {
-        return Err(UdfError::Other(format!(
-            "插件目录不存在：{:?}",
-            plugin_dir
-        )));
+        return Err(UdfError::Other(format!("插件目录不存在：{:?}", plugin_dir)));
     }
     for entry in fs::read_dir(plugin_dir)? {
         let entry = entry?;
@@ -50,12 +47,8 @@ pub fn find_uplugin_file(plugin_dir: &Path) -> Result<PathBuf> {
 pub fn read_dependencies(plugin_dir: &Path) -> Result<Vec<String>> {
     let uplugin_path = find_uplugin_file(plugin_dir)?;
     let content = fs::read_to_string(&uplugin_path)?;
-    let parsed: UPluginFile = serde_json::from_str(&content).map_err(|e| {
-        UdfError::Other(format!(
-            "解析 .uplugin 失败 {:?}：{}",
-            uplugin_path, e
-        ))
-    })?;
+    let parsed: UPluginFile = serde_json::from_str(&content)
+        .map_err(|e| UdfError::Other(format!("解析 .uplugin 失败 {:?}：{}", uplugin_path, e)))?;
 
     Ok(parsed
         .plugins

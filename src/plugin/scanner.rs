@@ -36,7 +36,8 @@ fn walk(dir: &Path, out: &mut HashMap<String, PathBuf>, depth: usize) {
         let path = entry.path();
         if path.is_file() && path.extension().map(|e| e == "uplugin").unwrap_or(false) {
             if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-                out.entry(stem.to_string()).or_insert_with(|| dir.to_path_buf());
+                out.entry(stem.to_string())
+                    .or_insert_with(|| dir.to_path_buf());
                 found_uplugin = true;
             }
         } else if path.is_dir() {

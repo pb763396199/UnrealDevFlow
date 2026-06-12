@@ -21,7 +21,8 @@ pub fn create(target: &Path, junction: &Path) -> Result<()> {
     }
 
     // junction::create will create the directory itself
-    junction::create(target, junction).map_err(|e| JunctionError::JunctionCrate(e.to_string()).into())
+    junction::create(target, junction)
+        .map_err(|e| JunctionError::JunctionCrate(e.to_string()).into())
 }
 
 pub fn delete(junction: &Path) -> Result<()> {
@@ -29,7 +30,8 @@ pub fn delete(junction: &Path) -> Result<()> {
         return Err(JunctionError::NotExists(junction.to_path_buf()).into());
     }
 
-    junction::delete(junction).map_err(|e| -> UdfError { JunctionError::JunctionCrate(e.to_string()).into() })?;
+    junction::delete(junction)
+        .map_err(|e| -> UdfError { JunctionError::JunctionCrate(e.to_string()).into() })?;
 
     // Remove the empty directory
     if junction.exists() {
@@ -51,7 +53,7 @@ pub fn is_broken(junction: &Path) -> bool {
     if !exists(junction).unwrap_or(false) {
         return false; // Not a junction at all
     }
-    
+
     match get_target(junction) {
         Ok(target) => !target.exists(),
         Err(_) => true, // Can't read target, treat as broken
@@ -71,7 +73,10 @@ pub fn switch(target: &Path, junction: &Path) -> Result<()> {
                 // Backup already exists, remove it first
                 std::fs::remove_dir_all(&backup_path)?;
             }
-            output::print_info(&format!("Backing up existing directory to {:?}", backup_path));
+            output::print_info(&format!(
+                "Backing up existing directory to {:?}",
+                backup_path
+            ));
             std::fs::rename(junction, &backup_path)?;
         }
     }

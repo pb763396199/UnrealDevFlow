@@ -13,7 +13,10 @@ fn is_branch_merged(repo_path: &Path, branch_name: &str) -> Result<bool> {
         .find_branch(branch_name, git2::BranchType::Local)
         .map_err(|e| UdfError::Other(format!("Failed to find branch '{}': {}", branch_name, e)))?;
     let branch_commit = branch.get().peel_to_commit().map_err(|e| {
-        UdfError::Other(format!("Failed to get commit for branch '{}': {}", branch_name, e))
+        UdfError::Other(format!(
+            "Failed to get commit for branch '{}': {}",
+            branch_name, e
+        ))
     })?;
 
     let head = repo
@@ -169,7 +172,10 @@ pub fn run(task_id: &str, force: bool, skip_confirm: bool, dry_run: bool) -> Res
 
     if !(force && skip_confirm) {
         let confirmed = dialoguer::Confirm::new()
-            .with_prompt(&format!("Are you sure you want to delete task '{}'?", task_id))
+            .with_prompt(format!(
+                "Are you sure you want to delete task '{}'?",
+                task_id
+            ))
             .default(false)
             .interact()
             .map_err(|e| UdfError::Other(format!("Dialog error: {}", e)))?;
@@ -197,7 +203,7 @@ pub fn run(task_id: &str, force: bool, skip_confirm: bool, dry_run: bool) -> Res
     output::print_info("Checking for junctions pointing to this task...");
     let state = crate::state::GlobalState::load()?;
     let mut junctions_cleaned = 0;
-    
+
     for (project_name, project_state) in &state.projects {
         for junction_state in &project_state.junctions {
             // Check if this junction points to any worktree in the current task
@@ -218,7 +224,7 @@ pub fn run(task_id: &str, force: bool, skip_confirm: bool, dry_run: bool) -> Res
                     "  Found junction in project '{}' for plugin '{}': {:?}",
                     project_name, junction_state.plugin_name, junction_state.junction_path
                 ));
-                
+
                 // Try to delete the junction
                 if junction_state.junction_path.exists() {
                     match crate::junction::delete(&junction_state.junction_path) {
@@ -245,7 +251,7 @@ pub fn run(task_id: &str, force: bool, skip_confirm: bool, dry_run: bool) -> Res
             }
         }
     }
-    
+
     if junctions_cleaned > 0 {
         output::print_success(&format!(
             "Cleaned up {} junction(s) from main project(s)",

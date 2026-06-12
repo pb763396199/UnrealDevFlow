@@ -27,7 +27,10 @@ pub fn run(format: &crate::cli::OutputFormat) -> Result<()> {
         }
         crate::cli::OutputFormat::Human => {
             println!("Tasks:");
-            println!("{:<20} {:<30} {:<10} {:<20}", "ID", "Name", "Status", "Created");
+            println!(
+                "{:<20} {:<30} {:<10} {:<20}",
+                "ID", "Name", "Status", "Created"
+            );
             println!("{}", "-".repeat(80));
             for task in &tasks {
                 println!(

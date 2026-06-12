@@ -6,7 +6,7 @@ use crate::error::{Result, UdfError};
 use crate::git;
 use crate::host::{self, DependencyPlugin, DependencySource, PrimaryPlugin, TaskMeta};
 use crate::output;
-use crate::plugin::{scanner, uplugin, DiscoveredPlugin, PluginSource};
+use crate::plugin::{DiscoveredPlugin, PluginSource, scanner, uplugin};
 use chrono::Utc;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -44,15 +44,17 @@ pub fn run(
     validate_primary_names(&primary_names, &project_plugins)?;
 
     // === Discover dependencies via .uplugin parsing ===
-    let engine_plugins = scanner::enumerate_plugins(&scanner::engine_plugins_root(&config.engine_path));
-    let combined_overrides = combined_overrides(&config, &overrides, &project_plugins, &engine_plugins)?;
+    let engine_plugins =
+        scanner::enumerate_plugins(&scanner::engine_plugins_root(&config.engine_path));
+    let combined_overrides =
+        combined_overrides(&config, &overrides, &project_plugins, &engine_plugins)?;
 
     let mut all_dep_names: Vec<String> = Vec::new();
     let mut seen_deps: HashSet<String> = HashSet::new();
     for primary_name in &primary_names {
-        let primary_dir = project_plugins.get(primary_name).ok_or_else(|| {
-            UdfError::Other(format!("主插件目录不存在：{}", primary_name))
-        })?;
+        let primary_dir = project_plugins
+            .get(primary_name)
+            .ok_or_else(|| UdfError::Other(format!("主插件目录不存在：{}", primary_name)))?;
         let deps = uplugin::read_dependencies(primary_dir)?;
         for d in deps {
             if !seen_deps.contains(&d) && !primary_names.contains(&d) {
@@ -70,7 +72,9 @@ pub fn run(
     )?;
 
     if !resolution.conflict.is_empty() {
-        output::print_warning("以下依赖同时存在于引擎和项目，请使用 --override-dep <name>=engine|project 指定：");
+        output::print_warning(
+            "以下依赖同时存在于引擎和项目，请使用 --override-dep <name>=engine|project 指定：",
+        );
         for (engine, project) in &resolution.conflict {
             output::print_warning(&format!(
                 "  - {}: engine={:?} / project={:?}",
@@ -87,7 +91,7 @@ pub fn run(
 
     if !skip_confirm {
         let confirmed = dialoguer::Confirm::new()
-            .with_prompt(&format!("Create task '{}'?", task_id))
+            .with_prompt(format!("Create task '{}'?", task_id))
             .default(true)
             .interact()
             .map_err(|e| UdfError::Other(format!("Dialog error: {}", e)))?;
@@ -104,11 +108,8 @@ pub fn run(
         .map(|n| n.to_string_lossy().replace("UE_", ""))
         .unwrap_or_else(|| "5.5".to_string());
 
-    let project_dep_names: Vec<String> = resolution
-        .project
-        .iter()
-        .map(|p| p.name.clone())
-        .collect();
+    let project_dep_names: Vec<String> =
+        resolution.project.iter().map(|p| p.name.clone()).collect();
     host::create_host_with_plugins(
         &host_dir,
         &task_id,
@@ -197,14 +198,16 @@ pub fn run(
     output::print_success(&format!("Task '{}' created successfully!", task_id));
     output::print_info(&format!("  Host: {:?}", host_dir));
     output::print_info(&format!("  Primary plugins: {}", primary_names.join(", ")));
-    let project_deps_summary: Vec<String> = resolution.project.iter().map(|p| p.name.clone()).collect();
+    let project_deps_summary: Vec<String> =
+        resolution.project.iter().map(|p| p.name.clone()).collect();
     if !project_deps_summary.is_empty() {
         output::print_info(&format!(
             "  Project dependencies (Junction): {}",
             project_deps_summary.join(", ")
         ));
     }
-    let engine_deps_summary: Vec<String> = resolution.engine.iter().map(|p| p.name.clone()).collect();
+    let engine_deps_summary: Vec<String> =
+        resolution.engine.iter().map(|p| p.name.clone()).collect();
     if !engine_deps_summary.is_empty() {
         output::print_info(&format!(
             "  Engine dependencies (auto-enabled): {}",
@@ -227,7 +230,11 @@ pub fn run(
 
 fn resolve_primary_names(primary: Option<Vec<String>>, config: &Config) -> Result<Vec<String>> {
     let mut names: Vec<String> = match primary {
-        Some(list) => list.into_iter().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect(),
+        Some(list) => list
+            .into_iter()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect(),
         None => Vec::new(),
     };
     if names.is_empty() {
@@ -250,7 +257,10 @@ fn resolve_primary_names(primary: Option<Vec<String>>, config: &Config) -> Resul
     Ok(names)
 }
 
-fn validate_primary_names(names: &[String], project_plugins: &HashMap<String, PathBuf>) -> Result<()> {
+fn validate_primary_names(
+    names: &[String],
+    project_plugins: &HashMap<String, PathBuf>,
+) -> Result<()> {
     let mut missing = Vec::new();
     for n in names {
         let dir_ok = project_plugins.contains_key(n);
@@ -277,14 +287,20 @@ fn combined_overrides(
     for ov in cli_overrides {
         let path = match &ov.kind {
             DepOverrideKind::CustomPath(p) => p.clone(),
-            DepOverrideKind::Project => project_plugins
-                .get(&ov.name)
-                .cloned()
-                .ok_or_else(|| UdfError::Other(format!("--override-dep {}=project 失败：项目中未找到该插件", ov.name)))?,
-            DepOverrideKind::Engine => engine_plugins
-                .get(&ov.name)
-                .cloned()
-                .ok_or_else(|| UdfError::Other(format!("--override-dep {}=engine 失败：引擎中未找到该插件", ov.name)))?,
+            DepOverrideKind::Project => {
+                project_plugins.get(&ov.name).cloned().ok_or_else(|| {
+                    UdfError::Other(format!(
+                        "--override-dep {}=project 失败：项目中未找到该插件",
+                        ov.name
+                    ))
+                })?
+            }
+            DepOverrideKind::Engine => engine_plugins.get(&ov.name).cloned().ok_or_else(|| {
+                UdfError::Other(format!(
+                    "--override-dep {}=engine 失败：引擎中未找到该插件",
+                    ov.name
+                ))
+            })?,
         };
         out.insert(ov.name.clone(), path);
     }

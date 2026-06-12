@@ -8,7 +8,7 @@
 
 use crate::config::Config;
 use crate::error::Result;
-use crate::host::{PrimaryPlugin, TaskMeta, CURRENT_SCHEMA_VERSION};
+use crate::host::{CURRENT_SCHEMA_VERSION, PrimaryPlugin, TaskMeta};
 use crate::output;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -39,7 +39,8 @@ pub fn persist_migration_if_needed(host_dir: &Path) -> Result<bool> {
         return Ok(false);
     }
     let original = fs::read_to_string(&meta_path)?;
-    let probe: serde_json::Value = serde_json::from_str(&original).unwrap_or(serde_json::Value::Null);
+    let probe: serde_json::Value =
+        serde_json::from_str(&original).unwrap_or(serde_json::Value::Null);
     let needs_migration = probe
         .get("schema_version")
         .and_then(|v| v.as_u64())
@@ -55,9 +56,8 @@ pub fn persist_migration_if_needed(host_dir: &Path) -> Result<bool> {
         output::print_info(&format!("Backed up v1 metadata to {:?}", backup_path));
     }
 
-    let mut meta: TaskMeta = serde_json::from_str(&original).map_err(|e| {
-        crate::error::HostError::InvalidMeta(format!("JSON parse error: {}", e))
-    })?;
+    let mut meta: TaskMeta = serde_json::from_str(&original)
+        .map_err(|e| crate::error::HostError::InvalidMeta(format!("JSON parse error: {}", e)))?;
     migrate_in_place(&mut meta);
     crate::host::write_meta(host_dir, &meta)?;
     Ok(true)

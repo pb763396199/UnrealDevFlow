@@ -3,14 +3,16 @@
 use crate::cli::OutputFormat;
 use serde::Serialize;
 
-pub fn print_output<T: Serialize>(format: &OutputFormat, data: &T, human_formatter: impl Fn(&T) -> String) {
+pub fn print_output<T: Serialize>(
+    format: &OutputFormat,
+    data: &T,
+    human_formatter: impl Fn(&T) -> String,
+) {
     match format {
-        OutputFormat::Json => {
-            match serde_json::to_string_pretty(data) {
-                Ok(json) => println!("{}", json),
-                Err(e) => eprintln!("JSON serialization error: {}", e),
-            }
-        }
+        OutputFormat::Json => match serde_json::to_string_pretty(data) {
+            Ok(json) => println!("{}", json),
+            Err(e) => eprintln!("JSON serialization error: {}", e),
+        },
         OutputFormat::Human => {
             println!("{}", human_formatter(data));
         }

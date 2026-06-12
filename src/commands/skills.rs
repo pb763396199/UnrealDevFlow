@@ -31,9 +31,9 @@ const SKILL_FILE: &str = "SKILL.md";
 /// Where this binary expects to find the source `SKILL.md` next to it.
 fn source_skill_file() -> Result<PathBuf> {
     let exe = std::env::current_exe()?;
-    let exe_dir = exe.parent().ok_or_else(|| {
-        UdfError::Other(format!("无法获取 exe 目录：{:?}", exe))
-    })?;
+    let exe_dir = exe
+        .parent()
+        .ok_or_else(|| UdfError::Other(format!("无法获取 exe 目录：{:?}", exe)))?;
 
     // Try several candidate locations (relative to the compiled binary).
     // - dev:  target/release/unrealdevflow.exe → ../../../skills/unrealdevflow/SKILL.md
@@ -41,15 +41,19 @@ fn source_skill_file() -> Result<PathBuf> {
     // - dev:  target/release/unrealdevflow.exe → skills/.../SKILL.md
     // - dev:  target/debug/...
     // - install (e.g. ~/.cargo/bin/unrealdevflow.exe): ../../skills/.../SKILL.md
-    let exe_dir_str = exe_dir.to_string_lossy();
-    let exe_dir_str_lower = exe_dir_str.to_lowercase();
     let candidates: [PathBuf; 6] = [
         exe_dir.join("../../../skills/unrealdevflow/SKILL.md"),
         exe_dir.join("../../skills/unrealdevflow/SKILL.md"),
         exe_dir.join("../skills/unrealdevflow/SKILL.md"),
         exe_dir.join("skills/unrealdevflow/SKILL.md"),
-        exe_dir.join("../../../skills").join(SKILL_NAME).join(SKILL_FILE),
-        exe_dir.join("../../skills").join(SKILL_NAME).join(SKILL_FILE),
+        exe_dir
+            .join("../../../skills")
+            .join(SKILL_NAME)
+            .join(SKILL_FILE),
+        exe_dir
+            .join("../../skills")
+            .join(SKILL_NAME)
+            .join(SKILL_FILE),
     ];
 
     // Also try `cargo run` / `cargo build` mode (CWD == workspace root).
@@ -69,13 +73,18 @@ fn source_skill_file() -> Result<PathBuf> {
     // Helpful debug: show what we searched and what the current exe is.
     let searched = candidates
         .iter()
-        .map(|c| format!("  - {:?} ({})", c, if c.exists() { "exists" } else { "missing" }))
+        .map(|c| {
+            format!(
+                "  - {:?} ({})",
+                c,
+                if c.exists() { "exists" } else { "missing" }
+            )
+        })
         .collect::<Vec<_>>()
         .join("\n");
     Err(UdfError::Other(format!(
         "找不到源 SKILL.md。\n可执行: {:?}\n搜索过的路径:\n{}\n提示：在 dev 模式下请 `cargo run`；在 release 模式下 SKILL.md 必须位于可执行文件旁。",
-        exe,
-        searched
+        exe, searched
     )))
 }
 
@@ -113,7 +122,10 @@ fn target_paths_for_global(base: &Path) -> [(PathBuf, &'static str); 3] {
             "claude code",
         ),
         (
-            base.join(".config").join("opencode").join("skills").join(SKILL_NAME),
+            base.join(".config")
+                .join("opencode")
+                .join("skills")
+                .join(SKILL_NAME),
             "opencode (native, XDG path)",
         ),
     ]
@@ -134,10 +146,7 @@ fn install_to_base(base: &Path, source: &Path, scope: &str) -> Result<()> {
         fs::create_dir_all(dir)?;
         let dest = dir.join(SKILL_FILE);
         fs::write(&dest, &content)?;
-        output::print_success(&format!(
-            "  [{}] {} → {:?}",
-            scope, label, dest
-        ));
+        output::print_success(&format!("  [{}] {} → {:?}", scope, label, dest));
         installed += 1;
     }
     output::print_info(&format!(
@@ -152,9 +161,8 @@ pub fn install(global: bool, project: Option<PathBuf>) -> Result<()> {
     output::print_info(&format!("Source SKILL.md: {:?}", source));
 
     if global {
-        let home = dirs::home_dir().ok_or_else(|| {
-            UdfError::Other("无法确定用户主目录".to_string())
-        })?;
+        let home =
+            dirs::home_dir().ok_or_else(|| UdfError::Other("无法确定用户主目录".to_string()))?;
         install_to_base(&home, &source, "global")?;
     } else {
         let cwd = match project {
@@ -171,14 +179,9 @@ pub fn list(project: Option<PathBuf>) -> Result<()> {
         Some(p) => p,
         None => std::env::current_dir()?,
     };
-    let home = dirs::home_dir().ok_or_else(|| {
-        UdfError::Other("无法确定用户主目录".to_string())
-    })?;
+    let home = dirs::home_dir().ok_or_else(|| UdfError::Other("无法确定用户主目录".to_string()))?;
 
-    let scopes = [
-        ("project", cwd),
-        ("global", home),
-    ];
+    let scopes = [("project", cwd), ("global", home)];
 
     println!();
     output::print_info("UnrealDevFlow skill installation status");
@@ -203,16 +206,10 @@ pub fn list(project: Option<PathBuf>) -> Result<()> {
                 let size = meta.map(|m| m.len()).unwrap_or(0);
                 output::print_success(&format!(
                     "  ✓ {:<38} {:?}  ({} bytes)",
-                    label,
-                    skill_file,
-                    size
+                    label, skill_file, size
                 ));
             } else {
-                output::print_warning(&format!(
-                    "  ✗ {:<38} not found: {:?}",
-                    label,
-                    dir
-                ));
+                output::print_warning(&format!("  ✗ {:<38} not found: {:?}", label, dir));
             }
         }
     }
@@ -233,9 +230,8 @@ pub fn list(project: Option<PathBuf>) -> Result<()> {
 
 pub fn remove(global: bool, project: Option<PathBuf>) -> Result<()> {
     let scopes: Vec<(&str, PathBuf)> = if global {
-        let home = dirs::home_dir().ok_or_else(|| {
-            UdfError::Other("无法确定用户主目录".to_string())
-        })?;
+        let home =
+            dirs::home_dir().ok_or_else(|| UdfError::Other("无法确定用户主目录".to_string()))?;
         vec![("global", home)]
     } else {
         let cwd = match project {
@@ -254,11 +250,8 @@ pub fn remove(global: bool, project: Option<PathBuf>) -> Result<()> {
         };
         for (dir, label) in &targets {
             if dir.exists() {
-                fs::remove_dir_all(&dir)?;
-                output::print_success(&format!(
-                    "  [{}] removed {} ({:?})",
-                    scope, label, dir
-                ));
+                fs::remove_dir_all(dir)?;
+                output::print_success(&format!("  [{}] removed {} ({:?})", scope, label, dir));
                 removed += 1;
             } else {
                 output::print_info(&format!(

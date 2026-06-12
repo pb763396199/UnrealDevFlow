@@ -16,13 +16,20 @@ argument-hint: "<task description>"
 
 ## Binary location
 
-The `unrealdevflow` CLI should be in PATH. If `Get-Command unrealdevflow` fails, use the absolute path:
+The `unrealdevflow` CLI should be in PATH. If `Get-Command unrealdevflow` fails, use the release installer location:
 
-```
-F:\AiProject\UnrealDevFlow\target\release\unrealdevflow.exe
+```powershell
+$udf = Get-Command unrealdevflow -ErrorAction SilentlyContinue
+if (-not $udf) {
+    $udf = "$env:USERPROFILE\.unrealdevflow\bin\unrealdevflow.exe"
+}
 ```
 
-You can set a session alias: `Set-Alias unrealdevflow "F:\AiProject\UnrealDevFlow\target\release\unrealdevflow.exe"`
+If neither path exists, install the tool first:
+
+```powershell
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/pb763396199/UnrealDevFlow/releases/latest/download/unrealdevflow-installer.ps1 | iex"
+```
 
 ## 5-step workflow (the only correct one)
 

@@ -3,7 +3,7 @@
 use crate::config::Config;
 use crate::error::{Result, UdfError};
 use crate::git;
-use crate::host::{self, PrimaryPlugin, TaskMeta};
+use crate::host::{self, PrimaryPlugin};
 use crate::output;
 use std::path::{Path, PathBuf};
 
@@ -87,12 +87,18 @@ pub fn run(
             .iter()
             .find(|p| p.name == name)
             .cloned()
-            .ok_or_else(|| UdfError::Other(format!("Plugin '{}' not found in task '{}'", name, task_id)))?;
+            .ok_or_else(|| {
+                UdfError::Other(format!("Plugin '{}' not found in task '{}'", name, task_id))
+            })?;
         vec![found]
     } else if meta.primary_plugins.len() == 1 {
         vec![meta.primary_plugins[0].clone()]
     } else {
-        let names: Vec<String> = meta.primary_plugins.iter().map(|p| p.name.clone()).collect();
+        let names: Vec<String> = meta
+            .primary_plugins
+            .iter()
+            .map(|p| p.name.clone())
+            .collect();
         return Err(UdfError::Other(format!(
             "Task '{}' has {} primary plugins. Use --plugin <name> or --all. Available: {}",
             task_id,
@@ -119,7 +125,6 @@ pub fn run(
             force,
             skip_confirm,
             dry_run,
-            &meta,
         )?;
         if !ok {
             all_ok = false;
@@ -128,7 +133,9 @@ pub fn run(
                 primary.name
             ));
             if !force {
-                output::print_warning("Aborting remaining --all merges. Use --force to continue past failures.");
+                output::print_warning(
+                    "Aborting remaining --all merges. Use --force to continue past failures.",
+                );
                 break;
             }
         }
@@ -136,17 +143,16 @@ pub fn run(
 
     println!();
     if all_ok {
-        output::print_success(&format!(
-            "Task '{}' merge sequence completed.",
-            task_id
-        ));
+        output::print_success(&format!("Task '{}' merge sequence completed.", task_id));
     } else {
         output::print_warning(&format!(
             "Task '{}' merge sequence completed with failures.",
             task_id
         ));
     }
-    output::print_info("⚠️  Worktrees and branches RETAINED for inspection. Run cleanup after verification:");
+    output::print_info(
+        "⚠️  Worktrees and branches RETAINED for inspection. Run cleanup after verification:",
+    );
     output::print_info(&format!("  unrealdevflow cleanup {}", task_id));
     Ok(())
 }
@@ -159,7 +165,6 @@ fn merge_single_plugin(
     force: bool,
     skip_confirm: bool,
     dry_run: bool,
-    _meta: &TaskMeta,
 ) -> Result<bool> {
     let expected_branch = format!("task-{}", task_id);
     if primary.branch != expected_branch {
@@ -271,7 +276,7 @@ fn merge_single_plugin(
 
     if !(force && skip_confirm) {
         let confirmed = dialoguer::Confirm::new()
-            .with_prompt(&format!(
+            .with_prompt(format!(
                 "Merge plugin '{}' using {:?} strategy?",
                 primary.name, strategy
             ))
@@ -296,46 +301,43 @@ fn merge_single_plugin(
     }
 
     let repo = git::open_repo(&source_repo)?;
-    
+
     // === Fetch latest from origin before merge ===
     if let Err(e) = git::fetch_origin(&source_repo) {
         output::print_warning(&format!("Failed to fetch from origin: {}", e));
-        output::print_warning("Proceeding with local state only. Remote changes may not be detected.");
+        output::print_warning(
+            "Proceeding with local state only. Remote changes may not be detected.",
+        );
     }
-    
+
     output::print_info(&format!(
         "Merging plugin '{}' using {:?} strategy...",
         primary.name, strategy
     ));
 
     let success = match strategy {
-        crate::cli::MergeStrategy::Rebase => match git::rebase_branch(
-            &source_repo,
-            &primary.branch,
-            &primary.based_on,
-        ) {
-            Ok(_) => {
-                output::print_success(&format!(
-                    "Branch '{}' rebased successfully",
-                    primary.branch
-                ));
-                true
-            }
-            Err(e) => {
-                output::print_error(&format!("Rebase failed: {}", e));
-                if force {
-                    false
-                } else {
-                    return Err(e);
+        crate::cli::MergeStrategy::Rebase => {
+            match git::rebase_branch(&source_repo, &primary.branch, &primary.based_on) {
+                Ok(_) => {
+                    output::print_success(&format!(
+                        "Branch '{}' rebased successfully",
+                        primary.branch
+                    ));
+                    true
+                }
+                Err(e) => {
+                    output::print_error(&format!("Rebase failed: {}", e));
+                    if force {
+                        false
+                    } else {
+                        return Err(e);
+                    }
                 }
             }
-        },
+        }
         crate::cli::MergeStrategy::Merge => match git::merge_branch(&repo, &primary.branch) {
             Ok(_) => {
-                output::print_success(&format!(
-                    "Branch '{}' merged successfully",
-                    primary.branch
-                ));
+                output::print_success(&format!("Branch '{}' merged successfully", primary.branch));
                 true
             }
             Err(e) => {
@@ -346,39 +348,43 @@ fn merge_single_plugin(
                 }
             }
         },
-        crate::cli::MergeStrategy::Squash => match git::squash_branch(&source_repo, &primary.branch) {
-            Ok(_) => {
-                output::print_success(&format!(
-                    "Branch '{}' squashed successfully",
-                    primary.branch
-                ));
-                true
-            }
-            Err(e) => {
-                output::print_error(&format!("Squash failed: {}", e));
-                if force {
-                    false
-                } else {
-                    return Err(e);
+        crate::cli::MergeStrategy::Squash => {
+            match git::squash_branch(&source_repo, &primary.branch) {
+                Ok(_) => {
+                    output::print_success(&format!(
+                        "Branch '{}' squashed successfully",
+                        primary.branch
+                    ));
+                    true
+                }
+                Err(e) => {
+                    output::print_error(&format!("Squash failed: {}", e));
+                    if force {
+                        false
+                    } else {
+                        return Err(e);
+                    }
                 }
             }
-        },
-        crate::cli::MergeStrategy::FfOnly => match git::ff_only_merge(&source_repo, &primary.branch) {
-            Ok(_) => {
-                output::print_success(&format!(
-                    "Branch '{}' fast-forward merged successfully",
-                    primary.branch
-                ));
-                true
-            }
-            Err(e) => {
-                if force {
-                    false
-                } else {
-                    return Err(e);
+        }
+        crate::cli::MergeStrategy::FfOnly => {
+            match git::ff_only_merge(&source_repo, &primary.branch) {
+                Ok(_) => {
+                    output::print_success(&format!(
+                        "Branch '{}' fast-forward merged successfully",
+                        primary.branch
+                    ));
+                    true
+                }
+                Err(e) => {
+                    if force {
+                        false
+                    } else {
+                        return Err(e);
+                    }
                 }
             }
-        },
+        }
     };
 
     Ok(success)

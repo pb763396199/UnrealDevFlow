@@ -127,7 +127,13 @@ pub enum Commands {
         ///         to -NoMutex.
         /// wait  : always -WaitMutex (queue if another build is running)
         /// nomutex: always -NoMutex (parallel; fastest when PCH cached)
-        #[arg(long, value_enum, default_value = "auto", alias = "safe", alias = "no-mutex")]
+        #[arg(
+            long,
+            value_enum,
+            default_value = "auto",
+            alias = "safe",
+            alias = "no-mutex"
+        )]
         mutex: crate::build_profile::MutexMode,
 
         /// Hint: build is invoked by a validator / CI (not an IDE).

@@ -15,8 +15,7 @@ pub fn run(
 ) -> Result<()> {
     // v2 non-interactive: hosts_root + (plugins_root or plugin_path) + default_project
     let has_plugin_source = plugins_root.is_some() || plugin_path.is_some();
-    let non_interactive =
-        hosts_root.is_some() && has_plugin_source && default_project.is_some();
+    let non_interactive = hosts_root.is_some() && has_plugin_source && default_project.is_some();
 
     if non_interactive {
         let hosts_root = PathBuf::from(hosts_root.unwrap());
@@ -62,14 +61,12 @@ pub fn run(
         }
         let uproject_exists = std::fs::read_dir(&default_project)
             .map(|entries| {
-                entries
-                    .filter_map(|e| e.ok())
-                    .any(|e| {
-                        e.path()
-                            .extension()
-                            .map(|ext| ext == "uproject")
-                            .unwrap_or(false)
-                    })
+                entries.filter_map(|e| e.ok()).any(|e| {
+                    e.path()
+                        .extension()
+                        .map(|ext| ext == "uproject")
+                        .unwrap_or(false)
+                })
             })
             .unwrap_or(false);
         if !uproject_exists {
@@ -122,7 +119,10 @@ pub fn run(
         output::print_info(&format!("  引擎路径：{:?}", config.engine_path));
     } else {
         let config = config::run_configure()?;
-        output::print_success(&format!("配置已保存到 {:?}", config::Config::config_path()?));
+        output::print_success(&format!(
+            "配置已保存到 {:?}",
+            config::Config::config_path()?
+        ));
         output::print_info(&format!("  Hosts 根目录：{:?}", config.hosts_root));
         if let Some(pr) = &config.plugins_root {
             output::print_info(&format!("  插件根目录：{:?}", pr));
