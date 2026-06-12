@@ -59,37 +59,41 @@ function Add-UserPath {
         $parts = $userPath.Split(";") | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
     }
 
+    $filteredUserParts = @()
     $alreadyInUserPath = $false
     foreach ($part in $parts) {
         if ([string]::Equals([System.IO.Path]::GetFullPath($part), $normalized, [StringComparison]::OrdinalIgnoreCase)) {
             $alreadyInUserPath = $true
-            break
+        } else {
+            $filteredUserParts += $part
         }
     }
 
     if (-not $alreadyInUserPath) {
-        $newUserPath = if ([string]::IsNullOrWhiteSpace($userPath)) { $normalized } else { "$userPath;$normalized" }
-        [Environment]::SetEnvironmentVariable("Path", $newUserPath, "User")
         Write-Ok "added to User PATH"
     } else {
-        Write-Ok "already in User PATH"
+        Write-Ok "already in User PATH; moved to front"
     }
+    $newUserPathParts = @($normalized) + $filteredUserParts
+    [Environment]::SetEnvironmentVariable("Path", ($newUserPathParts -join ";"), "User")
 
     $sessionParts = $env:Path.Split(";") | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+    $filteredSessionParts = @()
     $alreadyInSessionPath = $false
     foreach ($part in $sessionParts) {
         if ([string]::Equals([System.IO.Path]::GetFullPath($part), $normalized, [StringComparison]::OrdinalIgnoreCase)) {
             $alreadyInSessionPath = $true
-            break
+        } else {
+            $filteredSessionParts += $part
         }
     }
 
     if (-not $alreadyInSessionPath) {
-        $env:Path = "$env:Path;$normalized"
         Write-Ok "added to current session PATH"
     } else {
-        Write-Ok "already in current session PATH"
+        Write-Ok "already in current session PATH; moved to front"
     }
+    $env:Path = ((@($normalized) + $filteredSessionParts) -join ";")
 }
 
 function Install-FromRelease {
@@ -199,6 +203,9 @@ if ($NoPath) {
     if (-not $cmd) {
         throw "unrealdevflow.exe was installed but is still not visible via PATH in this session"
     }
+    if (-not [string]::Equals([System.IO.Path]::GetFullPath($cmd.Source), [System.IO.Path]::GetFullPath($exeTarget), [StringComparison]::OrdinalIgnoreCase)) {
+        throw "PATH resolves to '$($cmd.Source)' instead of installed binary '$exeTarget'"
+    }
     Write-Ok "PATH command resolves to $($cmd.Source)"
 }
 
@@ -206,7 +213,12 @@ Write-Step "[5/5] Installing AI skill"
 if ($NoSkill) {
     Write-Host "  Skipped skill install because -NoSkill was set" -ForegroundColor Yellow
 } else {
-    & $exeTarget skills install --global
+    Push-Location $InstallPath
+    try {
+        & $exeTarget skills install --global
+    } finally {
+        Pop-Location
+    }
     Write-Ok "global AI skill installed"
 }
 

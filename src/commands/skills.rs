@@ -56,17 +56,17 @@ fn source_skill_file() -> Result<PathBuf> {
             .join(SKILL_FILE),
     ];
 
+    for c in &candidates {
+        if c.exists() {
+            return Ok(c.clone());
+        }
+    }
+
     // Also try `cargo run` / `cargo build` mode (CWD == workspace root).
     if let Ok(cwd) = std::env::current_dir() {
         let cargo_path = cwd.join("skills/unrealdevflow/SKILL.md");
         if cargo_path.exists() {
             return Ok(cargo_path);
-        }
-    }
-
-    for c in &candidates {
-        if c.exists() {
-            return Ok(c.clone());
         }
     }
 
