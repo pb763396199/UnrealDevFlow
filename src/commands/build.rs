@@ -21,8 +21,7 @@ pub fn run(
 ) -> Result<()> {
     let config = Config::load()?;
 
-    let host_dir = host::get_task_host(&config.hosts_root, task_id)?;
-    let mut meta = host::read_meta(&host_dir)?;
+    let (host_dir, mut meta, task_context) = host::resolve_task(&config, task_id)?;
     crate::migration::backfill_source_repo(&mut meta, &config);
 
     let uproject_path = host_dir.join(format!("T-{}_Host.uproject", task_id));
@@ -31,7 +30,7 @@ pub fn run(
         return Err(UdfError::TaskNotFound(task_id.to_string()));
     }
 
-    let engine_path = &config.engine_path;
+    let engine_path = &task_context.engine_path;
 
     let build_bat = engine_path
         .join("Engine")

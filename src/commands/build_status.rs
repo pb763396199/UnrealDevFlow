@@ -8,8 +8,7 @@ use std::fs;
 
 pub fn run(task_id: &str) -> Result<()> {
     let config = Config::load()?;
-    let host_dir = host::get_task_host(&config.hosts_root, task_id)?;
-    let meta = host::read_meta(&host_dir)?;
+    let (_host_dir, meta, _task_context) = host::resolve_task(&config, task_id)?;
 
     output::print_info(&format!("Build status for task '{}':", task_id));
 

@@ -18,11 +18,9 @@ pub fn run(
     skip_regen_project_files: bool,
 ) -> Result<()> {
     let config = Config::load()?;
+    let mut regen_engine_path = config.engine_path.clone();
 
-    let target_projects = match projects {
-        Some(paths) => paths,
-        None => vec![config.default_project.clone()],
-    };
+    let mut target_projects = projects;
 
     if !force && editor::is_editor_running() {
         output::print_warning("UnrealEditor is currently running.");
@@ -42,6 +40,9 @@ pub fn run(
 
     // === Resolve switch targets ===
     let switch_plan = if task_id == "main" {
+        if target_projects.is_none() {
+            target_projects = Some(vec![config.default_project.clone()]);
+        }
         // For "main", we revert every known junction target back to its main repo source.
         // We need to know which plugins were active; we derive them from GlobalState.
         let state = GlobalState::load()?;
@@ -70,9 +71,12 @@ pub fn run(
         }
         plan
     } else {
-        let host_dir = host::get_task_host(&config.hosts_root, task_id)?;
-        let mut meta = host::read_meta(&host_dir)?;
+        let (host_dir, mut meta, task_context) = host::resolve_task(&config, task_id)?;
         crate::migration::backfill_source_repo(&mut meta, &config);
+        regen_engine_path = task_context.engine_path.clone();
+        if target_projects.is_none() {
+            target_projects = Some(vec![task_context.default_project.clone()]);
+        }
 
         let mut plan: Vec<(String, PathBuf)> = Vec::new();
         for primary in &meta.primary_plugins {
@@ -92,14 +96,11 @@ pub fn run(
             task_id
         )));
     }
+    let target_projects = target_projects.unwrap_or_else(|| vec![config.default_project.clone()]);
 
     // === Switch every junction for every project ===
     for project_path in &target_projects {
-        let project_name = project_path
-            .file_name()
-            .unwrap()
-            .to_string_lossy()
-            .to_string();
+        let project_name = canonical_project_key(project_path);
 
         output::print_info(&format!(
             "Switching project '{}' to task '{}' ({} junction(s))...",
@@ -163,7 +164,7 @@ pub fn run(
     // reflects the new worktrees. We invoke UBT's GenerateProjectFiles mode
     // (one per target project). See UE 5.5 UnrealBuildTool.cs L252.
     if !skip_regen_project_files {
-        let _ = regenerate_project_files(&config, &target_projects);
+        let _ = regenerate_project_files(&regen_engine_path, &target_projects);
     } else {
         output::print_info("Skipped: --skip-regen-project-files (run UBT manually to refresh IDE)");
     }
@@ -191,6 +192,14 @@ fn clear_ubt_cache(project_path: &Path) {
             }
         }
     }
+}
+
+fn canonical_project_key(project_path: &Path) -> String {
+    dunce::canonicalize(project_path)
+        .unwrap_or_else(|_| project_path.to_path_buf())
+        .to_string_lossy()
+        .to_string()
+        .to_lowercase()
 }
 
 fn handle_existing_path(junction_path: &Path, project_name: &str) -> Result<()> {
@@ -368,9 +377,8 @@ fn find_main_uproject(project_dir: &Path) -> Result<PathBuf> {
 /// Per UE 5.5 `UnrealBuildTool.cs:252`, `-ProjectFiles` (alias of
 /// `-Mode=GenerateProjectFiles`) auto-detects the IDE installed on the
 /// current machine (VS / Rider / VSCode / CLion / etc.).
-fn regenerate_project_files(config: &Config, target_projects: &[PathBuf]) -> Result<()> {
-    let ubt_exe = config
-        .engine_path
+fn regenerate_project_files(engine_path: &Path, target_projects: &[PathBuf]) -> Result<()> {
+    let ubt_exe = engine_path
         .join("Engine")
         .join("Binaries")
         .join("DotNET")

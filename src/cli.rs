@@ -40,6 +40,93 @@ pub enum MergeStrategy {
 
 #[derive(Subcommand)]
 pub enum Commands {
+    /// Simple first-run setup. Detect/register a workspace and install AI skill.
+    Init {
+        /// Workspace name. If omitted, UnrealDevFlow suggests one from project path.
+        #[arg(long)]
+        workspace: Option<String>,
+
+        /// UE project directory containing a .uproject file.
+        #[arg(long)]
+        project: Option<PathBuf>,
+
+        /// Project plugins root. If omitted, inferred from project siblings.
+        #[arg(long)]
+        plugins_root: Option<PathBuf>,
+
+        /// Hosts root. If omitted, defaults to <project-parent>/Hosts.
+        #[arg(long)]
+        hosts_root: Option<PathBuf>,
+
+        /// UE engine path. If omitted, inferred from .uproject EngineAssociation.
+        #[arg(long)]
+        engine_path: Option<PathBuf>,
+
+        /// Skip confirmation prompts.
+        #[arg(long, short = 'y')]
+        yes: bool,
+    },
+
+    /// Start a task with a friendly workflow wrapper around create.
+    Start {
+        /// Original task description.
+        description: String,
+
+        /// Workspace name. Required when more than one workspace exists.
+        #[arg(long)]
+        workspace: Option<String>,
+
+        /// Custom task ID.
+        #[arg(long)]
+        id: Option<String>,
+
+        /// Primary plugin names.
+        #[arg(long, value_delimiter = ',')]
+        primary: Option<Vec<String>>,
+
+        /// Dependency override mappings.
+        #[arg(long = "override-dep", value_parser = parse_dep_override)]
+        override_dep: Vec<DepOverride>,
+
+        /// Skip confirmation prompts.
+        #[arg(long, short = 'y')]
+        yes: bool,
+    },
+
+    /// Tell the user the single next step for a task.
+    Next {
+        /// Task ref, e.g. workspace/task-id. If omitted, uses latest task when unambiguous.
+        task_ref: Option<String>,
+    },
+
+    /// Finish a task by running the merge guide.
+    Finish {
+        /// Task ref, e.g. workspace/task-id. If omitted, uses latest task when unambiguous.
+        task_ref: Option<String>,
+
+        /// Merge strategy. If omitted, asks interactively.
+        #[arg(long, value_enum)]
+        strategy: Option<MergeStrategy>,
+
+        /// Merge all primary plugins.
+        #[arg(long)]
+        all: bool,
+
+        /// Target primary plugin.
+        #[arg(long)]
+        plugin: Option<String>,
+
+        /// Skip confirmation prompts after strategy is known.
+        #[arg(long, short = 'y')]
+        yes: bool,
+    },
+
+    /// Manage named project workspaces.
+    Workspace {
+        #[command(subcommand)]
+        action: WorkspaceAction,
+    },
+
     /// First-time configuration (Hosts path, plugins root, engine path)
     Configure {
         /// Hosts root directory (skip prompt if provided)
@@ -75,6 +162,10 @@ pub enum Commands {
         /// Original prompt/task description to save in metadata
         #[arg(long)]
         prompt: Option<String>,
+
+        /// Workspace name. Required when more than one workspace exists.
+        #[arg(long)]
+        workspace: Option<String>,
 
         /// v2: primary plugin names (comma-separated). If omitted, falls back
         /// to the legacy `plugin_path` configured plugin.
@@ -166,7 +257,11 @@ pub enum Commands {
     },
 
     /// List all tasks
-    List,
+    List {
+        /// Workspace name to filter tasks
+        #[arg(long)]
+        workspace: Option<String>,
+    },
 
     /// Show current Junction status and active task
     Status,
@@ -260,6 +355,42 @@ pub enum Commands {
     Skills {
         #[command(subcommand)]
         action: SkillsAction,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum WorkspaceAction {
+    /// Add or update a named UE project workspace.
+    Add {
+        name: String,
+        /// UE project directory containing a .uproject.
+        #[arg(long)]
+        project: PathBuf,
+        /// Hosts root directory.
+        #[arg(long)]
+        hosts_root: PathBuf,
+        /// Project plugins root.
+        #[arg(long)]
+        plugins_root: PathBuf,
+        /// UE engine path. If omitted, inferred from project.
+        #[arg(long)]
+        engine_path: Option<PathBuf>,
+        /// Legacy default primary plugin path.
+        #[arg(long)]
+        plugin_path: Option<PathBuf>,
+        /// Skip confirmation prompts.
+        #[arg(long, short = 'y')]
+        yes: bool,
+    },
+    /// List registered workspaces.
+    List,
+    /// Check whether a workspace points at valid directories.
+    Doctor { name: String },
+    /// Remove a workspace registration.
+    Remove {
+        name: String,
+        #[arg(long, short = 'y')]
+        yes: bool,
     },
 }
 

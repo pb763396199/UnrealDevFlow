@@ -15,15 +15,33 @@ argument-hint: '描述你要做的任务'
 >
 > 本 SKILL.md 与 AGENTS.md 顶部「5 步标准工作流」保持一致，下方是详细展开。
 
+## 🚀 小白优先入口
+
+优先使用这 4 个命令，让用户不用理解底层配置表：
+
+```powershell
+unrealdevflow init --project "<UE项目目录>" [--workspace <name>]
+unrealdevflow start "用户原始需求" --workspace <name> --primary <Plugin> --id <task-id> --yes
+unrealdevflow next <workspace>/<task-id>
+unrealdevflow finish <workspace>/<task-id>
+```
+
+- `init` 自动探测 UE 项目、Plugins 根目录、Engine 路径、Hosts 目录，保存 workspace，并安装 AI skill。
+- workspace 名称可以由工具建议，也可以用户自定义；内部会规范成 kebab-case。
+- 多 workspace 时任务引用必须使用 `workspace/task-id`；短 id 歧义时必须报错，不能猜测。
+- `start` 包装 `create`，会把用户原始需求写入任务 prompt。
+- `next` 只告诉用户当前最该做的一步。
+- `finish` 是合并向导，仍必须让用户选择合并策略，默认推荐 rebase。
+
 ## 🚀 5 步标准工作流
 
 | 步骤 | 命令 | 关键点 |
 |---|---|---|
-| 1. CREATE | `unrealdevflow create "<desc>" --id <id> --prompt "<raw>" --yes` | 必带 `--prompt` 保存原始需求；多主插件用 `--primary` |
-| 2. WORK | 编辑 `{hosts_root}/T-<id>_Host/Plugins/<plugin>/Source/...` | 绝不动主仓库；commit 必须中文 + 反思 |
-| 3. BUILD | `unrealdevflow build <id>` （严格模式自动启用） | 严格 flag: `-FailIfGeneratedCodeChanges -NoUBTMakefiles -DisableAdaptiveUnity` |
-| 4. SWITCH | 告诉用户运行 `unrealdevflow switch <id>` + 重启 Editor | agent 不自己执行 switch |
-| 5. MERGE → CLEANUP | `unrealdevflow merge <id> --strategy <s>` → 用户确认后 `cleanup <id>` | `--strategy` 必填，必须询问用户；merge 后不要立即 cleanup |
+| 1. START/CREATE | `unrealdevflow start "<desc>" --workspace <w> --id <id> --primary <Plugin> --yes` | 小白用 `start`；专业模式可用 `create --prompt` |
+| 2. WORK | 编辑 `{hosts_root}/W-<workspace>/T-<id>_Host/Plugins/<plugin>/Source/...` | 绝不动主仓库；commit 必须中文 + 反思 |
+| 3. BUILD | `unrealdevflow build <workspace>/<id>` （严格模式自动启用） | 严格 flag: `-FailIfGeneratedCodeChanges -NoUBTMakefiles -DisableAdaptiveUnity` |
+| 4. SWITCH | 告诉用户运行 `unrealdevflow switch <workspace>/<id>` + 重启 Editor | agent 不自己执行 switch |
+| 5. MERGE → CLEANUP | `unrealdevflow finish <workspace>/<id>` 或 `merge ... --strategy <s>` → 用户确认后 `cleanup` | `--strategy` 必须由用户选择；merge 后不要立即 cleanup |
 
 完整说明见后文「完整工作流」章节。
 
@@ -41,7 +59,7 @@ argument-hint: '描述你要做的任务'
 ```
 主仓库 (Plugins/AesWorld)     ← 用户日常开发，永远不动
     ↓ git worktree
-任务 Host (Hosts/T-xxx_Host)  ← 隔离的工作空间，独立编译
+任务 Host (Hosts/W-<workspace>/T-xxx_Host)  ← 隔离的工作空间，独立编译
     ↓ NTFS Junction
 UE 项目 (DEV/Plugins/AesWorld) ← 验收时切换指向
 ```
@@ -54,10 +72,24 @@ Skill 通过 `unrealdevflow` 命令调用。确保工具已安装并在 PATH 中
 
 ### 第一步：创建任务（保存用户原始意图）
 
+小白入口：
+
+```powershell
+unrealdevflow start "任务描述" `
+    --workspace workspace-name `
+    --id task-id `
+    --primary AesWorld `
+    --yes
+```
+
+专业入口：
+
 ```powershell
 unrealdevflow create "任务描述" `
+    --workspace workspace-name `
     --id task-id `
     --prompt "用户的原始prompt，完整保存" `
+    --primary AesWorld `
     --yes
 ```
 
@@ -66,12 +98,8 @@ unrealdevflow create "任务描述" `
 ### 第二步：读取任务元信息
 
 ```powershell
-# 从 config.toml 读取 hosts_root
-$config = Get-Content "$env:USERPROFILE\.unrealdevflow\config.toml" | ConvertFrom-StringData
-$hostsRoot = $config.hosts_root.Trim('"')
-
-# 读取任务元信息
-Get-Content "$hostsRoot\T-{task-id}_Host\.udf-meta.json"
+# 优先直接读取任务元信息；多 workspace 路径如下
+Get-Content "{hosts_root}\W-{workspace}\T-{task-id}_Host\.udf-meta.json"
 ```
 
 获取 worktree 路径，后续所有文件操作都在这个路径下进行。
@@ -81,26 +109,26 @@ Get-Content "$hostsRoot\T-{task-id}_Host\.udf-meta.json"
 **所有代码修改必须在 worktree 路径下进行**：
 
 ```
-{hosts_root}\T-{task-id}_Host\Plugins\AesWorld\Source\
+{hosts_root}\W-{workspace}\T-{task-id}_Host\Plugins\AesWorld\Source\
 ```
 
 - 读代码：从这个路径读
 - 改代码：在这个路径改
-- 不要碰主仓库 `{plugin_path}`
+- 不要碰主仓库 `{plugins_root}\AesWorld`
 
 ### 第四步：编译验证
 
 ```powershell
-unrealdevflow build {task-id}
+unrealdevflow build {workspace}/{task-id}
 ```
 
-编译产物在 `T-{task-id}_Host\Plugins\AesWorld\Binaries\Win64\`
+编译产物在 `W-{workspace}\T-{task-id}_Host\Plugins\AesWorld\Binaries\Win64\`
 
 ### 第五步：通知用户验收
 
 告诉用户：
 1. 任务已完成
-2. 运行 `unrealdevflow switch {task-id}` 切换
+2. 运行 `unrealdevflow switch {workspace}/{task-id}` 切换
 3. 重启 UE Editor 验收
 
 ### 第六步：验收后处理
@@ -108,23 +136,18 @@ unrealdevflow build {task-id}
 用户验收通过后：
 ```powershell
 # 合并（不立即清理，保留 worktree 和分支供检查）
-unrealdevflow merge {task-id} --strategy rebase
+unrealdevflow merge {workspace}/{task-id} --strategy rebase
 
 # 检查 merge 结果
 git log --oneline -5
 
 # 确认无误后清理
-unrealdevflow cleanup {task-id}
-```
-
-或者一步到位（跳过检查，有风险）：
-```powershell
-unrealdevflow merge {task-id} --strategy rebase --cleanup
+unrealdevflow cleanup {workspace}/{task-id}
 ```
 
 用户验收不通过：
 ```powershell
-unrealdevflow delete {task-id} --yes --force
+unrealdevflow delete {workspace}/{task-id} --yes --force
 ```
 
 ## 关键规则
@@ -198,18 +221,22 @@ Task#001 添加建筑轮廓线拍平功能
 
 | 命令 | 说明 |
 |---|---|
-| `configure --hosts-root ... --plugin-path ... --default-project ...` | 配置 |
-| `create "描述" --id xxx --prompt "原始 prompt" --yes` | 创建任务 |
-| `build <id>` | 编译 |
-| `switch <id> --force` | 切换 Junction |
+| `init --project <UE项目> [--workspace <name>]` | 小白初始化 workspace |
+| `workspace add/list/doctor/remove` | 管理多个 UE 项目环境 |
+| `start "描述" --workspace <w> --id xxx --primary <Plugin> --yes` | 小白创建任务 |
+| `next <workspace/task>` | 告诉用户下一步 |
+| `finish <workspace/task>` | 验收通过后的合并向导 |
+| `configure --hosts-root ... --plugins-root ... --default-project ...` | 兼容配置 |
+| `create "描述" --workspace <w> --id xxx --prompt "原始 prompt" --yes` | 专业创建任务 |
+| `build <workspace/task>` | 编译 |
+| `switch <workspace/task> --force` | 切换 Junction |
 | `list` | 列出任务 |
 | `status` | 查看状态 |
-| `merge <id> --strategy <策略>` | 合并（保留 worktree 和分支） |
-| `merge <id> --strategy <策略> --cleanup` | 合并并立即清理 |
-| `cleanup <id>` | 手动清理 worktree 和分支 |
-| `delete <id> --yes --force` | 删除并清理（不合并） |
-| `merge <id> --dry-run` | 预览合并 |
-| `delete <id> --dry-run` | 预览删除 |
+| `merge <workspace/task> --strategy <策略>` | 合并（保留 worktree 和分支） |
+| `cleanup <workspace/task>` | 手动清理 worktree 和分支 |
+| `delete <workspace/task> --yes --force` | 删除并清理（不合并） |
+| `merge <workspace/task> --dry-run` | 预览合并 |
+| `delete <workspace/task> --dry-run` | 预览删除 |
 
 ## 示例：完整任务流程
 
@@ -217,23 +244,22 @@ Task#001 添加建筑轮廓线拍平功能
 
 ```powershell
 # 1. 创建任务
-unrealdevflow create "EarthPrefabActor保存后Component丢失问题调查" `
+unrealdevflow start "EarthPrefabActor保存后Component丢失问题调查" `
+    --workspace neon-dev `
     --id prefab-save-bug `
-    --prompt "调查EarthPrefabActor在关卡中保存后重新打开时Component丢失的问题，怀疑是EarthSplineComponent或EarthDataBase的同步逻辑导致" `
+    --primary AesWorld `
     --yes
 
-# 2. 读取元信息（从 config.toml 获取 hosts_root）
-$config = Get-Content "$env:USERPROFILE\.unrealdevflow\config.toml" | ConvertFrom-StringData
-$hostsRoot = $config.hosts_root.Trim('"')
-Get-Content "$hostsRoot\T-prefab-save-bug_Host\.udf-meta.json"
+# 2. 读取元信息
+Get-Content "{hosts_root}\W-neon-dev\T-prefab-save-bug_Host\.udf-meta.json"
 
 # 3. 在 worktree 中调查代码
-# 读：$hostsRoot\T-prefab-save-bug_Host\Plugins\AesWorld\Source\...
+# 读：{hosts_root}\W-neon-dev\T-prefab-save-bug_Host\Plugins\AesWorld\Source\...
 # 改：同上
 
 # 4. 编译
-unrealdevflow build prefab-save-bug
+unrealdevflow build neon-dev/prefab-save-bug
 
 # 5. 通知用户
-# "任务完成，请运行 unrealdevflow switch prefab-save-bug 并重启 Editor 验收"
+# "任务完成，请运行 unrealdevflow switch neon-dev/prefab-save-bug 并重启 Editor 验收"
 ```

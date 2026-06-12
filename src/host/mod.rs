@@ -2,12 +2,52 @@
 
 pub mod uproject;
 
-use crate::error::{HostError, Result};
+use crate::config::{Config, WorkspaceConfig};
+use crate::error::{HostError, Result, UdfError};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 2;
+pub const CURRENT_SCHEMA_VERSION: u32 = 3;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskContext {
+    pub workspace: String,
+    pub hosts_root: PathBuf,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plugin_path: Option<PathBuf>,
+    pub default_project: PathBuf,
+    pub engine_path: PathBuf,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plugins_root: Option<PathBuf>,
+    #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
+    pub plugin_overrides: std::collections::HashMap<String, PathBuf>,
+}
+
+impl TaskContext {
+    pub fn from_workspace(name: &str, workspace: &WorkspaceConfig) -> Self {
+        Self {
+            workspace: name.to_string(),
+            hosts_root: workspace.hosts_root.clone(),
+            plugin_path: workspace.plugin_path.clone(),
+            default_project: workspace.default_project.clone(),
+            engine_path: workspace.engine_path.clone(),
+            plugins_root: workspace.plugins_root.clone(),
+            plugin_overrides: workspace.plugin_overrides.clone(),
+        }
+    }
+
+    pub fn as_workspace_config(&self) -> WorkspaceConfig {
+        WorkspaceConfig {
+            hosts_root: self.hosts_root.clone(),
+            plugin_path: self.plugin_path.clone(),
+            default_project: self.default_project.clone(),
+            engine_path: self.engine_path.clone(),
+            plugins_root: self.plugins_root.clone(),
+            plugin_overrides: self.plugin_overrides.clone(),
+        }
+    }
+}
 
 /// Build status information
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -92,6 +132,12 @@ pub struct TaskMeta {
     /// v2 dependency plugins. Always empty in migrated v1 metadata.
     #[serde(default)]
     pub dependency_plugins: Vec<DependencyPlugin>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_uid: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context: Option<TaskContext>,
 }
 
 impl TaskMeta {
@@ -180,6 +226,31 @@ pub fn list_tasks(hosts_root: &Path) -> Result<Vec<TaskMeta>> {
                 Err(_) => continue,
             }
         }
+
+        if path.is_dir()
+            && path
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("W-")
+        {
+            for host_entry in fs::read_dir(&path)? {
+                let host_entry = host_entry?;
+                let host_path = host_entry.path();
+                if host_path.is_dir()
+                    && host_path
+                        .file_name()
+                        .unwrap()
+                        .to_string_lossy()
+                        .starts_with("T-")
+                {
+                    match read_meta(&host_path) {
+                        Ok(meta) => tasks.push(meta),
+                        Err(_) => continue,
+                    }
+                }
+            }
+        }
     }
 
     Ok(tasks)
@@ -191,6 +262,86 @@ pub fn get_task_host(hosts_root: &Path, task_id: &str) -> Result<PathBuf> {
         return Err(HostError::NotExists(host_dir).into());
     }
     Ok(host_dir)
+}
+
+pub fn workspace_host_root(hosts_root: &Path, workspace: &str) -> PathBuf {
+    hosts_root.join(format!(
+        "W-{}",
+        crate::config::sanitize_workspace_name(workspace)
+    ))
+}
+
+pub fn task_host_dir(hosts_root: &Path, workspace: Option<&str>, task_id: &str) -> PathBuf {
+    match workspace {
+        Some(name) => workspace_host_root(hosts_root, name).join(format!("T-{}_Host", task_id)),
+        None => hosts_root.join(format!("T-{}_Host", task_id)),
+    }
+}
+
+pub fn parse_task_ref(task_ref: &str) -> (Option<String>, String) {
+    if let Some((workspace, id)) = task_ref.split_once('/') {
+        (Some(workspace.to_string()), id.to_string())
+    } else {
+        (None, task_ref.to_string())
+    }
+}
+
+pub fn resolve_task(config: &Config, task_ref: &str) -> Result<(PathBuf, TaskMeta, TaskContext)> {
+    let (workspace_name, task_id) = parse_task_ref(task_ref);
+    let mut candidates: Vec<(PathBuf, String, WorkspaceConfig)> = Vec::new();
+
+    if let Some(name) = workspace_name {
+        let (resolved_name, workspace) = config.resolve_workspace(Some(&name))?;
+        candidates.push((
+            task_host_dir(&workspace.hosts_root, Some(&resolved_name), &task_id),
+            resolved_name,
+            workspace,
+        ));
+    } else {
+        let legacy_host = task_host_dir(&config.hosts_root, None, &task_id);
+        if legacy_host.exists() {
+            candidates.push((
+                legacy_host,
+                crate::config::DEFAULT_WORKSPACE.to_string(),
+                config.legacy_workspace(),
+            ));
+        }
+
+        for (name, workspace) in &config.workspaces {
+            let host = task_host_dir(&workspace.hosts_root, Some(name), &task_id);
+            if host.exists() {
+                candidates.push((host, name.clone(), workspace.clone()));
+            }
+        }
+    }
+
+    let existing: Vec<_> = candidates
+        .into_iter()
+        .filter(|(host_dir, _, _)| host_dir.exists())
+        .collect();
+
+    if existing.is_empty() {
+        return Err(HostError::NotExists(PathBuf::from(task_ref)).into());
+    }
+    if existing.len() > 1 {
+        let names = existing
+            .iter()
+            .map(|(_, name, _)| format!("{}/{}", name, task_id))
+            .collect::<Vec<_>>()
+            .join(", ");
+        return Err(UdfError::Other(format!(
+            "任务 '{}' 在多个 workspace 中存在，请使用完整 task ref：{}",
+            task_id, names
+        )));
+    }
+
+    let (host_dir, fallback_workspace_name, fallback_workspace) =
+        existing.into_iter().next().unwrap();
+    let meta = read_meta(&host_dir)?;
+    let context = meta.context.clone().unwrap_or_else(|| {
+        TaskContext::from_workspace(&fallback_workspace_name, &fallback_workspace)
+    });
+    Ok((host_dir, meta, context))
 }
 
 pub fn delete_host(host_dir: &Path) -> Result<()> {

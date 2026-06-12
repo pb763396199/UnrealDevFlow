@@ -103,6 +103,8 @@ pub fn run(
             engine_path,
             plugins_root: plugins_root_opt,
             plugin_overrides: HashMap::new(),
+            workspaces: HashMap::new(),
+            last_used_workspace: None,
         };
 
         config.save()?;

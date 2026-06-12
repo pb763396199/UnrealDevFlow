@@ -112,16 +112,25 @@ fn assess_primary(host_dir: &Path, primary: &PrimaryPlugin) -> Result<PrimaryDan
 pub fn run(task_id: &str, force: bool, skip_confirm: bool, dry_run: bool) -> Result<()> {
     let config = Config::load()?;
 
-    let host_dir = host::get_task_host(&config.hosts_root, task_id)?;
-    let mut meta = host::read_meta(&host_dir)?;
+    let (host_dir, mut meta, _task_context) = host::resolve_task(&config, task_id)?;
     crate::migration::backfill_source_repo(&mut meta, &config);
 
-    let expected_branch = format!("task-{}", task_id);
+    let task_id_only = meta.id.clone();
+    let expected_branches = vec![
+        format!("task-{}", task_id_only),
+        format!(
+            "task/{}/{}",
+            meta.workspace
+                .as_deref()
+                .unwrap_or(crate::config::DEFAULT_WORKSPACE),
+            task_id_only
+        ),
+    ];
     for p in &meta.primary_plugins {
-        if p.branch != expected_branch {
+        if !expected_branches.contains(&p.branch) {
             return Err(UdfError::Other(format!(
-                "Branch name '{}' for plugin '{}' does not match expected '{}'. Aborting delete.",
-                p.branch, p.name, expected_branch
+                "Branch name '{}' for plugin '{}' does not match expected {:?}. Aborting delete.",
+                p.branch, p.name, expected_branches
             )));
         }
     }

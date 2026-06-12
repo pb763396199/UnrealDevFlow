@@ -1,7 +1,7 @@
 //! Create command implementation (v2 multi-plugin support)
 
 use crate::cli::{DepOverride, DepOverrideKind};
-use crate::config::Config;
+use crate::config::{Config, WorkspaceConfig};
 use crate::error::{Result, UdfError};
 use crate::git;
 use crate::host::{self, DependencyPlugin, DependencySource, PrimaryPlugin, TaskMeta};
@@ -15,24 +15,30 @@ pub fn run(
     description: &str,
     custom_id: Option<String>,
     prompt: Option<String>,
+    workspace: Option<String>,
     primary: Option<Vec<String>>,
     overrides: Vec<DepOverride>,
     skip_confirm: bool,
 ) -> Result<()> {
     let config = Config::load()?;
+    let (workspace_name, workspace_config) = config.resolve_workspace(workspace.as_deref())?;
 
     let task_id = match custom_id {
         Some(id) => id,
         None => suggest_task_id(description),
     };
 
-    let host_dir = config.hosts_root.join(format!("T-{}_Host", task_id));
+    let host_dir = host::task_host_dir(
+        &workspace_config.hosts_root,
+        Some(&workspace_name),
+        &task_id,
+    );
     if host_dir.exists() {
         return Err(UdfError::TaskAlreadyExists(task_id));
     }
 
     // === Resolve primary plugins ===
-    let plugins_root = config.effective_plugins_root().ok_or_else(|| {
+    let plugins_root = workspace_config.effective_plugins_root().ok_or_else(|| {
         UdfError::Other(
             "未配置 plugins_root（或 v1 plugin_path），请先运行 unrealdevflow configure"
                 .to_string(),
@@ -40,14 +46,18 @@ pub fn run(
     })?;
     let project_plugins = scanner::enumerate_plugins(&plugins_root);
 
-    let primary_names = resolve_primary_names(primary, &config)?;
+    let primary_names = resolve_primary_names(primary, &workspace_config)?;
     validate_primary_names(&primary_names, &project_plugins)?;
 
     // === Discover dependencies via .uplugin parsing ===
     let engine_plugins =
-        scanner::enumerate_plugins(&scanner::engine_plugins_root(&config.engine_path));
-    let combined_overrides =
-        combined_overrides(&config, &overrides, &project_plugins, &engine_plugins)?;
+        scanner::enumerate_plugins(&scanner::engine_plugins_root(&workspace_config.engine_path));
+    let combined_overrides = combined_overrides(
+        &workspace_config,
+        &overrides,
+        &project_plugins,
+        &engine_plugins,
+    )?;
 
     let mut all_dep_names: Vec<String> = Vec::new();
     let mut seen_deps: HashSet<String> = HashSet::new();
@@ -102,7 +112,7 @@ pub fn run(
     }
 
     // === Create Host directory with enabled plugin list ===
-    let engine_version = config
+    let engine_version = workspace_config
         .engine_path
         .file_name()
         .map(|n| n.to_string_lossy().replace("UE_", ""))
@@ -120,7 +130,7 @@ pub fn run(
 
     // === Create one worktree per primary plugin ===
     let mut primary_meta: Vec<PrimaryPlugin> = Vec::new();
-    let branch_name = format!("task-{}", task_id);
+    let branch_name = format!("task/{}/{}", workspace_name, task_id);
     for name in &primary_names {
         let source_repo = project_plugins.get(name).cloned().unwrap();
         let repo = git::open_repo(&source_repo)?;
@@ -192,10 +202,17 @@ pub fn run(
         build_status: None,
         primary_plugins: primary_meta,
         dependency_plugins: dep_meta,
+        workspace: Some(workspace_name.clone()),
+        task_uid: Some(format!("{}/{}", workspace_name, task_id)),
+        context: Some(host::TaskContext::from_workspace(
+            &workspace_name,
+            &workspace_config,
+        )),
     };
     host::write_meta(&host_dir, &meta)?;
 
     output::print_success(&format!("Task '{}' created successfully!", task_id));
+    output::print_info(&format!("  Workspace: {}", workspace_name));
     output::print_info(&format!("  Host: {:?}", host_dir));
     output::print_info(&format!("  Primary plugins: {}", primary_names.join(", ")));
     let project_deps_summary: Vec<String> =
@@ -223,12 +240,21 @@ pub fn run(
             "    Use --override-dep <name>=<absolute-path> to provide a custom location.",
         );
     }
-    output::print_info(&format!("  Build:  unrealdevflow build {}", task_id));
-    output::print_info(&format!("  Switch: unrealdevflow switch {}", task_id));
+    output::print_info(&format!(
+        "  Build:  unrealdevflow build {}/{}",
+        workspace_name, task_id
+    ));
+    output::print_info(&format!(
+        "  Switch: unrealdevflow switch {}/{}",
+        workspace_name, task_id
+    ));
     Ok(())
 }
 
-fn resolve_primary_names(primary: Option<Vec<String>>, config: &Config) -> Result<Vec<String>> {
+fn resolve_primary_names(
+    primary: Option<Vec<String>>,
+    workspace: &WorkspaceConfig,
+) -> Result<Vec<String>> {
     let mut names: Vec<String> = match primary {
         Some(list) => list
             .into_iter()
@@ -238,7 +264,7 @@ fn resolve_primary_names(primary: Option<Vec<String>>, config: &Config) -> Resul
         None => Vec::new(),
     };
     if names.is_empty() {
-        if let Some(legacy) = config.legacy_primary_plugin() {
+        if let Some(legacy) = workspace.legacy_primary_plugin() {
             output::print_info(&format!(
                 "未指定 --primary，使用 v1 兼容默认主插件：{}",
                 legacy
@@ -278,12 +304,12 @@ fn validate_primary_names(
 }
 
 fn combined_overrides(
-    config: &Config,
+    workspace: &WorkspaceConfig,
     cli_overrides: &[DepOverride],
     project_plugins: &HashMap<String, PathBuf>,
     engine_plugins: &HashMap<String, PathBuf>,
 ) -> Result<HashMap<String, PathBuf>> {
-    let mut out: HashMap<String, PathBuf> = config.plugin_overrides.clone();
+    let mut out: HashMap<String, PathBuf> = workspace.plugin_overrides.clone();
     for ov in cli_overrides {
         let path = match &ov.kind {
             DepOverrideKind::CustomPath(p) => p.clone(),

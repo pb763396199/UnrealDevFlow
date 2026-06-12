@@ -46,13 +46,69 @@ fn run() -> Result<()> {
 
     if !matches!(
         cli.command,
-        Commands::Configure { .. } | Commands::Skills { .. }
+        Commands::Configure { .. }
+            | Commands::Init { .. }
+            | Commands::Workspace { .. }
+            | Commands::Skills { .. }
     ) && !config::Config::exists()
     {
         return Err(error::UdfError::NotConfigured);
     }
 
     match cli.command {
+        Commands::Init {
+            workspace,
+            project,
+            plugins_root,
+            hosts_root,
+            engine_path,
+            yes,
+        } => commands::init::run(
+            workspace,
+            project,
+            plugins_root,
+            hosts_root,
+            engine_path,
+            yes,
+        )?,
+        Commands::Start {
+            description,
+            workspace,
+            id,
+            primary,
+            override_dep,
+            yes,
+        } => commands::simple::start(&description, workspace, id, primary, override_dep, yes)?,
+        Commands::Next { task_ref } => commands::simple::next(task_ref)?,
+        Commands::Finish {
+            task_ref,
+            strategy,
+            all,
+            plugin,
+            yes,
+        } => commands::finish::run(task_ref, strategy, all, plugin, yes)?,
+        Commands::Workspace { action } => match action {
+            cli::WorkspaceAction::Add {
+                name,
+                project,
+                hosts_root,
+                plugins_root,
+                engine_path,
+                plugin_path,
+                yes,
+            } => commands::workspace::add(
+                name,
+                project,
+                hosts_root,
+                plugins_root,
+                engine_path,
+                plugin_path,
+                yes,
+            )?,
+            cli::WorkspaceAction::List => commands::workspace::list()?,
+            cli::WorkspaceAction::Doctor { name } => commands::workspace::doctor(&name)?,
+            cli::WorkspaceAction::Remove { name, yes } => commands::workspace::remove(&name, yes)?,
+        },
         Commands::Configure {
             hosts_root,
             plugin_path,
@@ -70,10 +126,19 @@ fn run() -> Result<()> {
             description,
             id,
             prompt,
+            workspace,
             primary,
             override_dep,
             yes,
-        } => commands::create::run(&description, id, prompt, primary, override_dep, yes)?,
+        } => commands::create::run(
+            &description,
+            id,
+            prompt,
+            workspace,
+            primary,
+            override_dep,
+            yes,
+        )?,
         Commands::Switch {
             task_id,
             project,
@@ -98,7 +163,7 @@ fn run() -> Result<()> {
             build_log_dir,
         )?,
         Commands::BuildStatus { task_id } => commands::build_status::run(&task_id)?,
-        Commands::List => commands::list::run(&cli.format)?,
+        Commands::List { workspace } => commands::list::run(&cli.format, workspace)?,
         Commands::Status => commands::status::run(&cli.format)?,
         Commands::Merge {
             task_id,

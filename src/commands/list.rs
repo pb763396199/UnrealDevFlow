@@ -11,9 +11,23 @@ struct TaskListOutput {
     tasks: Vec<host::TaskMeta>,
 }
 
-pub fn run(format: &crate::cli::OutputFormat) -> Result<()> {
+pub fn run(format: &crate::cli::OutputFormat, workspace: Option<String>) -> Result<()> {
     let config = Config::load()?;
-    let tasks = host::list_tasks(&config.hosts_root)?;
+    let tasks = if let Some(workspace_name) = workspace {
+        let (resolved_name, workspace_config) = config.resolve_workspace(Some(&workspace_name))?;
+        let root = host::workspace_host_root(&workspace_config.hosts_root, &resolved_name);
+        host::list_tasks(&root)?
+    } else {
+        let mut all = host::list_tasks(&config.hosts_root)?;
+        for (name, workspace_config) in &config.workspaces {
+            if workspace_config.hosts_root == config.hosts_root {
+                continue;
+            }
+            let root = host::workspace_host_root(&workspace_config.hosts_root, name);
+            all.extend(host::list_tasks(&root)?);
+        }
+        all
+    };
 
     if tasks.is_empty() {
         output::print_info("No tasks found.");
@@ -28,14 +42,15 @@ pub fn run(format: &crate::cli::OutputFormat) -> Result<()> {
         crate::cli::OutputFormat::Human => {
             println!("Tasks:");
             println!(
-                "{:<20} {:<30} {:<10} {:<20}",
-                "ID", "Name", "Status", "Created"
+                "{:<28} {:<30} {:<10} {:<20}",
+                "Task", "Name", "Status", "Created"
             );
             println!("{}", "-".repeat(80));
             for task in &tasks {
+                let task_ref = task.task_uid.clone().unwrap_or_else(|| task.id.clone());
                 println!(
-                    "{:<20} {:<30} {:<10} {:<20}",
-                    task.id,
+                    "{:<28} {:<30} {:<10} {:<20}",
+                    task_ref,
                     task.name.chars().take(28).collect::<String>(),
                     task.status,
                     task.created.chars().take(19).collect::<String>()

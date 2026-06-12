@@ -5,30 +5,50 @@
 
 ---
 
+## 小白优先入口
+
+```powershell
+unrealdevflow init --project "<UE项目目录>" [--workspace <name>]
+unrealdevflow start "用户原始需求" --workspace <name> --primary <Plugin> --id <task-id> --yes
+unrealdevflow next <workspace>/<task-id>
+unrealdevflow finish <workspace>/<task-id>
+```
+
+- `init` 自动探测 UE 项目、Plugins 根目录、Engine、Hosts，并安装 AI skill。
+- workspace 名称可自动建议，也可用户自定义；多个 workspace 时任务引用必须写成 `workspace/task-id`。
+- `start` 会保存用户原始需求，相当于小白版 `create --prompt ...`。
+- `next` 只告诉用户下一步。
+- `finish` 是合并向导，必须让用户选择策略，默认推荐 rebase。
+
 ## 5 步标准工作流
 
-### 1. CREATE — 创建任务
+### 1. START/CREATE — 创建任务
 ```powershell
-unrealdevflow create "任务描述" --id task-id --prompt "用户原始prompt" --yes
+unrealdevflow start "任务描述" --workspace workspace-name --id task-id --primary AesWorld --yes
+
+# 专业模式
+unrealdevflow create "任务描述" --workspace workspace-name --id task-id --prompt "用户原始prompt" --primary AesWorld --yes
 ```
 - `--id` 短英文 kebab-case
 - `--prompt` **必须完整保存用户原始需求**
+- `--workspace` 多项目并行时必须显式指定
 - 多主插件：`--primary AesWorld,AesWorld_AI`
 - 解决引擎/项目冲突：`--override-dep PCG=project|engine|<path>`
 
 ### 2. WORK — 在 worktree 中工作
 ```
-任务路径：{hosts_root}/T-{id}_Host/Plugins/<plugin>/Source/...
+任务路径：{hosts_root}/W-{workspace}/T-{id}_Host/Plugins/<plugin>/Source/...
+任务引用：{workspace}/{id}
 ```
 - ✅ 改 worktree；commit 用中文格式（含反思）
 - ❌ 不动主仓库 `{plugins_root}/`；不动其他 worktree；不动 DEV 项目
 
 ### 3. BUILD — 编译验证
 ```powershell
-unrealdevflow build <id>                    # 严格模式默认
-unrealdevflow build <id> --background
-unrealdevflow build <id> --primary-only     # 只编主插件
-unrealdevflow build-status <id>
+unrealdevflow build <task-ref>                    # 严格模式默认
+unrealdevflow build <task-ref> --background
+unrealdevflow build <task-ref> --primary-only     # 只编主插件
+unrealdevflow build-status <task-ref>
 ```
 - 严格模式自动启用：`-FailIfGeneratedCodeChanges -NoUBTMakefiles -DisableAdaptiveUnity`
 - 失败看 `Build_<time>.log`
@@ -37,7 +57,7 @@ unrealdevflow build-status <id>
 **不要自己执行 switch！** 告诉用户：
 ```
 ✅ 任务 <id> 已完成
-1. unrealdevflow switch <id>
+1. unrealdevflow switch <task-ref>
 2. 重启 UE Editor
 3. 验证
 ```
@@ -49,16 +69,16 @@ unrealdevflow build-status <id>
 ```
 然后：
 ```powershell
-unrealdevflow merge <id> --strategy rebase
+unrealdevflow merge <task-ref> --strategy rebase
 git log --oneline -5
 # ⚠️ 等用户确认后再 cleanup
-unrealdevflow cleanup <id>
+unrealdevflow cleanup <task-ref>
 ```
 
 **多主插件任务**：
 ```powershell
-unrealdevflow merge <id> --plugin AesWorld --strategy rebase
-unrealdevflow merge <id> --all --strategy rebase   # 逆序逐个
+unrealdevflow merge <task-ref> --plugin AesWorld --strategy rebase
+unrealdevflow merge <task-ref> --all --strategy rebase   # 逆序逐个
 ```
 
 ---
@@ -80,14 +100,18 @@ unrealdevflow merge <id> --all --strategy rebase   # 逆序逐个
 
 | 场景 | 命令 |
 |---|---|
-| 创建任务 | `unrealdevflow create "..." --id xxx --prompt "..." --yes` |
-| 编译 | `unrealdevflow build xxx [--background] [--primary-only]` |
-| 编译状态 | `unrealdevflow build-status xxx` |
-| 通知用户验收 | 告诉用户 `unrealdevflow switch xxx` + 重启 Editor |
-| 合并（必问策略） | `unrealdevflow merge xxx --strategy <s> [--plugin <name> \| --all]` |
-| 清理 | `unrealdevflow cleanup xxx`（用户确认后） |
-| 删除（不合并） | `unrealdevflow delete xxx` |
+| 初始化 | `unrealdevflow init --project <UE项目> [--workspace <name>]` |
+| 创建任务 | `unrealdevflow start "..." --workspace <w> --primary <Plugin> --id xxx --yes` |
+| 下一步 | `unrealdevflow next <workspace/task>` |
+| 编译 | `unrealdevflow build <workspace/task> [--background] [--primary-only]` |
+| 编译状态 | `unrealdevflow build-status <workspace/task>` |
+| 通知用户验收 | 告诉用户 `unrealdevflow switch <workspace/task>` + 重启 Editor |
+| 合并向导 | `unrealdevflow finish <workspace/task>` |
+| 合并（必问策略） | `unrealdevflow merge <workspace/task> --strategy <s> [--plugin <name> \| --all]` |
+| 清理 | `unrealdevflow cleanup <workspace/task>`（用户确认后） |
+| 删除（不合并） | `unrealdevflow delete <workspace/task>` |
 | 列任务 | `unrealdevflow list` |
+| 列 workspace | `unrealdevflow workspace list` |
 | 看状态 | `unrealdevflow status` |
 
 ---

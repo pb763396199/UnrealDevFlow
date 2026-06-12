@@ -64,8 +64,7 @@ pub fn run(
 ) -> Result<()> {
     let config = Config::load()?;
 
-    let host_dir = host::get_task_host(&config.hosts_root, task_id)?;
-    let mut meta = host::read_meta(&host_dir)?;
+    let (host_dir, mut meta, _task_context) = host::resolve_task(&config, task_id)?;
     crate::migration::backfill_source_repo(&mut meta, &config);
 
     if meta.primary_plugins.is_empty() {
@@ -166,11 +165,15 @@ fn merge_single_plugin(
     skip_confirm: bool,
     dry_run: bool,
 ) -> Result<bool> {
-    let expected_branch = format!("task-{}", task_id);
-    if primary.branch != expected_branch {
+    let (_, task_id_only) = host::parse_task_ref(task_id);
+    let legacy_expected = format!("task-{}", task_id_only);
+    let namespaced_suffix = format!("/{}", task_id_only);
+    let branch_matches = primary.branch == legacy_expected
+        || (primary.branch.starts_with("task/") && primary.branch.ends_with(&namespaced_suffix));
+    if !branch_matches {
         return Err(UdfError::Other(format!(
-            "Branch name '{}' for plugin '{}' does not match expected '{}'. Aborting to prevent accidental merge.",
-            primary.branch, primary.name, expected_branch
+            "Branch name '{}' for plugin '{}' does not match expected task id '{}'. Aborting to prevent accidental merge.",
+            primary.branch, primary.name, task_id_only
         )));
     }
 
