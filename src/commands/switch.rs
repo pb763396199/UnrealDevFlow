@@ -197,6 +197,16 @@ fn clear_ubt_cache(project_path: &Path) {
 }
 
 fn handle_existing_path(junction_path: &Path, project_name: &str) -> Result<()> {
+    // Check if it's a broken junction (target no longer exists)
+    if junction::is_broken(junction_path) {
+        output::print_warning(&format!(
+            "Found broken junction at {:?} (target no longer exists)",
+            junction_path
+        ));
+        output::print_info("Removing broken junction...");
+        return junction::delete(junction_path);
+    }
+
     if junction::exists(junction_path).unwrap_or(false) {
         output::print_info(&format!("Removing existing junction at {:?}", junction_path));
         return junction::delete(junction_path);

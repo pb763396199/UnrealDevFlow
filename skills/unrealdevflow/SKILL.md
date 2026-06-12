@@ -139,6 +139,24 @@ unrealdevflow cleanup <id>
 | "Build.bat 不存在" | Re-run `unrealdevflow configure --engine-path "正确路径"` |
 | Wrong merge order | `git reflog`, then `git reset --hard <before-merge-commit>`, re-run `unrealdevflow merge` |
 | Engine+project dep conflict | `unrealdevflow create ... --override-dep <name>=engine\|project` |
+| "Broken junction" warning on `switch` | **Auto-fixed**: `switch` detects broken junctions (target deleted) and removes them automatically. This happens when a task was deleted without cleanup. No manual action needed. |
+
+## Junction lifecycle (important)
+
+When you run `unrealdevflow delete <id>`, the tool **automatically cleans up junctions** in all known main projects that point to the deleted task's worktrees. This prevents "broken junctions" that would block future `switch` operations.
+
+**What happens during `delete`:**
+1. Scans all projects in `~/.unrealdevflow/state.json`
+2. Finds junctions pointing to the task's worktrees
+3. Removes those junctions from the main projects
+4. Then deletes the task's worktrees and branches
+
+**What happens during `switch`:**
+- If it encounters a broken junction (target no longer exists), it automatically removes it and creates a fresh junction
+- You'll see a warning: "Found broken junction at ... (target no longer exists)"
+- This is safe and expected behavior
+
+**Best practice:** Always use `unrealdevflow delete` instead of manually removing worktree directories. This ensures junctions are properly cleaned up.
 
 ## Full docs (in the tool's source repo)
 

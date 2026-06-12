@@ -694,6 +694,27 @@ git reflog  # 找到 merge 前的 commit
 git reset --hard <commit>
 ```
 
+### 问题：switch 时遇到"Broken junction"警告
+
+**现象**：
+```
+⚠ Found broken junction at F:\...\UGA\DEV\Plugins\AesWorld (target no longer exists)
+Removing broken junction...
+```
+
+**原因**：之前的任务被删除时，主项目中的 Junction 没有被清理，指向了已不存在的 worktree 目录。
+
+**解决**：
+- **自动修复**：`switch` 命令会自动检测并删除断开的 Junction，然后创建新的 Junction。无需手动操作。
+- **预防措施**：始终使用 `unrealdevflow delete <task-id>` 删除任务，而不是手动删除 worktree 目录。`delete` 命令会自动清理所有指向该任务 worktree 的 Junction。
+
+**Junction 生命周期说明**：
+1. **创建时**：`switch <task-id>` 在主项目的 `Plugins/` 目录下创建 Junction，指向任务的 worktree
+2. **删除时**：`delete <task-id>` 会扫描 `~/.unrealdevflow/state.json` 中所有已知项目，找到并删除指向该任务 worktree 的 Junction
+3. **切换时**：`switch` 如果遇到断开的 Junction（目标已删除），会自动清理并重新创建
+
+**最佳实践**：永远使用 `unrealdevflow delete` 而不是手动删除目录，这样可以确保 Junction 被正确清理。
+
 ## 版本信息
 
 - UnrealDevFlow v0.1.0

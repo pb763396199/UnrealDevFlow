@@ -192,6 +192,67 @@ pub fn run(task_id: &str, force: bool, skip_confirm: bool, dry_run: bool) -> Res
 
     output::print_info(&format!("Deleting task '{}'...", task_id));
 
+    // Step 0: Clean up junctions in all known projects that point to this task's worktrees.
+    // This prevents "broken junctions" that would block future switch operations.
+    output::print_info("Checking for junctions pointing to this task...");
+    let state = crate::state::GlobalState::load()?;
+    let mut junctions_cleaned = 0;
+    
+    for (project_name, project_state) in &state.projects {
+        for junction_state in &project_state.junctions {
+            // Check if this junction points to any worktree in the current task
+            let points_to_task = meta.primary_plugins.iter().any(|p| {
+                let worktree_abs = host_dir.join(&p.worktree);
+                junction_state.junction_target == worktree_abs
+            }) || meta.dependency_plugins.iter().any(|d| {
+                if let Some(rel) = &d.junction {
+                    let dep_abs = host_dir.join(rel);
+                    junction_state.junction_target == dep_abs
+                } else {
+                    false
+                }
+            });
+
+            if points_to_task {
+                output::print_info(&format!(
+                    "  Found junction in project '{}' for plugin '{}': {:?}",
+                    project_name, junction_state.plugin_name, junction_state.junction_path
+                ));
+                
+                // Try to delete the junction
+                if junction_state.junction_path.exists() {
+                    match crate::junction::delete(&junction_state.junction_path) {
+                        Ok(_) => {
+                            output::print_success(&format!(
+                                "    ✓ Removed junction: {:?}",
+                                junction_state.junction_path
+                            ));
+                            junctions_cleaned += 1;
+                        }
+                        Err(e) => {
+                            output::print_warning(&format!(
+                                "    ⚠ Failed to remove junction: {}",
+                                e
+                            ));
+                        }
+                    }
+                } else {
+                    output::print_info(&format!(
+                        "    Junction already gone: {:?}",
+                        junction_state.junction_path
+                    ));
+                }
+            }
+        }
+    }
+    
+    if junctions_cleaned > 0 {
+        output::print_success(&format!(
+            "Cleaned up {} junction(s) from main project(s)",
+            junctions_cleaned
+        ));
+    }
+
     // Step 1: Remove dependency junctions explicitly.
     for dep in &meta.dependency_plugins {
         if let Some(rel) = &dep.junction {

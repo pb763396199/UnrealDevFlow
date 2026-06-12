@@ -43,6 +43,21 @@ pub fn get_target(junction: &Path) -> Result<PathBuf> {
     junction::get_target(junction).map_err(|e| JunctionError::JunctionCrate(e.to_string()).into())
 }
 
+/// Check if a junction is "broken" (target directory no longer exists).
+/// Returns true if:
+/// - The path is a valid junction
+/// - But the target directory does not exist
+pub fn is_broken(junction: &Path) -> bool {
+    if !exists(junction).unwrap_or(false) {
+        return false; // Not a junction at all
+    }
+    
+    match get_target(junction) {
+        Ok(target) => !target.exists(),
+        Err(_) => true, // Can't read target, treat as broken
+    }
+}
+
 pub fn switch(target: &Path, junction: &Path) -> Result<()> {
     // Check if junction path exists
     if junction.exists() {
