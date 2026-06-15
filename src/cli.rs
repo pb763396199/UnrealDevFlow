@@ -6,7 +6,7 @@ use std::path::PathBuf;
 #[derive(Parser)]
 #[command(name = "unrealdevflow")]
 #[command(about = "Unreal Engine plugin parallel development workflow tool")]
-#[command(version)]
+#[command(version = env!("UDF_VERSION_LONG"))]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,

@@ -34,6 +34,16 @@ fn git_stdout(dir: &Path, args: &[&str]) -> String {
     String::from_utf8_lossy(&output.stdout).trim().to_string()
 }
 
+fn git_succeeds(dir: &Path, args: &[&str]) -> bool {
+    std::process::Command::new("git")
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .expect("failed to run git")
+        .status
+        .success()
+}
+
 fn toml_path(path: &Path) -> String {
     path.to_string_lossy().replace('\\', "\\\\")
 }
@@ -645,6 +655,217 @@ plugins_root = "{}"
     );
     assert_eq!(
         git_stdout(&source_repo, &["rev-parse", "task-rebase-preserve"]),
+        original_task_tip
+    );
+    assert_eq!(
+        git_stdout(&worktree, &["rev-parse", "HEAD"]),
+        original_task_tip
+    );
+}
+
+#[test]
+fn rebase_merge_replays_from_actual_merge_base_when_based_on_is_not_in_target() {
+    let temp = TempDir::new().expect("temp dir");
+    let root = temp.path();
+    let config_dir = root.join("config");
+    let hosts_root = root.join("Hosts");
+    let plugins_root = root.join("Plugins");
+    let source_repo = plugins_root.join("AesWorld");
+    let host_dir = hosts_root.join("W-test").join("T-feature-rebase_Host");
+    let worktree = host_dir.join("Plugins").join("AesWorld");
+    fs::create_dir_all(&config_dir).expect("config dir");
+    fs::create_dir_all(host_dir.join("Plugins")).expect("host plugin dir");
+
+    setup_repo_with_base(&source_repo);
+    git(&source_repo, &["checkout", "-b", "feature/sublevels"]);
+
+    fs::write(source_repo.join("feature-l1.txt"), "feature 1\n").expect("feature file");
+    git(&source_repo, &["add", "feature-l1.txt"]);
+    git(&source_repo, &["commit", "-m", "feature level 1"]);
+
+    fs::write(source_repo.join("feature-l2.txt"), "feature 2\n").expect("feature file");
+    git(&source_repo, &["add", "feature-l2.txt"]);
+    git(&source_repo, &["commit", "-m", "feature level 2"]);
+    let feature_tip = git_stdout(&source_repo, &["rev-parse", "HEAD"]);
+
+    git(
+        &source_repo,
+        &[
+            "worktree",
+            "add",
+            "-b",
+            "task-feature-rebase",
+            worktree.to_str().expect("worktree path"),
+            &feature_tip,
+        ],
+    );
+
+    fs::write(worktree.join("task-1.txt"), "task 1\n").expect("task file");
+    git(&worktree, &["add", "task-1.txt"]);
+    git(&worktree, &["commit", "-m", "task commit 1"]);
+
+    fs::write(worktree.join("task-2.txt"), "task 2\n").expect("task file");
+    git(&worktree, &["add", "task-2.txt"]);
+    git(&worktree, &["commit", "-m", "task commit 2"]);
+    let original_task_tip = git_stdout(&worktree, &["rev-parse", "HEAD"]);
+
+    git(&source_repo, &["checkout", "dev"]);
+    fs::write(source_repo.join("dev.txt"), "dev\n").expect("dev file");
+    git(&source_repo, &["add", "dev.txt"]);
+    git(&source_repo, &["commit", "-m", "dev commit must keep id"]);
+    let dev_commit = git_stdout(&source_repo, &["rev-parse", "HEAD"]);
+
+    write_test_config(root, &config_dir, &hosts_root, &plugins_root);
+    write_test_meta(
+        &host_dir,
+        TestContext {
+            root,
+            hosts_root: &hosts_root,
+            plugins_root: &plugins_root,
+        },
+        &source_repo,
+        "feature-rebase",
+        "task-feature-rebase",
+        &feature_tip,
+    );
+
+    Command::cargo_bin("unrealdevflow")
+        .expect("binary")
+        .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
+        .args([
+            "merge",
+            "test/feature-rebase",
+            "--plugin",
+            "AesWorld",
+            "--strategy",
+            "rebase",
+            "-y",
+        ])
+        .assert()
+        .success();
+
+    assert_eq!(
+        git_stdout(&source_repo, &["rev-parse", "dev~4"]),
+        dev_commit
+    );
+    assert_eq!(
+        git_stdout(
+            &source_repo,
+            &["log", "--reverse", "--format=%s", "dev~4..dev"]
+        )
+        .lines()
+        .collect::<Vec<_>>(),
+        vec![
+            "feature level 1",
+            "feature level 2",
+            "task commit 1",
+            "task commit 2",
+        ]
+    );
+    assert!(source_repo.join("feature-l1.txt").exists());
+    assert!(source_repo.join("feature-l2.txt").exists());
+    assert!(source_repo.join("task-1.txt").exists());
+    assert!(source_repo.join("task-2.txt").exists());
+    assert_eq!(
+        git_stdout(&source_repo, &["rev-parse", "feature/sublevels"]),
+        feature_tip
+    );
+    assert_eq!(
+        git_stdout(&source_repo, &["rev-parse", "task-feature-rebase"]),
+        original_task_tip
+    );
+    assert_eq!(
+        git_stdout(&worktree, &["rev-parse", "HEAD"]),
+        original_task_tip
+    );
+    assert_ne!(
+        git_stdout(&source_repo, &["rev-parse", "dev"]),
+        original_task_tip
+    );
+}
+
+#[test]
+fn rebase_merge_restores_target_tip_after_replay_conflict() {
+    let temp = TempDir::new().expect("temp dir");
+    let root = temp.path();
+    let config_dir = root.join("config");
+    let hosts_root = root.join("Hosts");
+    let plugins_root = root.join("Plugins");
+    let source_repo = plugins_root.join("AesWorld");
+    let host_dir = hosts_root.join("W-test").join("T-conflict-rebase_Host");
+    let worktree = host_dir.join("Plugins").join("AesWorld");
+    fs::create_dir_all(&config_dir).expect("config dir");
+    fs::create_dir_all(host_dir.join("Plugins")).expect("host plugin dir");
+
+    setup_repo_with_base(&source_repo);
+    git(&source_repo, &["checkout", "-b", "feature/sublevels"]);
+    fs::write(source_repo.join("base.txt"), "feature\n").expect("feature file");
+    git(&source_repo, &["add", "base.txt"]);
+    git(
+        &source_repo,
+        &["commit", "-m", "feature conflicting change"],
+    );
+    let feature_tip = git_stdout(&source_repo, &["rev-parse", "HEAD"]);
+
+    git(
+        &source_repo,
+        &[
+            "worktree",
+            "add",
+            "-b",
+            "task-conflict-rebase",
+            worktree.to_str().expect("worktree path"),
+            &feature_tip,
+        ],
+    );
+    fs::write(worktree.join("task.txt"), "task\n").expect("task file");
+    git(&worktree, &["add", "task.txt"]);
+    git(&worktree, &["commit", "-m", "task commit"]);
+    let original_task_tip = git_stdout(&worktree, &["rev-parse", "HEAD"]);
+
+    git(&source_repo, &["checkout", "dev"]);
+    fs::write(source_repo.join("base.txt"), "dev\n").expect("dev file");
+    git(&source_repo, &["add", "base.txt"]);
+    git(&source_repo, &["commit", "-m", "dev conflicting change"]);
+    let dev_commit = git_stdout(&source_repo, &["rev-parse", "HEAD"]);
+
+    write_test_config(root, &config_dir, &hosts_root, &plugins_root);
+    write_test_meta(
+        &host_dir,
+        TestContext {
+            root,
+            hosts_root: &hosts_root,
+            plugins_root: &plugins_root,
+        },
+        &source_repo,
+        "conflict-rebase",
+        "task-conflict-rebase",
+        &feature_tip,
+    );
+
+    Command::cargo_bin("unrealdevflow")
+        .expect("binary")
+        .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
+        .args([
+            "merge",
+            "test/conflict-rebase",
+            "--plugin",
+            "AesWorld",
+            "--strategy",
+            "rebase",
+            "-y",
+        ])
+        .assert()
+        .failure();
+
+    assert_eq!(git_stdout(&source_repo, &["rev-parse", "dev"]), dev_commit);
+    assert_eq!(git_stdout(&source_repo, &["status", "--porcelain"]), "");
+    assert!(!git_succeeds(
+        &source_repo,
+        &["rev-parse", "--verify", "CHERRY_PICK_HEAD"]
+    ));
+    assert_eq!(
+        git_stdout(&source_repo, &["rev-parse", "task-conflict-rebase"]),
         original_task_tip
     );
     assert_eq!(

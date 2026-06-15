@@ -58,6 +58,9 @@ tempfile = "3.10"
 assert_cmd = "2.0"
 predicates = "3.1"
 
+[build-dependencies]
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+
 [profile.release]
 opt-level = 3
 lto = true

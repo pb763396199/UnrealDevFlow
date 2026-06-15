@@ -5,7 +5,9 @@ pub mod worktree;
 use crate::error::{GitError, Result};
 use crate::output;
 use git2::Repository;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 pub fn open_repo(path: &Path) -> Result<Repository> {
     Repository::open(path).map_err(|_| GitError::NotARepo(path.to_path_buf()).into())
@@ -140,137 +142,259 @@ pub fn merge_branch(repo: &Repository, branch_name: &str) -> Result<()> {
     Ok(())
 }
 
-/// Rebase task commits onto the current target branch without rewriting the
-/// already-published target commits or the original task branch.
+fn git_stdout(repo_path: &Path, args: &[&str]) -> Result<String> {
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(repo_path)
+        .output()?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(GitError::CommandFailed(format!("git {:?} failed: {}", args, stderr)).into());
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+fn normalize_path_for_compare(path: &Path) -> String {
+    let path = dunce::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let mut text = path.to_string_lossy().replace('\\', "/");
+    if cfg!(windows) {
+        text = text.to_ascii_lowercase();
+    }
+    text.trim_end_matches('/').to_string()
+}
+
+fn same_path(left: &Path, right: &Path) -> bool {
+    normalize_path_for_compare(left) == normalize_path_for_compare(right)
+}
+
+fn main_worktree_from_common_dir(common_dir: &Path) -> Option<PathBuf> {
+    if common_dir
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(|name| name.eq_ignore_ascii_case(".git"))
+        .unwrap_or(false)
+    {
+        common_dir.parent().map(|path| path.to_path_buf())
+    } else {
+        None
+    }
+}
+
+/// Return the main worktree path when `repo_path` is a linked worktree.
 ///
-/// Correct flow:
-/// 1. Record the current target branch tip after it has been updated.
-/// 2. Reset the target branch to the task branch tip.
-/// 3. Rebase the target branch commits after `based_on` onto the recorded tip.
+/// UnrealDevFlow must create new task worktrees from the primary plugin's main
+/// checkout. If a workspace points at a UE project `Plugins` entry that is a
+/// Junction to another task worktree, Git still opens it successfully, but HEAD
+/// belongs to that task branch. This helper detects that situation.
+pub fn linked_worktree_main(repo_path: &Path) -> Result<Option<PathBuf>> {
+    let top_level = PathBuf::from(git_stdout(
+        repo_path,
+        &["rev-parse", "--path-format=absolute", "--show-toplevel"],
+    )?);
+    let common_dir = PathBuf::from(git_stdout(
+        repo_path,
+        &["rev-parse", "--path-format=absolute", "--git-common-dir"],
+    )?);
+
+    let Some(main_worktree) = main_worktree_from_common_dir(&common_dir) else {
+        return Ok(None);
+    };
+
+    if same_path(&top_level, &main_worktree) {
+        Ok(None)
+    } else {
+        Ok(Some(main_worktree))
+    }
+}
+
+fn git_success(repo_path: &Path, args: &[&str]) -> Result<bool> {
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(repo_path)
+        .output()?;
+    Ok(output.status.success())
+}
+
+fn git_is_ancestor(repo_path: &Path, ancestor: &str, descendant: &str) -> Result<bool> {
+    git_success(
+        repo_path,
+        &["merge-base", "--is-ancestor", ancestor, descendant],
+    )
+}
+
+fn restore_target_tip(repo_path: &Path, target_tip: &str) -> Result<()> {
+    let _ = Command::new("git")
+        .args(["cherry-pick", "--abort"])
+        .current_dir(repo_path)
+        .output();
+
+    let restore_output = Command::new("git")
+        .args(["reset", "--hard", target_tip])
+        .current_dir(repo_path)
+        .output()?;
+    if !restore_output.status.success() {
+        let stderr = String::from_utf8_lossy(&restore_output.stderr);
+        return Err(GitError::CommandFailed(format!(
+            "Failed to restore target branch to {}: {}",
+            target_tip, stderr
+        ))
+        .into());
+    }
+    Ok(())
+}
+
+fn backup_ref_name(target_branch: &str) -> String {
+    let safe_branch: String = target_branch
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '/' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    format!("refs/udf/merge-backups/{}/{}", safe_branch, timestamp)
+}
+
+/// Replay task commits onto the current target branch without rewriting target
+/// commits or the original task branch.
 ///
-/// This preserves all existing target-branch commit ids and leaves the task
-/// branch/worktree untouched. Only the task commits copied onto the target
-/// branch receive new ids.
+/// If `based_on` is part of the target history, the replay range is
+/// `based_on..task_tip`. If the task was started from another feature branch,
+/// `based_on` may not be in the target history; in that case use the actual
+/// merge-base between target and task so the whole stacked task chain is
+/// replayed.
 ///
 /// On conflict, aborts and restores the target branch tip before returning an
-/// error.
+/// error. A backup ref is also written before any replay work starts.
 pub fn rebase_branch(repo_path: &Path, branch_name: &str, based_on: &str) -> Result<()> {
-    use std::process::Command;
+    let target_branch = git_stdout(repo_path, &["rev-parse", "--abbrev-ref", "HEAD"])?;
+    let target_tip = git_stdout(repo_path, &["rev-parse", "HEAD"])?;
+    let task_tip = git_stdout(repo_path, &["rev-parse", branch_name])?;
+    let clean_status = git_stdout(repo_path, &["status", "--porcelain"])?;
+    if !clean_status.is_empty() {
+        return Err(GitError::CommandFailed(format!(
+            "Cannot replay task branch '{}': target worktree is not clean.\n{}",
+            branch_name, clean_status
+        ))
+        .into());
+    }
 
-    let target_branch_output = Command::new("git")
-        .args(["rev-parse", "--abbrev-ref", "HEAD"])
+    if git_is_ancestor(repo_path, &task_tip, &target_tip)? {
+        output::print_info(&format!(
+            "Task branch '{}' is already contained in '{}'.",
+            branch_name, target_branch
+        ));
+        return Ok(());
+    }
+
+    let based_on_commit = git_stdout(repo_path, &["rev-parse", "--verify", based_on])?;
+    let actual_merge_base = git_stdout(repo_path, &["merge-base", &target_tip, &task_tip])?;
+    let based_on_in_target = git_is_ancestor(repo_path, &based_on_commit, &target_tip)?;
+    let replay_base = if based_on_in_target {
+        based_on_commit.clone()
+    } else {
+        output::print_warning(&format!(
+            "Task base {} is not in target branch '{}'; replaying from actual merge-base {}.",
+            &based_on_commit[..8.min(based_on_commit.len())],
+            target_branch,
+            &actual_merge_base[..8.min(actual_merge_base.len())]
+        ));
+        actual_merge_base.clone()
+    };
+
+    let merge_commits = git_stdout(
+        repo_path,
+        &[
+            "rev-list",
+            "--merges",
+            &format!("{}..{}", replay_base, task_tip),
+        ],
+    )?;
+    if !merge_commits.is_empty() {
+        return Err(GitError::CommandFailed(format!(
+            "Cannot safely replay task branch '{}': replay range contains merge commit(s):\n{}",
+            branch_name, merge_commits
+        ))
+        .into());
+    }
+
+    let commits = git_stdout(
+        repo_path,
+        &[
+            "rev-list",
+            "--reverse",
+            &format!("{}..{}", replay_base, task_tip),
+        ],
+    )?;
+    let commits: Vec<&str> = commits.lines().filter(|line| !line.is_empty()).collect();
+    if commits.is_empty() {
+        output::print_info(&format!(
+            "No commits to replay from task branch '{}'.",
+            branch_name
+        ));
+        return Ok(());
+    }
+
+    let backup_ref = backup_ref_name(&target_branch);
+    let backup_output = Command::new("git")
+        .args(["update-ref", &backup_ref, &target_tip])
         .current_dir(repo_path)
         .output()?;
-    if !target_branch_output.status.success() {
-        let stderr = String::from_utf8_lossy(&target_branch_output.stderr);
-        return Err(
-            GitError::CommandFailed(format!("Failed to read target branch: {}", stderr)).into(),
-        );
+    if !backup_output.status.success() {
+        let stderr = String::from_utf8_lossy(&backup_output.stderr);
+        return Err(GitError::CommandFailed(format!(
+            "Failed to create merge backup ref '{}': {}",
+            backup_ref, stderr
+        ))
+        .into());
     }
-    let target_branch = String::from_utf8_lossy(&target_branch_output.stdout)
-        .trim()
-        .to_string();
-
-    let target_tip_output = Command::new("git")
-        .args(["rev-parse", "HEAD"])
-        .current_dir(repo_path)
-        .output()?;
-    if !target_tip_output.status.success() {
-        let stderr = String::from_utf8_lossy(&target_tip_output.stderr);
-        return Err(
-            GitError::CommandFailed(format!("Failed to read target tip: {}", stderr)).into(),
-        );
-    }
-    let target_tip = String::from_utf8_lossy(&target_tip_output.stdout)
-        .trim()
-        .to_string();
-
-    let task_tip_output = Command::new("git")
-        .args(["rev-parse", branch_name])
-        .current_dir(repo_path)
-        .output()?;
-    if !task_tip_output.status.success() {
-        let stderr = String::from_utf8_lossy(&task_tip_output.stderr);
-        return Err(
-            GitError::CommandFailed(format!("Failed to read task branch tip: {}", stderr)).into(),
-        );
-    }
-    let task_tip = String::from_utf8_lossy(&task_tip_output.stdout)
-        .trim()
-        .to_string();
 
     output::print_info(&format!(
-        "Rebasing task branch '{}' onto '{}' ({})",
+        "Replaying {} commit(s) from '{}' onto '{}' ({})",
+        commits.len(),
         branch_name,
         target_branch,
         &target_tip[..8.min(target_tip.len())]
     ));
-
+    output::print_info(&format!("  Backup ref: {}", backup_ref));
     output::print_info(&format!(
-        "  Step 1: Reset '{}' to task branch tip ({})",
-        target_branch,
-        &task_tip[..8.min(task_tip.len())]
-    ));
-    let reset_output = Command::new("git")
-        .args(["reset", "--hard", &task_tip])
-        .current_dir(repo_path)
-        .output()?;
-    if !reset_output.status.success() {
-        let stderr = String::from_utf8_lossy(&reset_output.stderr);
-        return Err(GitError::CommandFailed(format!(
-            "Failed to reset '{}' to task branch '{}': {}",
-            target_branch, branch_name, stderr
-        ))
-        .into());
-    }
-
-    output::print_info("  Step 2: Rebase task commits onto recorded target tip");
-    let output = Command::new("git")
-        .args(["rebase", "--onto", &target_tip, based_on])
-        .current_dir(repo_path)
-        .output()?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        if stderr.contains("conflict") || stderr.contains("CONFLICT") {
-            let _ = Command::new("git")
-                .args(["rebase", "--abort"])
-                .current_dir(repo_path)
-                .output();
-            let _ = Command::new("git")
-                .args(["reset", "--hard", &target_tip])
-                .current_dir(repo_path)
-                .output();
-            return Err(GitError::MergeConflict(format!(
-                "Rebase conflict while replaying task branch '{}'. Aborted and restored '{}'.",
-                branch_name, target_branch
-            ))
-            .into());
+        "  Replay base: {}{}",
+        &replay_base[..8.min(replay_base.len())],
+        if based_on_in_target {
+            " (task metadata)"
+        } else {
+            " (actual merge-base)"
         }
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let _ = Command::new("git")
-            .args(["rebase", "--abort"])
-            .current_dir(repo_path)
-            .output();
-        let restore_output = Command::new("git")
-            .args(["reset", "--hard", &target_tip])
+    ));
+
+    for commit in commits {
+        let output = Command::new("git")
+            .args(["cherry-pick", "--empty=drop", commit])
             .current_dir(repo_path)
             .output()?;
-        if !restore_output.status.success() {
-            return Err(GitError::CommandFailed(format!(
-                "Failed to rebase task branch '{}': {}\n{}\nAlso failed to restore '{}'.",
-                branch_name, stderr, stdout, target_branch
+        if !output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            restore_target_tip(repo_path, &target_tip)?;
+            return Err(GitError::MergeConflict(format!(
+                "Replay conflict while cherry-picking {} from branch '{}'. Restored '{}'.\n{}\n{}",
+                &commit[..8.min(commit.len())],
+                branch_name,
+                target_branch,
+                stdout,
+                stderr
             ))
             .into());
         }
-        return Err(GitError::CommandFailed(format!(
-            "Failed to rebase task branch '{}': {}\n{}",
-            branch_name, stderr, stdout
-        ))
-        .into());
     }
 
-    output::print_success("Rebase completed successfully");
+    output::print_success("Replay completed successfully");
     Ok(())
 }
 
