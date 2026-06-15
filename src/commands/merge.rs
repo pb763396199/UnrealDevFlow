@@ -277,7 +277,7 @@ fn merge_single_plugin(
     }
     println!("─────────────────────────────────────────────────────────────");
 
-    if !(force && skip_confirm) {
+    if !skip_confirm {
         let confirmed = dialoguer::Confirm::new()
             .with_prompt(format!(
                 "Merge plugin '{}' using {:?} strategy?",
@@ -303,8 +303,6 @@ fn merge_single_plugin(
         }
     }
 
-    let repo = git::open_repo(&source_repo)?;
-
     // === Fetch latest from origin before merge ===
     if let Err(e) = git::fetch_origin(&source_repo) {
         output::print_warning(&format!("Failed to fetch from origin: {}", e));
@@ -312,6 +310,7 @@ fn merge_single_plugin(
             "Proceeding with local state only. Remote changes may not be detected.",
         );
     }
+    git::fast_forward_upstream(&source_repo)?;
 
     output::print_info(&format!(
         "Merging plugin '{}' using {:?} strategy...",
@@ -338,19 +337,25 @@ fn merge_single_plugin(
                 }
             }
         }
-        crate::cli::MergeStrategy::Merge => match git::merge_branch(&repo, &primary.branch) {
-            Ok(_) => {
-                output::print_success(&format!("Branch '{}' merged successfully", primary.branch));
-                true
-            }
-            Err(e) => {
-                if force {
-                    false
-                } else {
-                    return Err(e);
+        crate::cli::MergeStrategy::Merge => {
+            let repo = git::open_repo(&source_repo)?;
+            match git::merge_branch(&repo, &primary.branch) {
+                Ok(_) => {
+                    output::print_success(&format!(
+                        "Branch '{}' merged successfully",
+                        primary.branch
+                    ));
+                    true
+                }
+                Err(e) => {
+                    if force {
+                        false
+                    } else {
+                        return Err(e);
+                    }
                 }
             }
-        },
+        }
         crate::cli::MergeStrategy::Squash => {
             match git::squash_branch(&source_repo, &primary.branch) {
                 Ok(_) => {

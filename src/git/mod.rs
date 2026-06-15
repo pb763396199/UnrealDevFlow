@@ -32,6 +32,47 @@ pub fn fetch_origin(repo_path: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Fast-forward the current branch to its upstream when one is configured.
+pub fn fast_forward_upstream(repo_path: &Path) -> Result<()> {
+    use std::process::Command;
+
+    let upstream_output = Command::new("git")
+        .args(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"])
+        .current_dir(repo_path)
+        .output()?;
+
+    if !upstream_output.status.success() {
+        return Ok(());
+    }
+
+    let upstream = String::from_utf8_lossy(&upstream_output.stdout)
+        .trim()
+        .to_string();
+    if upstream.is_empty() {
+        return Ok(());
+    }
+
+    output::print_info(&format!(
+        "Fast-forwarding current branch from upstream '{}'...",
+        upstream
+    ));
+    let output = Command::new("git")
+        .args(["merge", "--ff-only", &upstream])
+        .current_dir(repo_path)
+        .output()?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(GitError::CommandFailed(format!(
+            "Failed to fast-forward from upstream '{}': {}",
+            upstream, stderr
+        ))
+        .into());
+    }
+
+    Ok(())
+}
+
 pub fn get_current_commit(repo: &Repository) -> Result<String> {
     let head = repo.head()?;
     let commit = head.peel_to_commit()?;
@@ -99,148 +140,134 @@ pub fn merge_branch(repo: &Repository, branch_name: &str) -> Result<()> {
     Ok(())
 }
 
-/// Rebase the task branch's commits onto the current branch (dev).
+/// Rebase task commits onto the current target branch without rewriting the
+/// already-published target commits or the original task branch.
 ///
-/// Correct flow (per user requirements):
-/// 1. Reset current branch (dev) to the based_on commit (task creation point)
-/// 2. Cherry-pick dev's original new commits (in chronological order)
-/// 3. Cherry-pick task branch's commits (puts them at the top)
+/// Correct flow:
+/// 1. Record the current target branch tip after it has been updated.
+/// 2. Reset the target branch to the task branch tip.
+/// 3. Rebase the target branch commits after `based_on` onto the recorded tip.
 ///
-/// This produces a linear history with task commits at the top.
+/// This preserves all existing target-branch commit ids and leaves the task
+/// branch/worktree untouched. Only the task commits copied onto the target
+/// branch receive new ids.
 ///
-/// On conflict, aborts and returns an error.
+/// On conflict, aborts and restores the target branch tip before returning an
+/// error.
 pub fn rebase_branch(repo_path: &Path, branch_name: &str, based_on: &str) -> Result<()> {
     use std::process::Command;
 
+    let target_branch_output = Command::new("git")
+        .args(["rev-parse", "--abbrev-ref", "HEAD"])
+        .current_dir(repo_path)
+        .output()?;
+    if !target_branch_output.status.success() {
+        let stderr = String::from_utf8_lossy(&target_branch_output.stderr);
+        return Err(
+            GitError::CommandFailed(format!("Failed to read target branch: {}", stderr)).into(),
+        );
+    }
+    let target_branch = String::from_utf8_lossy(&target_branch_output.stdout)
+        .trim()
+        .to_string();
+
+    let target_tip_output = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(repo_path)
+        .output()?;
+    if !target_tip_output.status.success() {
+        let stderr = String::from_utf8_lossy(&target_tip_output.stderr);
+        return Err(
+            GitError::CommandFailed(format!("Failed to read target tip: {}", stderr)).into(),
+        );
+    }
+    let target_tip = String::from_utf8_lossy(&target_tip_output.stdout)
+        .trim()
+        .to_string();
+
+    let task_tip_output = Command::new("git")
+        .args(["rev-parse", branch_name])
+        .current_dir(repo_path)
+        .output()?;
+    if !task_tip_output.status.success() {
+        let stderr = String::from_utf8_lossy(&task_tip_output.stderr);
+        return Err(
+            GitError::CommandFailed(format!("Failed to read task branch tip: {}", stderr)).into(),
+        );
+    }
+    let task_tip = String::from_utf8_lossy(&task_tip_output.stdout)
+        .trim()
+        .to_string();
+
     output::print_info(&format!(
-        "Rebasing '{}' onto dev (3-step process)",
-        branch_name
+        "Rebasing task branch '{}' onto '{}' ({})",
+        branch_name,
+        target_branch,
+        &target_tip[..8.min(target_tip.len())]
     ));
 
-    // Step 1: Reset dev to based_on
     output::print_info(&format!(
-        "  Step 1: Reset dev to based_on ({})",
-        &based_on[..8.min(based_on.len())]
+        "  Step 1: Reset '{}' to task branch tip ({})",
+        target_branch,
+        &task_tip[..8.min(task_tip.len())]
     ));
+    let reset_output = Command::new("git")
+        .args(["reset", "--hard", &task_tip])
+        .current_dir(repo_path)
+        .output()?;
+    if !reset_output.status.success() {
+        let stderr = String::from_utf8_lossy(&reset_output.stderr);
+        return Err(GitError::CommandFailed(format!(
+            "Failed to reset '{}' to task branch '{}': {}",
+            target_branch, branch_name, stderr
+        ))
+        .into());
+    }
+
+    output::print_info("  Step 2: Rebase task commits onto recorded target tip");
     let output = Command::new("git")
-        .args(["reset", "--hard", based_on])
+        .args(["rebase", "--onto", &target_tip, based_on])
         .current_dir(repo_path)
         .output()?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
+        if stderr.contains("conflict") || stderr.contains("CONFLICT") {
+            let _ = Command::new("git")
+                .args(["rebase", "--abort"])
+                .current_dir(repo_path)
+                .output();
+            let _ = Command::new("git")
+                .args(["reset", "--hard", &target_tip])
+                .current_dir(repo_path)
+                .output();
+            return Err(GitError::MergeConflict(format!(
+                "Rebase conflict while replaying task branch '{}'. Aborted and restored '{}'.",
+                branch_name, target_branch
+            ))
+            .into());
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let _ = Command::new("git")
+            .args(["rebase", "--abort"])
+            .current_dir(repo_path)
+            .output();
+        let restore_output = Command::new("git")
+            .args(["reset", "--hard", &target_tip])
+            .current_dir(repo_path)
+            .output()?;
+        if !restore_output.status.success() {
+            return Err(GitError::CommandFailed(format!(
+                "Failed to rebase task branch '{}': {}\n{}\nAlso failed to restore '{}'.",
+                branch_name, stderr, stdout, target_branch
+            ))
+            .into());
+        }
         return Err(GitError::CommandFailed(format!(
-            "Failed to reset dev to based_on: {}",
-            stderr
+            "Failed to rebase task branch '{}': {}\n{}",
+            branch_name, stderr, stdout
         ))
         .into());
-    }
-
-    // Step 2: Cherry-pick dev's original new commits (chronological order)
-    output::print_info("  Step 2: Cherry-pick dev's original new commits");
-
-    // Get the list of commits that were in HEAD before reset, in reverse order (oldest first)
-    let log_output = Command::new("git")
-        .args([
-            "log",
-            "--oneline",
-            "--reverse",
-            &format!("{}..HEAD@{{1}}", based_on),
-        ])
-        .current_dir(repo_path)
-        .output()?;
-
-    let log_stdout = String::from_utf8_lossy(&log_output.stdout);
-    let commits_to_pick: Vec<String> = log_stdout
-        .lines()
-        .filter_map(|line| line.split_whitespace().next().map(|s| s.to_string()))
-        .collect();
-
-    for commit in &commits_to_pick {
-        output::print_info(&format!(
-            "    Cherry-picking {}",
-            &commit[..8.min(commit.len())]
-        ));
-        let cherry_output = Command::new("git")
-            .args(["cherry-pick", commit])
-            .current_dir(repo_path)
-            .output()?;
-
-        if !cherry_output.status.success() {
-            let stderr = String::from_utf8_lossy(&cherry_output.stderr);
-            // Check if it's a conflict
-            if stderr.contains("conflict") || stderr.contains("CONFLICT") {
-                // Abort the cherry-pick
-                let _ = Command::new("git")
-                    .args(["cherry-pick", "--abort"])
-                    .current_dir(repo_path)
-                    .output();
-                return Err(GitError::MergeConflict(format!(
-                    "Cherry-pick conflict on {}. Aborted. Please resolve manually.",
-                    &commit[..8.min(commit.len())]
-                ))
-                .into());
-            }
-            return Err(GitError::CommandFailed(format!(
-                "Cherry-pick failed for {}: {}",
-                commit, stderr
-            ))
-            .into());
-        }
-    }
-
-    // Step 3: Cherry-pick task branch's commits
-    output::print_info(&format!(
-        "  Step 3: Cherry-pick task branch '{}' commits",
-        branch_name
-    ));
-
-    // Get task branch commits (in chronological order, oldest first)
-    let task_log_output = Command::new("git")
-        .args([
-            "log",
-            "--oneline",
-            "--reverse",
-            &format!("{}..{}", based_on, branch_name),
-        ])
-        .current_dir(repo_path)
-        .output()?;
-
-    let task_log_stdout = String::from_utf8_lossy(&task_log_output.stdout);
-    let task_commits: Vec<String> = task_log_stdout
-        .lines()
-        .filter_map(|line| line.split_whitespace().next().map(|s| s.to_string()))
-        .collect();
-
-    for commit in &task_commits {
-        output::print_info(&format!(
-            "    Cherry-picking task commit {}",
-            &commit[..8.min(commit.len())]
-        ));
-        let cherry_output = Command::new("git")
-            .args(["cherry-pick", commit])
-            .current_dir(repo_path)
-            .output()?;
-
-        if !cherry_output.status.success() {
-            let stderr = String::from_utf8_lossy(&cherry_output.stderr);
-            if stderr.contains("conflict") || stderr.contains("CONFLICT") {
-                let _ = Command::new("git")
-                    .args(["cherry-pick", "--abort"])
-                    .current_dir(repo_path)
-                    .output();
-                return Err(GitError::MergeConflict(format!(
-                    "Cherry-pick conflict on task commit {}. Aborted. Please resolve manually.",
-                    &commit[..8.min(commit.len())]
-                ))
-                .into());
-            }
-            return Err(GitError::CommandFailed(format!(
-                "Cherry-pick failed for {}: {}",
-                commit, stderr
-            ))
-            .into());
-        }
     }
 
     output::print_success("Rebase completed successfully");

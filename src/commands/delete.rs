@@ -179,7 +179,7 @@ pub fn run(task_id: &str, force: bool, skip_confirm: bool, dry_run: bool) -> Res
     }
     println!("─────────────────────────────────────────────────────────────");
 
-    if !(force && skip_confirm) {
+    if !(force || skip_confirm) {
         let confirmed = dialoguer::Confirm::new()
             .with_prompt(format!(
                 "Are you sure you want to delete task '{}'?",
@@ -283,21 +283,8 @@ pub fn run(task_id: &str, force: bool, skip_confirm: bool, dry_run: bool) -> Res
         }
     }
 
-    // Step 2: Delete Host directory.
-    output::print_info("Deleting Host directory...");
-    let host_deleted = if host_dir.exists() {
-        match delete_with_retry(&host_dir, 3) {
-            Ok(_) => true,
-            Err(e) => {
-                output::print_warning(&format!("Failed to delete Host directory: {}", e));
-                false
-            }
-        }
-    } else {
-        true
-    };
-
-    // Step 3: Remove worktree + branch per primary plugin.
+    // Step 2: Remove worktree + branch per primary plugin before deleting
+    // Host. Git refuses branch deletion while a worktree still owns it.
     let mut all_worktrees_removed = true;
     let mut all_branches_deleted = true;
     for (primary, _) in &reports {
@@ -313,19 +300,44 @@ pub fn run(task_id: &str, force: bool, skip_confirm: bool, dry_run: bool) -> Res
             }
         }
         if !primary.source_repo.as_os_str().is_empty() {
+            if let Err(e) = git::worktree::prune(&primary.source_repo) {
+                output::print_warning(&format!("Failed to prune worktrees: {}", e));
+            }
             output::print_info(&format!(
                 "Deleting branch '{}' in {:?}",
                 primary.branch, primary.source_repo
             ));
             if let Err(e) = git::delete_branch_safe(&primary.source_repo, &primary.branch) {
                 output::print_warning(&format!("Failed to delete branch: {}", e));
-                all_branches_deleted = false;
-            }
-            if let Err(e) = git::worktree::prune(&primary.source_repo) {
-                output::print_warning(&format!("Failed to prune worktrees: {}", e));
+                if let Err(prune_error) = git::worktree::prune(&primary.source_repo) {
+                    output::print_warning(&format!("Failed to prune worktrees: {}", prune_error));
+                }
+                if let Err(retry_error) =
+                    git::delete_branch_safe(&primary.source_repo, &primary.branch)
+                {
+                    output::print_warning(&format!(
+                        "Failed to delete branch after prune: {}",
+                        retry_error
+                    ));
+                    all_branches_deleted = false;
+                }
             }
         }
     }
+
+    // Step 3: Delete Host directory.
+    output::print_info("Deleting Host directory...");
+    let host_deleted = if host_dir.exists() {
+        match delete_with_retry(&host_dir, 3) {
+            Ok(_) => true,
+            Err(e) => {
+                output::print_warning(&format!("Failed to delete Host directory: {}", e));
+                false
+            }
+        }
+    } else {
+        true
+    };
 
     println!();
     if host_deleted && all_worktrees_removed && all_branches_deleted {
