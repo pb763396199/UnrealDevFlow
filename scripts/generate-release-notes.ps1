@@ -1,14 +1,20 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
-Generate standardized UnrealDevFlow release notes.
+Generate curated UnrealDevFlow release notes.
+
+.DESCRIPTION
+Formal release notes must be written as docs/releases/v<version>.md first.
+This script expands a few placeholders and validates that the notes are not a
+generic template. Use -AllowGeneratedDraft only when drafting a new notes file.
 #>
 
 param(
     [string]$Version,
     [string]$PreviousTag,
     [string]$OutputPath = "RELEASE_NOTES.md",
-    [string]$Repo = "pb763396199/UnrealDevFlow"
+    [string]$Repo = "pb763396199/UnrealDevFlow",
+    [switch]$AllowGeneratedDraft
 )
 
 $ErrorActionPreference = "Stop"
@@ -45,10 +51,85 @@ function Try-GetRepoFromOrigin {
     return $null
 }
 
+function Get-PreviousReleaseTag {
+    param([string]$TargetVersion)
+
+    $targetCore = $TargetVersion -replace '-.*$', ''
+    $target = $null
+    if (-not [version]::TryParse($targetCore, [ref]$target)) {
+        return $null
+    }
+
+    $candidates = foreach ($tag in @(git tag --list "v[0-9]*" 2>$null)) {
+        if ($tag -match '^v(?<version>\d+\.\d+\.\d+)$') {
+            $parsed = $null
+            if ([version]::TryParse($Matches.version, [ref]$parsed) -and $parsed -lt $target) {
+                [pscustomobject]@{
+                    Tag = $tag
+                    Version = $parsed
+                }
+            }
+        }
+    }
+
+    $previous = $candidates | Sort-Object Version -Descending | Select-Object -First 1
+    if ($previous) {
+        return $previous.Tag
+    }
+    return $null
+}
+
+function Test-ReleaseNotesQuality {
+    param(
+        [string]$Notes,
+        [string]$SourcePath
+    )
+
+    $requiredSections = @(
+        "一句话总结",
+        "安装 / 升级",
+        "重点变化",
+        "新增",
+        "修复",
+        "破坏性变更",
+        "AI Agent 变化",
+        "校验",
+        "变更列表"
+    )
+
+    foreach ($section in $requiredSections) {
+        $escaped = [regex]::Escape($section)
+        if ($Notes -notmatch "(?m)^##\s+$escaped\s*$") {
+            throw "Release notes missing required section '$section': $SourcePath"
+        }
+    }
+
+    $forbiddenPatterns = @(
+        "TODO",
+        "TBD",
+        "待补",
+        "__VERSION__",
+        "__INSTALL_COMMAND__",
+        "__RANGE__",
+        "__COMMITS__",
+        "这一版发布 UnrealDevFlow 的标准安装包和可复现 release 流程",
+        "GitHub Release Windows 预编译安装链路。",
+        "标准 release notes、checksum 和 release asset 打包流程。",
+        '新增 `unrealdevflow-release` skill，发布任务必须按固定门禁执行。'
+    )
+
+    foreach ($pattern in $forbiddenPatterns) {
+        if ($Notes.Contains($pattern)) {
+            throw "Release notes still contain placeholder/boilerplate '$pattern': $SourcePath"
+        }
+    }
+}
+
 if (-not $Version) {
     $Version = Get-CargoPackageVersion
 }
 $Version = $Version.TrimStart("v")
+$releaseTag = "v$Version"
 
 $detectedRepo = Try-GetRepoFromOrigin
 if ($detectedRepo) {
@@ -56,27 +137,35 @@ if ($detectedRepo) {
 }
 
 if (-not $PreviousTag) {
-    $tags = @(git tag --sort=-v:refname 2>$null)
-    $currentTag = "v$Version"
-    $PreviousTag = ($tags | Where-Object { $_ -ne $currentTag } | Select-Object -First 1)
+    $PreviousTag = Get-PreviousReleaseTag -TargetVersion $Version
 }
 
-$range = if ($PreviousTag) { "$PreviousTag..HEAD" } else { "HEAD" }
+$releaseEnd = "HEAD"
+git rev-parse -q --verify "refs/tags/$releaseTag" *> $null
+if ($LASTEXITCODE -eq 0) {
+    $releaseEnd = $releaseTag
+}
+
+$range = if ($PreviousTag) { "$PreviousTag..$releaseEnd" } else { $releaseEnd }
 $commits = @(git log $range --pretty=format:"- %s" 2>$null)
 if (-not $commits) {
-    $commits = @("- Initial public release assets and release process.")
+    $commits = @("- No commits found for $range.")
 }
+$commitText = $commits -join "`n"
 
 $installCommand = 'powershell -ExecutionPolicy Bypass -c "irm https://github.com/' + $Repo + '/releases/latest/download/unrealdevflow-installer.ps1 | iex"'
 
-$commitText = $commits -join "`n"
-
-$notesTemplate = @'
+$curatedPath = Join-Path $RepoRoot "docs\releases\$releaseTag.md"
+if (Test-Path -LiteralPath $curatedPath) {
+    $notesTemplate = Get-Content -Raw -LiteralPath $curatedPath
+    $sourcePath = $curatedPath
+} elseif ($AllowGeneratedDraft) {
+    $notesTemplate = @'
 # UnrealDevFlow v__VERSION__
 
 ## 一句话总结
 
-这一版发布 UnrealDevFlow 的标准安装包和可复现 release 流程。
+TODO: 用一句话说明这个版本给用户带来的具体变化。
 
 ## 安装 / 升级
 
@@ -84,34 +173,29 @@ $notesTemplate = @'
 __INSTALL_COMMAND__
 ```
 
+## 重点变化
+
+- TODO: 写用户能理解的价值，而不是内部提交名。
+
 ## 新增
 
-- GitHub Release Windows 预编译安装链路。
-- PowerShell installer，自动安装 exe、写入 PATH、安装 AI skill。
-- 标准 release preflight：fmt、clippy、test、release build、binary smoke test。
-- 标准 release notes、checksum 和 release asset 打包流程。
+- TODO: 列出本版本真正新增的能力。
 
 ## 修复
 
-- 修复安装后当前终端找不到 `unrealdevflow` 的 PATH 刷新问题。
-- 允许 `unrealdevflow skills install` 在工具未配置 UE 项目前运行。
+- TODO: 列出本版本真正修复的问题；没有就写“无”。
 
 ## 破坏性变更
 
-- 无。
+- TODO: 写升级注意；没有就写“无”。
 
 ## AI Agent 变化
 
-- 新增 `unrealdevflow-release` skill，发布任务必须按固定门禁执行。
-- installer 会把 `unrealdevflow` skill 安装到全局 agent 位置。
+- TODO: 写 agent 使用方式、skill、提示词或流程变化；没有就写“无”。
 
 ## 校验
 
-- `cargo fmt --all -- --check`
-- `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`
-- `cargo test --workspace --all-targets --all-features --locked`
-- `cargo build --release --locked`
-- `target/release/unrealdevflow.exe --version`
+- TODO: 写本次实际跑过的门禁。
 
 ## 变更列表
 
@@ -119,12 +203,20 @@ Range: __RANGE__
 
 __COMMITS__
 '@
+    $sourcePath = "generated draft"
+} else {
+    throw "Missing curated release notes source: docs/releases/$releaseTag.md. Create it first, or use -AllowGeneratedDraft only for drafting."
+}
 
 $notes = $notesTemplate.
     Replace("__VERSION__", $Version).
     Replace("__INSTALL_COMMAND__", $installCommand).
     Replace("__RANGE__", $range).
     Replace("__COMMITS__", $commitText)
+
+if (-not $AllowGeneratedDraft) {
+    Test-ReleaseNotesQuality -Notes $notes -SourcePath $sourcePath
+}
 
 $outputFull = if ([System.IO.Path]::IsPathRooted($OutputPath)) {
     [System.IO.Path]::GetFullPath($OutputPath)

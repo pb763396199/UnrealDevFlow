@@ -49,19 +49,35 @@ pwsh scripts/release-preflight.ps1 -Strict
 
 1. 更新 `Cargo.toml` 的 `version`。
 2. 运行 preflight。
-3. 生成 release notes：
+3. 先生成草稿骨架，再人工写版本说明源文件：
+
+```powershell
+pwsh scripts/generate-release-notes.ps1 -Version 0.1.0 -OutputPath dist/RELEASE_NOTES.draft.md -AllowGeneratedDraft
+```
+
+发布者必须基于 `git log <previous-tag>..HEAD --oneline`、
+`git diff --stat <previous-tag>..HEAD` 和关键改动文件，写出：
+
+```text
+docs/releases/v0.1.0.md
+```
+
+这份文件必须说明本版本真正新增/修复了什么，以及对用户和 AI agent 工作流有什么影响。
+禁止只复制模板或提交列表。
+
+4. 生成经过质量门禁的 release notes：
 
 ```powershell
 pwsh scripts/generate-release-notes.ps1 -Version 0.1.0 -OutputPath dist/RELEASE_NOTES.md
 ```
 
-4. 本地打包 smoke test：
+5. 本地打包 smoke test：
 
 ```powershell
 pwsh scripts/package-release.ps1 -Version 0.1.0
 ```
 
-5. 检查 `dist/` 中必须存在：
+6. 检查 `dist/` 中必须存在：
 
 ```text
 unrealdevflow.exe
@@ -94,6 +110,7 @@ GitHub Actions 会创建 draft release 并上传资产。发布者必须检查�
 
 - 一句话总结。
 - 安装 / 升级命令。
+- 重点变化。
 - 新增。
 - 修复。
 - 破坏性变更。
@@ -101,7 +118,14 @@ GitHub Actions 会创建 draft release 并上传资产。发布者必须检查�
 - 校验。
 - 变更列表。
 
-可以用 GitHub 自动 release notes 补充 PR/commit 信息，但不能替代这份产品说明。
+Release notes 是产品说明，不是 commit dump。发布者必须做到：
+
+- `新增` 只写这个版本真实新增的能力。
+- `修复` 只写这个版本真实修掉的问题，没有就写“无”。
+- `AI Agent 变化` 只写 agent 使用方式、skill、规范、提示词或自动化流程变化。
+- 同一段说明不得无脑重复出现在多个版本。
+- 生成脚本找不到 `docs/releases/v<version>.md` 时必须失败，防止发布模板废话。
+- 可以用 GitHub 自动 release notes 补充 PR/commit 信息，但不能替代人工整理的产品说明。
 
 ## 禁止事项
 
@@ -111,4 +135,5 @@ GitHub Actions 会创建 draft release 并上传资产。发布者必须检查�
 - 禁止发布非 draft release 后再补资产。
 - 禁止让用户通过 clone + cargo build 作为默认安装方式。
 - 禁止让 AI 凭记忆手写发布流程。
-
+- 禁止用通用模板冒充 release notes。
+- 禁止在 `新增/修复/AI Agent 变化` 中重复上一版内容而不说明本版事实。
