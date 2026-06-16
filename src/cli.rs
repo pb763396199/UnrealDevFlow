@@ -40,6 +40,10 @@ pub enum MergeStrategy {
 
 #[derive(Subcommand)]
 pub enum Commands {
+    /// AgentWatcher read-only module status probe.
+    #[command(name = "aw-status", hide = true)]
+    AwStatus,
+
     /// Simple first-run setup. Detect/register a workspace and install AI skill.
     Init {
         /// Workspace name. If omitted, UnrealDevFlow suggests one from project path.

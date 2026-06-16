@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "kind": "AgentWatcherModule",
+  "name": "UnrealDevFlow",
+  "displayName": "开发流",
+  "moduleType": "workflow",
+  "source": {
+    "projectPath": "."
+  },
+  "description": "开发流模块是 UEWorkflow 的工作区、任务和 Junction 管理入口。本阶段只暴露只读状态检查。",
+  "commands": [
+    {
+      "name": "status",
+      "displayName": "状态检查",
+      "safety": "readOnly",
+      "description": "读取开发流模块状态，不创建任务、不切换工程。",
+      "runner": {
+        "type": "powerShellFile",
+        "script": "aw/Get-AgentWatcherModule.ps1",
+        "args": ["status"]
+      },
+      "timeoutMs": 30000
+    },
+    {
+      "name": "capabilities",
+      "displayName": "能力",
+      "safety": "readOnly",
+      "description": "输出开发流模块对 AgentWatcher 暴露的能力清单。",
+      "runner": {
+        "type": "powerShellFile",
+        "script": "aw/Get-AgentWatcherModule.ps1",
+        "args": ["capabilities"]
+      },
+      "timeoutMs": 30000
+    },
+    {
+      "name": "commands",
+      "displayName": "命令",
+      "safety": "readOnly",
+      "description": "输出开发流模块的 AgentWatcher 命令清单。",
+      "runner": {
+        "type": "powerShellFile",
+        "script": "aw/Get-AgentWatcherModule.ps1",
+        "args": ["commands"]
+      },
+      "timeoutMs": 30000
+    },
+    {
+      "name": "schema",
+      "displayName": "契约",
+      "safety": "readOnly",
+      "description": "输出开发流模块的 AgentWatcher 输出契约。",
+      "runner": {
+        "type": "powerShellFile",
+        "script": "aw/Get-AgentWatcherModule.ps1",
+        "args": ["schema"]
+      },
+      "timeoutMs": 60000
+    }
+  ]
+}

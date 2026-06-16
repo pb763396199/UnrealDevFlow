@@ -46,7 +46,8 @@ fn run() -> Result<()> {
 
     if !matches!(
         cli.command,
-        Commands::Configure { .. }
+        Commands::AwStatus
+            | Commands::Configure { .. }
             | Commands::Init { .. }
             | Commands::Workspace { .. }
             | Commands::Skills { .. }
@@ -56,6 +57,7 @@ fn run() -> Result<()> {
     }
 
     match cli.command {
+        Commands::AwStatus => commands::aw_status::run()?,
         Commands::Init {
             workspace,
             project,
