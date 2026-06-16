@@ -59,6 +59,15 @@ fn has_uncommitted_changes(worktree_path: &Path) -> Result<bool> {
     Ok(!stdout.trim().is_empty())
 }
 
+fn is_git_worktree(path: &Path) -> bool {
+    std::process::Command::new("git")
+        .args(["rev-parse", "--is-inside-work-tree"])
+        .current_dir(path)
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false)
+}
+
 fn delete_with_retry(path: &PathBuf, max_retries: u32) -> Result<()> {
     for attempt in 0..max_retries {
         match std::fs::remove_dir_all(path) {
@@ -87,18 +96,32 @@ struct PrimaryDangerReport {
 fn assess_primary(host_dir: &Path, primary: &PrimaryPlugin) -> Result<PrimaryDangerReport> {
     let worktree_abs = host_dir.join(&primary.worktree);
     let has_uncommitted = if worktree_abs.exists() {
-        has_uncommitted_changes(&worktree_abs)?
+        if is_git_worktree(&worktree_abs) {
+            has_uncommitted_changes(&worktree_abs)?
+        } else {
+            output::print_warning(&format!(
+                "Worktree path for '{}' is not a Git worktree, treating it as broken residue: {:?}",
+                primary.name, worktree_abs
+            ));
+            false
+        }
     } else {
         false
     };
     let (is_merged, unmerged_count) = if !primary.source_repo.as_os_str().is_empty() {
-        let merged = is_branch_merged(&primary.source_repo, &primary.branch).unwrap_or(false);
-        let count = if merged {
-            0
+        let branch_exists =
+            git::branch_exists(&primary.source_repo, &primary.branch).unwrap_or(false);
+        if !branch_exists {
+            (true, 0)
         } else {
-            unmerged_commit_count(&primary.source_repo, &primary.branch).unwrap_or(0)
-        };
-        (merged, count)
+            let merged = is_branch_merged(&primary.source_repo, &primary.branch).unwrap_or(false);
+            let count = if merged {
+                0
+            } else {
+                unmerged_commit_count(&primary.source_repo, &primary.branch).unwrap_or(0)
+            };
+            (merged, count)
+        }
     } else {
         (false, 0)
     };
@@ -290,37 +313,61 @@ pub fn run(task_id: &str, force: bool, skip_confirm: bool, dry_run: bool) -> Res
     for (primary, _) in &reports {
         let worktree_abs = host_dir.join(&primary.worktree);
         if worktree_abs.exists() {
-            output::print_info(&format!(
-                "Removing worktree for '{}': {:?}",
-                primary.name, worktree_abs
-            ));
-            if let Err(e) = git::worktree::remove(&worktree_abs) {
-                output::print_warning(&format!("Failed to remove worktree: {}", e));
-                all_worktrees_removed = false;
+            if is_git_worktree(&worktree_abs) {
+                output::print_info(&format!(
+                    "Removing worktree for '{}': {:?}",
+                    primary.name, worktree_abs
+                ));
+                if let Err(e) = git::worktree::remove(&worktree_abs) {
+                    if is_git_worktree(&worktree_abs) {
+                        output::print_warning(&format!("Failed to remove worktree: {}", e));
+                        all_worktrees_removed = false;
+                    } else {
+                        output::print_warning(&format!(
+                            "Worktree for '{}' became non-git residue after remove failure; Host cleanup will delete it: {}",
+                            primary.name, e
+                        ));
+                    }
+                }
+            } else {
+                output::print_warning(&format!(
+                    "Skipping git worktree remove for '{}': path is not a Git worktree and will be deleted with Host: {:?}",
+                    primary.name, worktree_abs
+                ));
             }
         }
         if !primary.source_repo.as_os_str().is_empty() {
             if let Err(e) = git::worktree::prune(&primary.source_repo) {
                 output::print_warning(&format!("Failed to prune worktrees: {}", e));
             }
-            output::print_info(&format!(
-                "Deleting branch '{}' in {:?}",
-                primary.branch, primary.source_repo
-            ));
-            if let Err(e) = git::delete_branch_safe(&primary.source_repo, &primary.branch) {
-                output::print_warning(&format!("Failed to delete branch: {}", e));
-                if let Err(prune_error) = git::worktree::prune(&primary.source_repo) {
-                    output::print_warning(&format!("Failed to prune worktrees: {}", prune_error));
+            if git::branch_exists(&primary.source_repo, &primary.branch).unwrap_or(false) {
+                output::print_info(&format!(
+                    "Deleting branch '{}' in {:?}",
+                    primary.branch, primary.source_repo
+                ));
+                if let Err(e) = git::delete_branch_safe(&primary.source_repo, &primary.branch) {
+                    output::print_warning(&format!("Failed to delete branch: {}", e));
+                    if let Err(prune_error) = git::worktree::prune(&primary.source_repo) {
+                        output::print_warning(&format!(
+                            "Failed to prune worktrees: {}",
+                            prune_error
+                        ));
+                    }
+                    if let Err(retry_error) =
+                        git::delete_branch_safe(&primary.source_repo, &primary.branch)
+                    {
+                        output::print_warning(&format!(
+                            "Failed to delete branch after prune: {}",
+                            retry_error
+                        ));
+                        all_branches_deleted = false;
+                    }
                 }
-                if let Err(retry_error) =
-                    git::delete_branch_safe(&primary.source_repo, &primary.branch)
-                {
-                    output::print_warning(&format!(
-                        "Failed to delete branch after prune: {}",
-                        retry_error
-                    ));
-                    all_branches_deleted = false;
-                }
+            } else {
+                output::print_info(&format!(
+                    "Branch '{}' already gone in {:?}",
+                    primary.branch, primary.source_repo
+                ));
             }
         }
     }

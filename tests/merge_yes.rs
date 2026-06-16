@@ -470,6 +470,53 @@ fn delete_force_skips_double_confirmation_for_unmerged_task() {
 }
 
 #[test]
+fn delete_removes_broken_non_git_worktree_residue() {
+    let temp = TempDir::new().expect("temp dir");
+    let root = temp.path();
+    let config_dir = root.join("config");
+    let hosts_root = root.join("Hosts");
+    let plugins_root = root.join("Plugins");
+    let source_repo = plugins_root.join("AesWorld");
+    let host_dir = hosts_root.join("W-test").join("T-broken-worktree_Host");
+    let broken_worktree = host_dir.join("Plugins").join("AesWorld");
+    fs::create_dir_all(&config_dir).expect("config dir");
+    fs::create_dir_all(broken_worktree.join("Source")).expect("broken worktree source");
+
+    let based_on = setup_repo_with_base(&source_repo);
+    fs::write(
+        broken_worktree.join("Source").join("leftover.cpp"),
+        "// residue\n",
+    )
+    .expect("leftover file");
+    write_test_config(root, &config_dir, &hosts_root, &plugins_root);
+    write_test_meta(
+        &host_dir,
+        TestContext {
+            root,
+            hosts_root: &hosts_root,
+            plugins_root: &plugins_root,
+        },
+        &source_repo,
+        "broken-worktree",
+        "task-broken-worktree",
+        &based_on,
+    );
+
+    Command::cargo_bin("unrealdevflow")
+        .expect("binary")
+        .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
+        .args(["delete", "test/broken-worktree", "--yes", "--force"])
+        .assert()
+        .success();
+
+    assert!(!host_dir.exists());
+    assert_eq!(
+        git_stdout(&source_repo, &["branch", "--list", "task-broken-worktree"]),
+        ""
+    );
+}
+
+#[test]
 fn delete_removes_worktree_before_deleting_branch_and_host() {
     let temp = TempDir::new().expect("temp dir");
     let root = temp.path();
