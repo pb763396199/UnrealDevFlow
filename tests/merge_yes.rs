@@ -664,6 +664,102 @@ plugins_root = "{}"
 }
 
 #[test]
+fn rebase_merge_uses_actual_merge_base_when_metadata_base_is_stale_in_target() {
+    let temp = TempDir::new().expect("temp dir");
+    let root = temp.path();
+    let config_dir = root.join("config");
+    let hosts_root = root.join("Hosts");
+    let plugins_root = root.join("Plugins");
+    let source_repo = plugins_root.join("AesWorld");
+    let host_dir = hosts_root.join("W-test").join("T-stale-base_Host");
+    let worktree = host_dir.join("Plugins").join("AesWorld");
+    fs::create_dir_all(&config_dir).expect("config dir");
+    fs::create_dir_all(host_dir.join("Plugins")).expect("host plugin dir");
+
+    let stale_metadata_base = setup_repo_with_base(&source_repo);
+
+    fs::write(source_repo.join("shared.txt"), "shared one\n").expect("shared file");
+    git(&source_repo, &["add", "shared.txt"]);
+    git(&source_repo, &["commit", "-m", "shared one"]);
+    let actual_task_base = git_stdout(&source_repo, &["rev-parse", "HEAD"]);
+
+    git(
+        &source_repo,
+        &[
+            "worktree",
+            "add",
+            "-b",
+            "task-stale-base",
+            worktree.to_str().expect("worktree path"),
+            &actual_task_base,
+        ],
+    );
+
+    fs::write(worktree.join("task.txt"), "task\n").expect("task file");
+    git(&worktree, &["add", "task.txt"]);
+    git(&worktree, &["commit", "-m", "task only"]);
+    let original_task_tip = git_stdout(&worktree, &["rev-parse", "HEAD"]);
+
+    fs::write(source_repo.join("shared.txt"), "shared two\n").expect("shared file");
+    git(&source_repo, &["add", "shared.txt"]);
+    git(&source_repo, &["commit", "-m", "shared two"]);
+    let target_tip = git_stdout(&source_repo, &["rev-parse", "HEAD"]);
+
+    write_test_config(root, &config_dir, &hosts_root, &plugins_root);
+    write_test_meta(
+        &host_dir,
+        TestContext {
+            root,
+            hosts_root: &hosts_root,
+            plugins_root: &plugins_root,
+        },
+        &source_repo,
+        "stale-base",
+        "task-stale-base",
+        &stale_metadata_base,
+    );
+
+    Command::cargo_bin("unrealdevflow")
+        .expect("binary")
+        .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
+        .args([
+            "merge",
+            "test/stale-base",
+            "--plugin",
+            "AesWorld",
+            "--strategy",
+            "rebase",
+            "-y",
+        ])
+        .assert()
+        .success();
+
+    assert_eq!(
+        git_stdout(
+            &source_repo,
+            &["log", "--reverse", "--format=%s", "dev~1..dev"]
+        ),
+        "task only"
+    );
+    assert_eq!(
+        fs::read_to_string(source_repo.join("shared.txt")).expect("shared file"),
+        "shared two\n"
+    );
+    assert_eq!(
+        git_stdout(&source_repo, &["rev-parse", "dev~1"]),
+        target_tip
+    );
+    assert_eq!(
+        git_stdout(&source_repo, &["rev-parse", "task-stale-base"]),
+        original_task_tip
+    );
+    assert_eq!(
+        git_stdout(&worktree, &["rev-parse", "HEAD"]),
+        original_task_tip
+    );
+}
+
+#[test]
 fn rebase_merge_replays_from_actual_merge_base_when_based_on_is_not_in_target() {
     let temp = TempDir::new().expect("temp dir");
     let root = temp.path();

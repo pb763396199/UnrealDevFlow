@@ -279,11 +279,9 @@ fn backup_ref_name(target_branch: &str) -> String {
 /// Replay task commits onto the current target branch without rewriting target
 /// commits or the original task branch.
 ///
-/// If `based_on` is part of the target history, the replay range is
-/// `based_on..task_tip`. If the task was started from another feature branch,
-/// `based_on` may not be in the target history; in that case use the actual
-/// merge-base between target and task so the whole stacked task chain is
-/// replayed.
+/// The replay range is derived from the actual merge-base between the target
+/// branch and task branch. Task metadata is useful diagnostics, but it can be
+/// stale after a task branch is manually reset or rebased.
 ///
 /// On conflict, aborts and restores the target branch tip before returning an
 /// error. A backup ref is also written before any replay work starts.
@@ -310,18 +308,22 @@ pub fn rebase_branch(repo_path: &Path, branch_name: &str, based_on: &str) -> Res
 
     let based_on_commit = git_stdout(repo_path, &["rev-parse", "--verify", based_on])?;
     let actual_merge_base = git_stdout(repo_path, &["merge-base", &target_tip, &task_tip])?;
-    let based_on_in_target = git_is_ancestor(repo_path, &based_on_commit, &target_tip)?;
-    let replay_base = if based_on_in_target {
-        based_on_commit.clone()
-    } else {
+    let based_on_matches_topology = based_on_commit == actual_merge_base;
+    if !based_on_matches_topology {
+        let based_on_in_target = git_is_ancestor(repo_path, &based_on_commit, &target_tip)?;
         output::print_warning(&format!(
-            "Task base {} is not in target branch '{}'; replaying from actual merge-base {}.",
+            "Task metadata base {} {} target branch '{}'; replaying from actual merge-base {}.",
             &based_on_commit[..8.min(based_on_commit.len())],
+            if based_on_in_target {
+                "differs from actual merge-base for"
+            } else {
+                "is not in"
+            },
             target_branch,
             &actual_merge_base[..8.min(actual_merge_base.len())]
         ));
-        actual_merge_base.clone()
-    };
+    }
+    let replay_base = actual_merge_base.clone();
 
     let merge_commits = git_stdout(
         repo_path,
@@ -381,7 +383,7 @@ pub fn rebase_branch(repo_path: &Path, branch_name: &str, based_on: &str) -> Res
     output::print_info(&format!(
         "  Replay base: {}{}",
         &replay_base[..8.min(replay_base.len())],
-        if based_on_in_target {
+        if based_on_matches_topology {
             " (task metadata)"
         } else {
             " (actual merge-base)"
