@@ -89,11 +89,23 @@ fn contains_uproject(dir: &Path) -> bool {
 }
 
 fn infer_plugins_root(project: &Path) -> Result<PathBuf> {
+    let mut project_plugins = None;
     for ancestor in project.ancestors() {
         let candidate = ancestor.join("Plugins");
         if candidate.exists() {
-            return Ok(candidate);
+            if !candidate.starts_with(project) {
+                return Ok(candidate);
+            }
+            project_plugins.get_or_insert(candidate);
         }
+    }
+    if let Some(candidate) = project_plugins {
+        return Err(UdfError::Other(format!(
+            "只找到 UE 项目内的 Plugins 目录：{:?}\n\
+             该目录通常由 switch 改写，不能作为稳定主插件仓库根。\n\
+             请使用 --plugins-root 显式指定项目外层主插件仓库根目录。",
+            candidate
+        )));
     }
     Err(UdfError::Other(
         "无法自动找到 Plugins 目录，请使用 --plugins-root 指定".to_string(),
@@ -126,4 +138,36 @@ fn suggest_workspace_name(project: &Path) -> String {
         .and_then(|n| n.to_str())
         .unwrap_or(leaf);
     crate::config::sanitize_workspace_name(&format!("{}-{}", root, leaf))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn infer_plugins_root_prefers_outer_repo_root_over_project_plugins() {
+        let temp = TempDir::new().expect("temp dir");
+        let root = temp.path();
+        let project = root.join("UGA").join("DEV");
+        let project_plugins = project.join("Plugins");
+        let repo_plugins = root.join("Plugins");
+        std::fs::create_dir_all(&project_plugins).expect("project plugins");
+        std::fs::create_dir_all(&repo_plugins).expect("repo plugins");
+
+        assert_eq!(
+            infer_plugins_root(&project).expect("plugins root"),
+            repo_plugins
+        );
+    }
+
+    #[test]
+    fn infer_plugins_root_rejects_project_plugins_when_no_outer_root_exists() {
+        let temp = TempDir::new().expect("temp dir");
+        let project = temp.path().join("DEV");
+        let project_plugins = project.join("Plugins");
+        std::fs::create_dir_all(&project_plugins).expect("project plugins");
+
+        assert!(infer_plugins_root(&project).is_err());
+    }
 }

@@ -26,7 +26,7 @@ powershell -ExecutionPolicy Bypass -c "irm https://github.com/pb763396199/Unreal
 - 下载最新 GitHub Release 中的 Windows 预编译包
 - 安装到 `%USERPROFILE%\.unrealdevflow\bin`
 - 写入 User PATH，并刷新当前 PowerShell 会话 PATH
-- 安装 Codex / Claude Code / opencode 可用的 AI skill
+- 安装 Codex App native (`%USERPROFILE%\.codex\skills`) 以及 `.agents` / Claude Code / opencode 可用的 AI skill
 - 验证 `unrealdevflow --version`
 
 开发者本地源码安装：
@@ -40,7 +40,8 @@ pwsh scripts/install.ps1 -FromSource
 安装后只记 4 个命令：
 
 ```powershell
-# 1) 初始化当前 UE 项目。workspace 名称会自动建议，也可用 --workspace 自定义
+# 1) 初始化当前 UE 项目。workspace 名称表示 UE 项目环境，不是任务名；
+#    通常用自动建议或 neon-dev 这类项目名
 unrealdevflow init --project "F:\ShanghaiP4\neon\UGA\DEV"
 
 # 2) 开始一个任务。只有一个 workspace 时可省略 --workspace；多个 workspace 时必须显式指定
@@ -67,6 +68,10 @@ unrealdevflow finish neon-dev/prefab-save-bug
 - 插件根目录：`plugins_root`
 - Host 根目录：`hosts_root`
 - Engine 路径：`engine_path`
+
+workspace 不是任务分组。不要把 `sublevel-tweak`、`prefab-save-bug` 这类任务名填成 workspace，否则 Host 会被放进 `W-任务名/T-任务名_Host`，后续任务引用也会混乱。
+
+`plugins_root` 必须指向稳定的主插件仓库根目录，例如 `F:\ShanghaiP4\neon\Plugins`。不要指向 `UGA\DEV\Plugins`、Host 目录、Junction/symlink 或任何会被 `switch` 改写的入口。
 
 任务创建后会写入 `task_uid = workspace/task-id`，并把 workspace 上下文冻结到 `.udf-meta.json`。后续 `build/switch/merge/cleanup/delete` 都按任务自己的上下文执行，不会因为另一个 session 改了默认配置而串项目。
 
@@ -111,6 +116,12 @@ unrealdevflow workspace doctor neon-dev
 ```
 
 ### 2. 创建任务（多主插件 + 智能依赖扫描）
+
+创建前会强校验：
+- `--id` 只能是小写英文、数字和连字符，不能包含 `/`、`\`、`..`。
+- 主插件仓库必须停在干净的 `dev` 分支；不能从 feature/task/detached HEAD 创建新任务。
+- `plugins_root` 中不能有重复同名插件、缺失依赖、Host/worktree/Junction/symlink 可变入口。
+- 创建失败会回滚已生成的 Host/worktree，避免留下无 `.udf-meta.json` 的半成品目录。
 
 ```powershell
 # 多主插件

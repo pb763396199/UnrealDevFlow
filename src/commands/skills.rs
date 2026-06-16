@@ -5,17 +5,17 @@
 //! | Provider         | Reads `<base>/...`                          | Source                                           |
 //! |------------------|--------------------------------------------|--------------------------------------------------|
 //! | opencode         | `.opencode/`, `.claude/`, `.agents/` (proj + global) | sst/opencode `skills.mdx`              |
-//! | codex            | `.agents/` (REPO + USER + ADMIN + SYSTEM)  | developers.openai.com/codex/skills                |
+//! | codex            | `.codex/skills/`, `.agents/skills/`        | Codex App / developers.openai.com/codex/skills     |
 //! | claude code      | `.claude/`                                  | anthropics/claude-code plugins/README.md         |
 //! | github copilot   | (not supported — no skills concept)        | github/copilot-cli README only mentions LSP      |
 //!
 //! Design (simplest possible):
 //! - The source of truth is `<repo>/skills/unrealdevflow/SKILL.md`.
-//! - `install` copies the source into project (`./.agents/`, `./.claude/`,
-//!   `./.opencode/`) and/or global (`~/.agents/`, `~/.claude/`,
-//!   `~/.config/opencode/skills/`) locations.
-//! - `list` reports presence/absence of each (project + global × 3 dirs).
-//! - `remove` deletes the 3 dirs (project or global).
+//! - `install` copies the source into project (`./.codex/`, `./.agents/`,
+//!   `./.claude/`, `./.opencode/`) and/or global (`~/.codex/`, `~/.agents/`,
+//!   `~/.claude/`, `~/.config/opencode/skills/`) locations.
+//! - `list` reports presence/absence of each (project + global × 4 dirs).
+//! - `remove` deletes the 4 dirs (project or global).
 //!
 //! No junctions, no hash tracking, no auto-sync. The user is the version source:
 //! `git pull` the UnrealDevFlow repo → re-run `unrealdevflow skills install`.
@@ -88,13 +88,17 @@ fn source_skill_file() -> Result<PathBuf> {
     )))
 }
 
-/// Project-scope install locations. 3 paths for 3 supported providers
+/// Project-scope install locations. 4 paths for 3 supported providers
 /// (copilot has no skill support so it's intentionally absent).
-fn target_paths_for_project(base: &Path) -> [(PathBuf, &'static str); 3] {
+fn target_paths_for_project(base: &Path) -> [(PathBuf, &'static str); 4] {
     [
         (
+            base.join(".codex").join("skills").join(SKILL_NAME),
+            "codex (native)",
+        ),
+        (
             base.join(".agents").join("skills").join(SKILL_NAME),
-            "codex + opencode (universal)",
+            "codex/opencode (agents fallback)",
         ),
         (
             base.join(".claude").join("skills").join(SKILL_NAME),
@@ -111,11 +115,15 @@ fn target_paths_for_project(base: &Path) -> [(PathBuf, &'static str); 3] {
 ///
 /// **Note** the opencode path differs from project: `~/.config/opencode/` (XDG)
 /// not `~/.opencode/`. This is per opencode's official docs (skills.mdx).
-fn target_paths_for_global(base: &Path) -> [(PathBuf, &'static str); 3] {
+fn target_paths_for_global(base: &Path) -> [(PathBuf, &'static str); 4] {
     [
         (
+            base.join(".codex").join("skills").join(SKILL_NAME),
+            "codex (native)",
+        ),
+        (
             base.join(".agents").join("skills").join(SKILL_NAME),
-            "codex + opencode (universal)",
+            "codex/opencode (agents fallback)",
         ),
         (
             base.join(".claude").join("skills").join(SKILL_NAME),
@@ -263,4 +271,45 @@ pub fn remove(global: bool, project: Option<PathBuf>) -> Result<()> {
     }
     output::print_info(&format!("Removed {} location(s).", removed));
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn project_targets_include_codex_native_skill_dir() {
+        let base = Path::new(r"C:\project");
+
+        let targets = target_paths_for_project(base);
+
+        assert_eq!(targets.len(), 4);
+        assert!(targets.iter().any(|(path, label)| {
+            path == &base.join(".codex").join("skills").join(SKILL_NAME)
+                && *label == "codex (native)"
+        }));
+        assert!(
+            targets
+                .iter()
+                .any(|(path, _)| { path == &base.join(".agents").join("skills").join(SKILL_NAME) })
+        );
+    }
+
+    #[test]
+    fn global_targets_include_codex_native_skill_dir() {
+        let base = Path::new(r"C:\Users\tester");
+
+        let targets = target_paths_for_global(base);
+
+        assert_eq!(targets.len(), 4);
+        assert!(targets.iter().any(|(path, label)| {
+            path == &base.join(".codex").join("skills").join(SKILL_NAME)
+                && *label == "codex (native)"
+        }));
+        assert!(
+            targets
+                .iter()
+                .any(|(path, _)| { path == &base.join(".agents").join("skills").join(SKILL_NAME) })
+        );
+    }
 }

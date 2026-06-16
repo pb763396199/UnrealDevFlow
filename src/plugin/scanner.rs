@@ -14,6 +14,13 @@ use std::path::{Path, PathBuf};
 /// A plugin directory is one that contains a `.uplugin` file.
 /// We do not descend into a directory that already has a `.uplugin`.
 pub fn enumerate_plugins(root: &Path) -> HashMap<String, PathBuf> {
+    enumerate_plugin_locations(root)
+        .into_iter()
+        .filter_map(|(name, mut paths)| paths.drain(..).next().map(|path| (name, path)))
+        .collect()
+}
+
+pub fn enumerate_plugin_locations(root: &Path) -> HashMap<String, Vec<PathBuf>> {
     let mut result = HashMap::new();
     if !root.is_dir() {
         return result;
@@ -22,7 +29,7 @@ pub fn enumerate_plugins(root: &Path) -> HashMap<String, PathBuf> {
     result
 }
 
-fn walk(dir: &Path, out: &mut HashMap<String, PathBuf>, depth: usize) {
+fn walk(dir: &Path, out: &mut HashMap<String, Vec<PathBuf>>, depth: usize) {
     if depth > 8 {
         return;
     }
@@ -37,7 +44,8 @@ fn walk(dir: &Path, out: &mut HashMap<String, PathBuf>, depth: usize) {
         if path.is_file() && path.extension().map(|e| e == "uplugin").unwrap_or(false) {
             if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
                 out.entry(stem.to_string())
-                    .or_insert_with(|| dir.to_path_buf());
+                    .or_default()
+                    .push(dir.to_path_buf());
                 found_uplugin = true;
             }
         } else if path.is_dir() {

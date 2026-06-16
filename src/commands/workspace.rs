@@ -1,10 +1,14 @@
 //! Workspace registry commands.
 
 use crate::config::{Config, DEFAULT_WORKSPACE, WorkspaceConfig, sanitize_workspace_name};
-use crate::error::{Result, UdfError};
+use crate::error::{GitError, Result, UdfError};
 use crate::output;
+use crate::plugin::scanner;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+
+#[cfg(windows)]
+const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
 
 pub fn add(
     name: String,
@@ -161,6 +165,8 @@ pub fn validate_workspace(workspace: &WorkspaceConfig) -> Result<()> {
             plugins_root
         )));
     }
+    validate_plugins_root_shape(workspace, &plugins_root)?;
+    validate_plugins_root_sources(workspace, &plugins_root)?;
     if !workspace.hosts_root.exists() {
         std::fs::create_dir_all(&workspace.hosts_root)?;
     }
@@ -175,6 +181,136 @@ pub fn validate_workspace(workspace: &WorkspaceConfig) -> Result<()> {
             "引擎 Build.bat 不存在：{:?}",
             build_bat
         )));
+    }
+    Ok(())
+}
+
+fn is_reparse_or_symlink(path: &Path) -> bool {
+    let Ok(meta) = std::fs::symlink_metadata(path) else {
+        return false;
+    };
+    if meta.file_type().is_symlink() {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+    }
+    #[cfg(not(windows))]
+    {
+        false
+    }
+}
+
+fn validate_plugins_root_shape(workspace: &WorkspaceConfig, plugins_root: &Path) -> Result<()> {
+    let root_name = plugins_root
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or_default();
+    if root_name.eq_ignore_ascii_case("Hosts")
+        || root_name.starts_with("W-")
+        || (root_name.starts_with("T-") && root_name.ends_with("_Host"))
+    {
+        return Err(UdfError::Other(format!(
+            "plugins_root 不能指向 Host/workspace 目录：{:?}",
+            plugins_root
+        )));
+    }
+
+    if plugins_root.starts_with(&workspace.default_project) {
+        return Err(UdfError::Other(format!(
+            "plugins_root 不能位于 UE 项目目录内：{:?}\n\
+             请使用稳定的主插件仓库根目录，例如项目外层的 Plugins 目录。",
+            plugins_root
+        )));
+    }
+
+    if plugins_root.join("Hosts").exists() {
+        return Err(UdfError::Other(format!(
+            "plugins_root 看起来过宽，包含 Hosts 目录：{:?}\n\
+             请指向只包含插件主仓库的目录。",
+            plugins_root
+        )));
+    }
+
+    if let Ok(entries) = std::fs::read_dir(plugins_root) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path
+                .extension()
+                .map(|ext| ext == "uproject")
+                .unwrap_or(false)
+            {
+                return Err(UdfError::Other(format!(
+                    "plugins_root 看起来是 UE 项目目录而不是插件仓库根：{:?}",
+                    plugins_root
+                )));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+pub fn validate_plugins_root_sources(
+    workspace: &WorkspaceConfig,
+    plugins_root: &Path,
+) -> Result<()> {
+    let plugin_locations = scanner::enumerate_plugin_locations(plugins_root);
+    for (name, locations) in &plugin_locations {
+        if locations.len() > 1 {
+            let paths = locations
+                .iter()
+                .map(|path| format!("  - {:?}", path))
+                .collect::<Vec<_>>()
+                .join("\n");
+            return Err(UdfError::Other(format!(
+                "plugins_root 中发现重复插件 '{}'：\n{}\n请把 plugins_root 收窄到唯一的主插件仓库根目录。",
+                name, paths
+            )));
+        }
+    }
+
+    let project_plugins_root = workspace.default_project.join("Plugins");
+    for (name, locations) in plugin_locations {
+        let Some(plugin_dir) = locations.into_iter().next() else {
+            continue;
+        };
+        if plugin_dir.starts_with(&project_plugins_root) {
+            return Err(UdfError::Other(format!(
+                "插件 '{}' 位于 UE 项目 Plugins 入口：{:?}\n\
+                 这是 switch 会改写的可变入口，不能作为 source_repo。",
+                name, plugin_dir
+            )));
+        }
+        if is_reparse_or_symlink(&plugin_dir) {
+            return Err(UdfError::Other(format!(
+                "插件 '{}' 是 Junction/symlink/reparse point：{:?}\n\
+                 请把 plugins_root 指向真实主仓路径，不能指向可变入口。",
+                name, plugin_dir
+            )));
+        }
+        match crate::git::linked_worktree_main(&plugin_dir) {
+            Ok(Some(main_worktree)) => {
+                let suggested_root = main_worktree
+                    .parent()
+                    .map(|path| path.to_path_buf())
+                    .unwrap_or_else(|| main_worktree.clone());
+                return Err(UdfError::Other(format!(
+                    "plugins_root 中的插件 '{}' 指向 Git linked worktree：{:?}\n\
+                     这通常表示 workspace 配到了 UE 项目的 Plugins/Junction 目录，\
+                     会导致新任务从当前激活任务分支创建。\n\
+                     主 checkout 是：{:?}\n\
+                     请把 workspace/config 的 plugins_root 改为主插件仓库根目录，例如：{:?}",
+                    name, plugin_dir, main_worktree, suggested_root
+                )));
+            }
+            Ok(None) => {}
+            Err(UdfError::Git(GitError::NotARepo(_))) => {}
+            Err(UdfError::Git(GitError::CommandFailed(_))) => {}
+            Err(err) => return Err(err),
+        }
     }
     Ok(())
 }

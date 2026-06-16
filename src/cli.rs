@@ -396,9 +396,9 @@ pub enum WorkspaceAction {
 
 #[derive(Subcommand)]
 pub enum SkillsAction {
-    /// Copy skills/<name>/SKILL.md into .agents/skills/ + .claude/skills/
+    /// Copy skills/<name>/SKILL.md into .codex/ + .agents/ + .claude/ + opencode skill dirs
     Install {
-        /// Install to user home (~/.agents/ + ~/.claude/) instead of project
+        /// Install to user home (~/.codex/ + ~/.agents/ + ~/.claude/ + opencode) instead of project
         #[arg(long, short = 'g')]
         global: bool,
         /// Project root (default: current dir)

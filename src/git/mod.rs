@@ -154,6 +154,21 @@ fn git_stdout(repo_path: &Path, args: &[&str]) -> Result<String> {
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
+pub fn command_stdout(repo_path: &Path, args: &[&str]) -> Result<String> {
+    git_stdout(repo_path, args)
+}
+
+pub fn status_porcelain(repo_path: &Path) -> Result<String> {
+    git_stdout(repo_path, &["status", "--porcelain"])
+}
+
+pub fn branch_exists(repo_path: &Path, branch: &str) -> Result<bool> {
+    git_success(
+        repo_path,
+        &["rev-parse", "--verify", &format!("refs/heads/{}", branch)],
+    )
+}
+
 fn normalize_path_for_compare(path: &Path) -> String {
     let path = dunce::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     let mut text = path.to_string_lossy().replace('\\', "/");

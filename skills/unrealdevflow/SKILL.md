@@ -43,7 +43,7 @@ unrealdevflow finish <workspace>/<task-id>
 ```
 
 - `init` detects project/plugins/engine/hosts, saves a named workspace, installs the AI skill, and runs doctor.
-- Workspace names can be suggested by the tool or user-provided; they are normalized to safe kebab-case.
+- Workspace names identify a UE project environment, not a task. Prefer the tool suggestion or a project name such as `neon-dev`; never use task names such as `sublevel-tweak` as the workspace.
 - If more than one workspace exists, use full task refs: `workspace/task-id`. Never guess from a short id when ambiguous.
 - `start` wraps `create` and preserves the original user request as the task prompt.
 - `next` prints only the next action the user should take.
@@ -76,6 +76,9 @@ unrealdevflow create "<task description>" `
 - `--workspace` is required when multiple UE project workspaces exist.
 - `--primary` accepts comma-separated plugin names (v2 multi-plugin).
 - `--override-dep` resolves engine-vs-project conflict (`<name>=engine|project|<absolute-path>`).
+- `--id` must contain only lowercase ASCII letters, digits, and hyphens; never include `/`, `\`, `..`, spaces, or Chinese characters.
+- Create/start requires each primary plugin's main checkout to be on a clean `dev` branch. Do not create from feature/task branches, detached HEAD, Host worktrees, or DEV project Junctions.
+- `plugins_root` must be the stable main plugin repository root, not `<UE project>/Plugins`, a Host directory, a Junction/symlink/reparse point, or any path containing duplicate plugin names.
 - The tool auto-parses each primary plugin's `.uplugin`, scans engine+project plugin roots, and creates Junctions for project-local dependencies.
 - New workspace tasks live under `<hosts_root>/W-<workspace>/T-<task-id>_Host`.
 - New metadata writes `workspace`, `task_uid`, and a frozen `context` so later commands do not depend on mutable global defaults.
