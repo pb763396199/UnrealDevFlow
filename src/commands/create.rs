@@ -21,6 +21,16 @@ struct PrimaryPlan {
     worktree_abs: PathBuf,
 }
 
+struct PrimarySelection {
+    names: Vec<String>,
+}
+
+#[derive(Default)]
+struct DependencyOverrides {
+    project: HashMap<String, PathBuf>,
+    engine: HashSet<String>,
+}
+
 pub fn run(
     description: &str,
     custom_id: Option<String>,
@@ -56,9 +66,16 @@ pub fn run(
                 .to_string(),
         )
     })?;
-    let project_plugins = scanner::enumerate_plugins(&plugins_root);
-
-    let primary_names = resolve_primary_names(primary, &workspace_config)?;
+    let project_plugin_locations = scanner::enumerate_plugin_locations(&plugins_root);
+    let primary_selection = resolve_primary_names(primary, &workspace_config)?;
+    let preferred_primary_plugins = preferred_primary_plugins(&workspace_config)?;
+    let primary_names = primary_selection.names;
+    let mut project_plugins = resolve_required_project_plugins(
+        &primary_names,
+        &project_plugin_locations,
+        &preferred_primary_plugins,
+        "主插件",
+    )?;
     validate_primary_names(&primary_names, &project_plugins)?;
     validate_primary_sources_are_main_worktrees(&primary_names, &project_plugins)?;
     let branch_name = format!("task/{}/{}", workspace_name, task_id);
@@ -66,13 +83,14 @@ pub fn run(
         prepare_primary_plans(&primary_names, &project_plugins, &host_dir, &branch_name)?;
 
     // === Discover dependencies via .uplugin parsing ===
-    let engine_plugins =
-        scanner::enumerate_plugins(&scanner::engine_plugins_root(&workspace_config.engine_path));
+    let engine_plugin_locations = scanner::enumerate_plugin_locations(
+        &scanner::engine_plugins_root(&workspace_config.engine_path),
+    );
     let combined_overrides = combined_overrides(
         &workspace_config,
         &overrides,
-        &project_plugins,
-        &engine_plugins,
+        &project_plugin_locations,
+        &engine_plugin_locations,
     )?;
 
     let mut all_dep_names: Vec<String> = Vec::new();
@@ -90,11 +108,24 @@ pub fn run(
         }
     }
 
+    add_relevant_dependency_plugins(
+        &mut project_plugins,
+        &all_dep_names,
+        &project_plugin_locations,
+        &combined_overrides.project,
+    )?;
+    let engine_plugins = resolve_relevant_engine_plugins(
+        &all_dep_names,
+        &engine_plugin_locations,
+        &combined_overrides.engine,
+    )?;
+
     let resolution = scanner::resolve_dependencies(
         &all_dep_names,
         &engine_plugins,
         &project_plugins,
-        &combined_overrides,
+        &combined_overrides.project,
+        &combined_overrides.engine,
     )?;
 
     if !resolution.conflict.is_empty() {
@@ -118,6 +149,7 @@ pub fn run(
             resolution.missing.join(", ")
         )));
     }
+    validate_project_dependency_sources(&workspace_config, &resolution.project)?;
 
     // === Preview ===
     print_resolution_preview(&primary_names, &resolution);
@@ -295,7 +327,7 @@ pub fn run(
 fn resolve_primary_names(
     primary: Option<Vec<String>>,
     workspace: &WorkspaceConfig,
-) -> Result<Vec<String>> {
+) -> Result<PrimarySelection> {
     let mut names: Vec<String> = match primary {
         Some(list) => list
             .into_iter()
@@ -321,7 +353,7 @@ fn resolve_primary_names(
     // dedup preserving order
     let mut seen = HashSet::new();
     names.retain(|n| seen.insert(n.clone()));
-    Ok(names)
+    Ok(PrimarySelection { names })
 }
 
 fn validate_primary_names(
@@ -340,6 +372,157 @@ fn validate_primary_names(
             "以下主插件在项目 plugins_root 下找不到：{}",
             missing.join(", ")
         )));
+    }
+    Ok(())
+}
+
+fn resolve_required_project_plugins(
+    names: &[String],
+    locations: &HashMap<String, Vec<PathBuf>>,
+    preferred: &HashMap<String, PathBuf>,
+    role: &str,
+) -> Result<HashMap<String, PathBuf>> {
+    let mut out = HashMap::new();
+    let mut missing = Vec::new();
+    for name in names {
+        match unique_project_plugin_path(name, locations, preferred, role)? {
+            Some(path) => {
+                out.insert(name.clone(), path);
+            }
+            None => missing.push(name.clone()),
+        }
+    }
+    if !missing.is_empty() {
+        return Err(UdfError::Other(format!(
+            "以下{}在项目 plugins_root 下找不到：{}",
+            role,
+            missing.join(", ")
+        )));
+    }
+    Ok(out)
+}
+
+fn unique_project_plugin_path(
+    name: &str,
+    locations: &HashMap<String, Vec<PathBuf>>,
+    preferred: &HashMap<String, PathBuf>,
+    role: &str,
+) -> Result<Option<PathBuf>> {
+    if let Some(path) = preferred.get(name) {
+        return Ok(Some(path.clone()));
+    }
+    let Some(paths) = locations.get(name) else {
+        return Ok(None);
+    };
+    if paths.len() == 1 {
+        return Ok(paths.first().cloned());
+    }
+    let paths = paths
+        .iter()
+        .map(|path| format!("  - {:?}", path))
+        .collect::<Vec<_>>()
+        .join("\n");
+    Err(UdfError::Other(format!(
+        "plugins_root 中发现重复插件 '{}'（{}）：\n{}\n\
+         该插件参与当前任务，必须唯一。请把 plugins_root 收窄、改名旧副本，或对依赖使用 --override-dep 显式指定。",
+        name, role, paths
+    )))
+}
+
+fn preferred_primary_plugins(workspace: &WorkspaceConfig) -> Result<HashMap<String, PathBuf>> {
+    let mut out = HashMap::new();
+    let Some(plugin_path) = &workspace.plugin_path else {
+        return Ok(out);
+    };
+    let plugin_name = uplugin::read_plugin_name(plugin_path)?;
+    out.insert(plugin_name, plugin_path.clone());
+    Ok(out)
+}
+
+fn add_relevant_dependency_plugins(
+    project_plugins: &mut HashMap<String, PathBuf>,
+    dependency_names: &[String],
+    locations: &HashMap<String, Vec<PathBuf>>,
+    overrides: &HashMap<String, PathBuf>,
+) -> Result<()> {
+    for name in dependency_names {
+        if project_plugins.contains_key(name) || overrides.contains_key(name) {
+            continue;
+        }
+        if let Some(path) =
+            unique_project_plugin_path(name, locations, &HashMap::new(), "依赖插件")?
+        {
+            project_plugins.insert(name.clone(), path);
+        }
+    }
+    Ok(())
+}
+
+fn resolve_relevant_engine_plugins(
+    dependency_names: &[String],
+    locations: &HashMap<String, Vec<PathBuf>>,
+    engine_overrides: &HashSet<String>,
+) -> Result<HashMap<String, PathBuf>> {
+    let mut out = HashMap::new();
+    for name in dependency_names {
+        if let Some(path) = unique_engine_plugin_path(name, locations, "引擎依赖插件")? {
+            out.insert(name.clone(), path);
+        }
+    }
+    for name in engine_overrides {
+        let path = unique_engine_plugin_path(name, locations, "override-dep engine")?.ok_or_else(
+            || {
+                UdfError::Other(format!(
+                    "--override-dep {}=engine 失败：引擎中未找到该插件",
+                    name
+                ))
+            },
+        )?;
+        out.insert(name.clone(), path);
+    }
+    Ok(out)
+}
+
+fn unique_engine_plugin_path(
+    name: &str,
+    locations: &HashMap<String, Vec<PathBuf>>,
+    role: &str,
+) -> Result<Option<PathBuf>> {
+    let Some(paths) = locations.get(name) else {
+        return Ok(None);
+    };
+    if paths.len() == 1 {
+        return Ok(paths.first().cloned());
+    }
+    let paths = paths
+        .iter()
+        .map(|path| format!("  - {:?}", path))
+        .collect::<Vec<_>>()
+        .join("\n");
+    Err(UdfError::Other(format!(
+        "引擎 Plugins 中发现重复插件 '{}'（{}）：\n{}\n\
+         该插件参与当前任务，必须唯一。请收窄/清理 Engine Plugins，或使用 --override-dep <name>=<absolute-path> 显式指定。",
+        name, role, paths
+    )))
+}
+
+fn validate_project_dependency_sources(
+    workspace: &WorkspaceConfig,
+    deps: &[DiscoveredPlugin],
+) -> Result<()> {
+    for dep in deps {
+        let Some(path) = dep.path.as_ref() else {
+            return Err(UdfError::Other(format!(
+                "项目依赖插件 '{}' 缺少 source path",
+                dep.name
+            )));
+        };
+        crate::commands::workspace::validate_plugin_source_path(
+            workspace,
+            &format!("项目依赖插件 '{}'", dep.name),
+            path,
+            false,
+        )?;
     }
     Ok(())
 }
@@ -482,29 +665,52 @@ fn cleanup_partial_create(host_dir: &Path, created_worktrees: &[PathBuf]) {
 fn combined_overrides(
     workspace: &WorkspaceConfig,
     cli_overrides: &[DepOverride],
-    project_plugins: &HashMap<String, PathBuf>,
-    engine_plugins: &HashMap<String, PathBuf>,
-) -> Result<HashMap<String, PathBuf>> {
-    let mut out: HashMap<String, PathBuf> = workspace.plugin_overrides.clone();
+    project_plugin_locations: &HashMap<String, Vec<PathBuf>>,
+    engine_plugin_locations: &HashMap<String, Vec<PathBuf>>,
+) -> Result<DependencyOverrides> {
+    let mut out = DependencyOverrides {
+        project: workspace.plugin_overrides.clone(),
+        engine: HashSet::new(),
+    };
     for ov in cli_overrides {
-        let path = match &ov.kind {
-            DepOverrideKind::CustomPath(p) => p.clone(),
+        match &ov.kind {
+            DepOverrideKind::CustomPath(p) => {
+                out.project.insert(ov.name.clone(), p.clone());
+                out.engine.remove(&ov.name);
+            }
             DepOverrideKind::Project => {
-                project_plugins.get(&ov.name).cloned().ok_or_else(|| {
+                let path = unique_project_plugin_path(
+                    &ov.name,
+                    project_plugin_locations,
+                    &HashMap::new(),
+                    "override-dep project",
+                )?
+                .ok_or_else(|| {
                     UdfError::Other(format!(
                         "--override-dep {}=project 失败：项目中未找到该插件",
                         ov.name
                     ))
-                })?
+                })?;
+                out.project.insert(ov.name.clone(), path);
+                out.engine.remove(&ov.name);
             }
-            DepOverrideKind::Engine => engine_plugins.get(&ov.name).cloned().ok_or_else(|| {
-                UdfError::Other(format!(
-                    "--override-dep {}=engine 失败：引擎中未找到该插件",
-                    ov.name
-                ))
-            })?,
-        };
-        out.insert(ov.name.clone(), path);
+            DepOverrideKind::Engine => {
+                if unique_engine_plugin_path(
+                    &ov.name,
+                    engine_plugin_locations,
+                    "override-dep engine",
+                )?
+                .is_none()
+                {
+                    return Err(UdfError::Other(format!(
+                        "--override-dep {}=engine 失败：引擎中未找到该插件",
+                        ov.name
+                    )));
+                }
+                out.engine.insert(ov.name.clone());
+                out.project.remove(&ov.name);
+            }
+        }
     }
     Ok(out)
 }

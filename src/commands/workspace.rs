@@ -87,11 +87,18 @@ pub fn list() -> Result<()> {
     Ok(())
 }
 
-pub fn doctor(name: &str) -> Result<()> {
+pub fn doctor(name: &str, deep: bool) -> Result<()> {
     let name = sanitize_workspace_name(name);
     let config = Config::load()?;
     let (_, workspace) = config.resolve_workspace(Some(&name))?;
     validate_workspace(&workspace)?;
+    if deep {
+        let plugins_root = workspace.effective_plugins_root().ok_or_else(|| {
+            UdfError::Other("workspace 未配置 plugins_root 或 plugin_path".to_string())
+        })?;
+        validate_plugins_root_sources(&workspace, &plugins_root)?;
+        output::print_success(&format!("Workspace '{}' deep plugin scan passed.", name));
+    }
     output::print_success(&format!("Workspace '{}' looks good.", name));
     Ok(())
 }
@@ -166,7 +173,7 @@ pub fn validate_workspace(workspace: &WorkspaceConfig) -> Result<()> {
         )));
     }
     validate_plugins_root_shape(workspace, &plugins_root)?;
-    validate_plugins_root_sources(workspace, &plugins_root)?;
+    validate_default_plugin_path(workspace, &plugins_root)?;
     if !workspace.hosts_root.exists() {
         std::fs::create_dir_all(&workspace.hosts_root)?;
     }
@@ -181,6 +188,81 @@ pub fn validate_workspace(workspace: &WorkspaceConfig) -> Result<()> {
             "引擎 Build.bat 不存在：{:?}",
             build_bat
         )));
+    }
+    Ok(())
+}
+
+fn validate_default_plugin_path(workspace: &WorkspaceConfig, plugins_root: &Path) -> Result<()> {
+    let Some(plugin_path) = &workspace.plugin_path else {
+        return Ok(());
+    };
+    validate_plugin_source_path(workspace, "默认主插件", plugin_path, true)?;
+    if !plugin_path.starts_with(plugins_root) {
+        return Err(UdfError::Other(format!(
+            "默认主插件不在 plugins_root 下：{:?}\nplugins_root: {:?}",
+            plugin_path, plugins_root
+        )));
+    }
+    Ok(())
+}
+
+pub fn validate_plugin_source_path(
+    workspace: &WorkspaceConfig,
+    label: &str,
+    plugin_path: &Path,
+    require_git_repo: bool,
+) -> Result<()> {
+    if !plugin_path.exists() {
+        return Err(UdfError::Other(format!(
+            "{}路径不存在：{:?}",
+            label, plugin_path
+        )));
+    }
+    crate::plugin::uplugin::find_uplugin_file(plugin_path)?;
+    if plugin_path.starts_with(workspace.default_project.join("Plugins")) {
+        return Err(UdfError::Other(format!(
+            "{}位于 UE 项目 Plugins 入口：{:?}\n\
+             这是 switch 会改写的可变入口，不能作为 source_repo。",
+            label, plugin_path
+        )));
+    }
+    if is_reparse_or_symlink(plugin_path) {
+        return Err(UdfError::Other(format!(
+            "{}是 Junction/symlink/reparse point：{:?}\n\
+             请把 plugins_root 指向真实主仓路径，不能指向可变入口。",
+            label, plugin_path
+        )));
+    }
+    match crate::git::linked_worktree_main(plugin_path) {
+        Ok(Some(main_worktree)) => {
+            let suggested_root = main_worktree
+                .parent()
+                .map(|path| path.to_path_buf())
+                .unwrap_or_else(|| main_worktree.clone());
+            return Err(UdfError::Other(format!(
+                "{}指向 Git linked worktree：{:?}\n\
+                 这会让新任务错误地基于另一个任务分支创建。\n\
+                 主 checkout 是：{:?}\n\
+                 请把 workspace/config 的 plugins_root 改为主插件仓库根目录，例如：{:?}",
+                label, plugin_path, main_worktree, suggested_root
+            )));
+        }
+        Ok(None) => {}
+        Err(UdfError::Git(GitError::NotARepo(_))) if require_git_repo => {
+            return Err(UdfError::Other(format!(
+                "{}不是 Git 仓库：{:?}",
+                label, plugin_path
+            )));
+        }
+        Err(UdfError::Git(GitError::CommandFailed(_))) if require_git_repo => {
+            return Err(UdfError::Other(format!(
+                "无法确认{}的 Git 主 checkout：{:?}",
+                label, plugin_path
+            )));
+        }
+        Err(UdfError::Git(GitError::NotARepo(_))) => {}
+        Err(UdfError::Git(GitError::CommandFailed(_))) => {}
+        Err(err) => return Err(err),
     }
     Ok(())
 }

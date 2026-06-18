@@ -57,9 +57,12 @@ impl WorkspaceConfig {
     }
 
     pub fn legacy_primary_plugin(&self) -> Option<String> {
-        self.plugin_path
-            .as_ref()
-            .and_then(|p| p.file_name())
+        let plugin_path = self.plugin_path.as_ref()?;
+        if let Ok(name) = crate::plugin::uplugin::read_plugin_name(plugin_path) {
+            return Some(name);
+        }
+        plugin_path
+            .file_name()
             .and_then(|s| s.to_str())
             .map(|s| s.to_string())
     }
@@ -200,14 +203,6 @@ impl Config {
     }
 
     pub fn upsert_workspace(&mut self, name: String, workspace: WorkspaceConfig) {
-        if self.workspaces.is_empty() {
-            self.hosts_root = workspace.hosts_root.clone();
-            self.plugin_path = workspace.plugin_path.clone();
-            self.default_project = workspace.default_project.clone();
-            self.engine_path = workspace.engine_path.clone();
-            self.plugins_root = workspace.plugins_root.clone();
-            self.plugin_overrides = workspace.plugin_overrides.clone();
-        }
         self.last_used_workspace = Some(name.clone());
         self.workspaces.insert(name, workspace);
     }

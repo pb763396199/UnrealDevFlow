@@ -11,19 +11,35 @@ pub fn run(
     hosts_root: Option<PathBuf>,
     engine_path: Option<PathBuf>,
     skip_confirm: bool,
+    skip_skill_install: bool,
 ) -> Result<()> {
     let project = match project {
         Some(path) => path,
         None => detect_project_from_cwd()?,
     };
-    let project = dunce::canonicalize(&project).unwrap_or(project);
+    let project = absolutize_path(project)?;
     let plugins_root = match plugins_root {
         Some(path) => path,
         None => infer_plugins_root(&project)?,
     };
+    let plugins_root = absolutize_path(plugins_root)?;
+    let (plugins_root, mut default_plugin_path) = normalize_plugins_root_input(plugins_root);
+    if default_plugin_path.is_none() {
+        if let Ok(cwd) = std::env::current_dir() {
+            default_plugin_path = detect_plugin_from_path(&cwd, &plugins_root);
+        }
+    }
+    if let Some(path) = default_plugin_path.take() {
+        default_plugin_path = Some(absolutize_path(path)?);
+    }
     let hosts_root = match hosts_root {
         Some(path) => path,
         None => infer_hosts_root(&project),
+    };
+    let hosts_root = absolutize_path(hosts_root)?;
+    let engine_path = match engine_path {
+        Some(path) => Some(absolutize_path(path)?),
+        None => None,
     };
     let suggested = workspace.unwrap_or_else(|| suggest_workspace_name(&project));
     let workspace_name = if skip_confirm {
@@ -39,6 +55,9 @@ pub fn run(
     output::print_info("Detected workspace:");
     output::print_info(&format!("  Project: {:?}", project));
     output::print_info(&format!("  Plugins: {:?}", plugins_root));
+    if let Some(plugin_path) = &default_plugin_path {
+        output::print_info(&format!("  Default primary plugin: {:?}", plugin_path));
+    }
     output::print_info(&format!("  Hosts:   {:?}", hosts_root));
     if let Some(engine) = &engine_path {
         output::print_info(&format!("  Engine:  {:?}", engine));
@@ -52,14 +71,16 @@ pub fn run(
         hosts_root,
         plugins_root,
         engine_path,
-        None,
+        default_plugin_path,
         skip_confirm,
     )?;
 
-    if let Err(e) = crate::commands::skills::install(true, None) {
-        output::print_warning(&format!("AI skill install skipped/failed: {}", e));
+    crate::commands::workspace::doctor(&workspace_name, false)?;
+    if skip_skill_install {
+        output::print_warning("AI skill install skipped by --skip-skill-install.");
+    } else {
+        crate::commands::skills::install(true, None)?;
     }
-    crate::commands::workspace::doctor(&workspace_name)?;
     Ok(())
 }
 
@@ -86,6 +107,54 @@ fn contains_uproject(dir: &Path) -> bool {
             })
         })
         .unwrap_or(false)
+}
+
+fn absolutize_path(path: PathBuf) -> Result<PathBuf> {
+    let absolute = if path.is_absolute() {
+        path
+    } else {
+        std::env::current_dir()?.join(path)
+    };
+    Ok(dunce::canonicalize(&absolute).unwrap_or(absolute))
+}
+
+fn contains_uplugin(dir: &Path) -> bool {
+    std::fs::read_dir(dir)
+        .map(|entries| {
+            entries.filter_map(|e| e.ok()).any(|e| {
+                e.path()
+                    .extension()
+                    .map(|ext| ext == "uplugin")
+                    .unwrap_or(false)
+            })
+        })
+        .unwrap_or(false)
+}
+
+fn normalize_plugins_root_input(path: PathBuf) -> (PathBuf, Option<PathBuf>) {
+    if contains_uplugin(&path) {
+        if let Some(parent) = path.parent() {
+            return (parent.to_path_buf(), Some(path));
+        }
+    }
+    (path, None)
+}
+
+fn detect_plugin_from_path(path: &Path, plugins_root: &Path) -> Option<PathBuf> {
+    let root = dunce::canonicalize(plugins_root).unwrap_or_else(|_| plugins_root.to_path_buf());
+    let start = dunce::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    if !start.starts_with(&root) {
+        return None;
+    }
+    for dir in start.ancestors() {
+        if dir == root {
+            break;
+        }
+        if contains_uplugin(dir) {
+            return Some(dir.to_path_buf());
+        }
+    }
+    None
 }
 
 fn infer_plugins_root(project: &Path) -> Result<PathBuf> {
@@ -169,5 +238,45 @@ mod tests {
         std::fs::create_dir_all(&project_plugins).expect("project plugins");
 
         assert!(infer_plugins_root(&project).is_err());
+    }
+
+    #[test]
+    fn normalize_plugins_root_accepts_primary_plugin_directory() {
+        let temp = TempDir::new().expect("temp dir");
+        let plugins_root = temp.path().join("Plugins");
+        let plugin = plugins_root.join("AesWorld");
+        std::fs::create_dir_all(&plugin).expect("plugin dir");
+        std::fs::write(plugin.join("AesWorld.uplugin"), "{}").expect("uplugin");
+
+        let (normalized_root, default_plugin) = normalize_plugins_root_input(plugin.clone());
+
+        assert_eq!(normalized_root, plugins_root);
+        assert_eq!(default_plugin, Some(plugin));
+    }
+
+    #[test]
+    fn detect_plugin_from_path_finds_plugin_ancestor_under_root() {
+        let temp = TempDir::new().expect("temp dir");
+        let plugins_root = temp.path().join("Plugins");
+        let plugin = plugins_root.join("AesWorld");
+        let source = plugin.join("Source").join("AesWorld");
+        std::fs::create_dir_all(&source).expect("source dir");
+        std::fs::write(plugin.join("AesWorld.uplugin"), "{}").expect("uplugin");
+
+        assert_eq!(
+            detect_plugin_from_path(&source, &plugins_root),
+            Some(plugin)
+        );
+    }
+
+    #[test]
+    fn detect_plugin_from_path_ignores_paths_outside_root() {
+        let temp = TempDir::new().expect("temp dir");
+        let plugins_root = temp.path().join("Plugins");
+        let other = temp.path().join("Other").join("AesWorld");
+        std::fs::create_dir_all(&other).expect("other dir");
+        std::fs::write(other.join("AesWorld.uplugin"), "{}").expect("uplugin");
+
+        assert_eq!(detect_plugin_from_path(&other, &plugins_root), None);
     }
 }

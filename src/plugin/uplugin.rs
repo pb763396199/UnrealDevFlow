@@ -40,6 +40,20 @@ pub fn find_uplugin_file(plugin_dir: &Path) -> Result<PathBuf> {
     )))
 }
 
+pub fn read_plugin_name(plugin_dir: &Path) -> Result<String> {
+    let uplugin_path = find_uplugin_file(plugin_dir)?;
+    uplugin_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .map(|s| s.to_string())
+        .ok_or_else(|| {
+            UdfError::Other(format!(
+                "无法从 .uplugin 文件名解析插件名：{:?}",
+                uplugin_path
+            ))
+        })
+}
+
 /// Read the dependency list from a plugin directory.
 ///
 /// Returns only `Enabled = true` dependencies; missing fields default to false

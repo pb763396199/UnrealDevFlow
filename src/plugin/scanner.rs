@@ -5,7 +5,7 @@
 
 use super::{DependencyResolution, DiscoveredPlugin, PluginSource};
 use crate::error::Result;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -78,8 +78,9 @@ fn walk(dir: &Path, out: &mut HashMap<String, Vec<PathBuf>>, depth: usize) {
 /// honoring user overrides.
 ///
 /// Override semantics:
-/// - If the override path exists, the plugin is classified as `Project` (or any
-///   custom location) and engine duplicates are silently ignored.
+/// - Project/custom overrides are classified as `Project` and create Host
+///   junctions.
+/// - Engine overrides are classified as `Engine` and never create Host junctions.
 /// - If override is `None`, classification rule is:
 ///     - present only in engine → Engine
 ///     - present only in project → Project
@@ -89,11 +90,20 @@ pub fn resolve_dependencies(
     deps: &[String],
     engine_plugins: &HashMap<String, PathBuf>,
     project_plugins: &HashMap<String, PathBuf>,
-    overrides: &HashMap<String, PathBuf>,
+    project_overrides: &HashMap<String, PathBuf>,
+    engine_overrides: &HashSet<String>,
 ) -> Result<DependencyResolution> {
     let mut resolution = DependencyResolution::default();
     for name in deps {
-        if let Some(override_path) = overrides.get(name) {
+        if engine_overrides.contains(name) {
+            resolution.engine.push(DiscoveredPlugin {
+                name: name.clone(),
+                source: PluginSource::Engine,
+                path: engine_plugins.get(name).cloned(),
+            });
+            continue;
+        }
+        if let Some(override_path) = project_overrides.get(name) {
             resolution.project.push(DiscoveredPlugin {
                 name: name.clone(),
                 source: PluginSource::Project,
