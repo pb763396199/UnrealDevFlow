@@ -17,9 +17,17 @@ pub struct UPluginDependency {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+pub struct UPluginModule {
+    #[serde(rename = "Name")]
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 struct UPluginFile {
     #[serde(rename = "Plugins", default)]
     plugins: Vec<UPluginDependency>,
+    #[serde(rename = "Modules", default)]
+    modules: Vec<UPluginModule>,
 }
 
 /// Locate the `.uplugin` file inside a plugin directory.
@@ -69,5 +77,20 @@ pub fn read_dependencies(plugin_dir: &Path) -> Result<Vec<String>> {
         .into_iter()
         .filter(|d| d.enabled)
         .map(|d| d.name)
+        .collect())
+}
+
+/// Read the module names declared by a plugin directory's `.uplugin`.
+pub fn read_module_names(plugin_dir: &Path) -> Result<Vec<String>> {
+    let uplugin_path = find_uplugin_file(plugin_dir)?;
+    let content = fs::read_to_string(&uplugin_path)?;
+    let parsed: UPluginFile = serde_json::from_str(&content)
+        .map_err(|e| UdfError::Other(format!("解析 .uplugin 失败 {:?}：{}", uplugin_path, e)))?;
+
+    Ok(parsed
+        .modules
+        .into_iter()
+        .map(|module| module.name.trim().to_string())
+        .filter(|name| !name.is_empty())
         .collect())
 }

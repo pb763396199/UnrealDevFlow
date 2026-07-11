@@ -68,15 +68,15 @@ pub fn run(
     if validator_hint {
         output::print_info("  ⚠ Validator mode: -NoMutex preferred to avoid queueing.");
     }
+    let primary_only_modules = if primary_only {
+        primary_only_module_names(&host_dir, &meta.primary_plugins)?
+    } else {
+        Vec::new()
+    };
     if primary_only {
-        let modules: Vec<String> = meta
-            .primary_plugins
-            .iter()
-            .map(|p| p.name.clone())
-            .collect();
         output::print_info(&format!(
             "  Scope:   --primary-only ({} module(s))",
-            modules.len()
+            primary_only_modules.len()
         ));
     }
 
@@ -117,8 +117,8 @@ pub fn run(
 
     // Optional -Module= per primary plugin (used for incremental single-plugin builds)
     if primary_only {
-        for plugin in &meta.primary_plugins {
-            args.push(format!("-Module={}", plugin.name));
+        for module in &primary_only_modules {
+            args.push(format!("-Module={}", module));
         }
     }
 
@@ -234,6 +234,26 @@ fn verify_primary_dlls(host_dir: &Path, primary_plugins: &[PrimaryPlugin]) -> Re
     Ok(())
 }
 
+fn primary_only_module_names(
+    host_dir: &Path,
+    primary_plugins: &[PrimaryPlugin],
+) -> Result<Vec<String>> {
+    let mut modules = Vec::new();
+    for plugin in primary_plugins {
+        let plugin_dir = host_dir.join(&plugin.worktree);
+        let declared_modules = crate::plugin::uplugin::read_module_names(&plugin_dir)?;
+        if declared_modules.is_empty() {
+            modules.push(plugin.name.clone());
+        } else {
+            modules.extend(declared_modules);
+        }
+    }
+
+    let mut seen = std::collections::HashSet::new();
+    modules.retain(|module| seen.insert(module.clone()));
+    Ok(modules)
+}
+
 fn check_dependency_dirty(deps: &[DependencyPlugin]) {
     for dep in deps {
         if dep.source != DependencySource::Project {
@@ -283,4 +303,67 @@ fn engine_intermediate_ready(engine_path: &Path) -> bool {
 #[allow(dead_code)]
 fn join_worktree(host_dir: &Path, rel: &Path) -> PathBuf {
     host_dir.join(rel)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn primary_only_uses_uplugin_module_names_not_plugin_name() {
+        let temp = TempDir::new().expect("temp dir");
+        let host_dir = temp.path();
+        let plugin_dir = host_dir.join("Plugins").join("AesWorld");
+        fs::create_dir_all(&plugin_dir).expect("plugin dir");
+        fs::write(
+            plugin_dir.join("AesWorld.uplugin"),
+            r#"{
+                "FileVersion": 3,
+                "Modules": [
+                    { "Name": "AesEarth", "Type": "Runtime" },
+                    { "Name": "AesPOI", "Type": "Runtime" }
+                ]
+            }"#,
+        )
+        .expect("uplugin");
+
+        let modules = primary_only_module_names(
+            host_dir,
+            &[PrimaryPlugin {
+                name: "AesWorld".to_string(),
+                source_repo: PathBuf::from("unused"),
+                worktree: PathBuf::from("Plugins/AesWorld"),
+                branch: "task/test".to_string(),
+                based_on: "abc123".to_string(),
+            }],
+        )
+        .expect("module names");
+
+        assert_eq!(modules, vec!["AesEarth".to_string(), "AesPOI".to_string()]);
+        assert!(!modules.contains(&"AesWorld".to_string()));
+    }
+
+    #[test]
+    fn primary_only_keeps_plugin_name_fallback_for_legacy_empty_uplugin() {
+        let temp = TempDir::new().expect("temp dir");
+        let host_dir = temp.path();
+        let plugin_dir = host_dir.join("Plugins").join("SimplePlugin");
+        fs::create_dir_all(&plugin_dir).expect("plugin dir");
+        fs::write(plugin_dir.join("SimplePlugin.uplugin"), "{}").expect("uplugin");
+
+        let modules = primary_only_module_names(
+            host_dir,
+            &[PrimaryPlugin {
+                name: "SimplePlugin".to_string(),
+                source_repo: PathBuf::from("unused"),
+                worktree: PathBuf::from("Plugins/SimplePlugin"),
+                branch: "task/test".to_string(),
+                based_on: "abc123".to_string(),
+            }],
+        )
+        .expect("module names");
+
+        assert_eq!(modules, vec!["SimplePlugin".to_string()]);
+    }
 }

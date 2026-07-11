@@ -65,6 +65,7 @@ fn run() -> Result<()> {
             hosts_root,
             engine_path,
             yes,
+            skip_skill_install,
         } => commands::init::run(
             workspace,
             project,
@@ -72,6 +73,7 @@ fn run() -> Result<()> {
             hosts_root,
             engine_path,
             yes,
+            skip_skill_install,
         )?,
         Commands::Start {
             description,
@@ -108,7 +110,9 @@ fn run() -> Result<()> {
                 yes,
             )?,
             cli::WorkspaceAction::List => commands::workspace::list()?,
-            cli::WorkspaceAction::Doctor { name } => commands::workspace::doctor(&name)?,
+            cli::WorkspaceAction::Doctor { name, deep } => {
+                commands::workspace::doctor(&name, deep)?
+            }
             cli::WorkspaceAction::Remove { name, yes } => commands::workspace::remove(&name, yes)?,
         },
         Commands::Configure {

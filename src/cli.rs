@@ -69,6 +69,10 @@ pub enum Commands {
         /// Skip confirmation prompts.
         #[arg(long, short = 'y')]
         yes: bool,
+
+        /// Do not install the AI skill during init.
+        #[arg(long)]
+        skip_skill_install: bool,
     },
 
     /// Start a task with a friendly workflow wrapper around create.
@@ -389,7 +393,12 @@ pub enum WorkspaceAction {
     /// List registered workspaces.
     List,
     /// Check whether a workspace points at valid directories.
-    Doctor { name: String },
+    Doctor {
+        name: String,
+        /// Recursively validate every plugin source under plugins_root.
+        #[arg(long)]
+        deep: bool,
+    },
     /// Remove a workspace registration.
     Remove {
         name: String,
