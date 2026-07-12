@@ -98,6 +98,21 @@ pub fn run(
     }
     let target_projects = target_projects.unwrap_or_else(|| vec![config.default_project.clone()]);
 
+    // Validate the complete cross-project plan before touching any Junction.
+    // A conflict on plugin N must not leave plugins 1..N-1 partially switched.
+    for project_path in &target_projects {
+        let project_name = canonical_project_key(project_path);
+        for (plugin_name, target_path) in &switch_plan {
+            if !target_path.exists() {
+                return Err(UdfError::Other(format!(
+                    "Junction target does not exist for plugin '{}': {:?}",
+                    plugin_name, target_path
+                )));
+            }
+            preflight_existing_path(&junction_path_for(project_path, plugin_name), &project_name)?;
+        }
+    }
+
     // === Switch every junction for every project ===
     for project_path in &target_projects {
         let project_name = canonical_project_key(project_path);
@@ -258,6 +273,35 @@ fn handle_existing_path(junction_path: &Path, project_name: &str) -> Result<()> 
 
     Err(UdfError::Other(format!(
         "Switch aborted. Please resolve the conflict at '{:?}' and try again.",
+        junction_path
+    )))
+}
+
+fn preflight_existing_path(junction_path: &Path, project_name: &str) -> Result<()> {
+    if !junction_path.exists()
+        || junction::is_broken(junction_path)
+        || junction::exists(junction_path).unwrap_or(false)
+    {
+        return Ok(());
+    }
+
+    let is_empty = fs::read_dir(junction_path)
+        .map(|mut entries| entries.next().is_none())
+        .unwrap_or(false);
+    if is_empty {
+        return Ok(());
+    }
+
+    output::print_warning(&format!(
+        "Conflict: '{:?}' already contains a plugin (not a Junction) for project '{}'.",
+        junction_path, project_name
+    ));
+    output::print_info("Switch preflight aborted before changing any plugin Junction.");
+    output::print_info(
+        "To resolve this conflict, move or back up the existing plugin directory, then retry.",
+    );
+    Err(UdfError::Other(format!(
+        "Switch aborted without changes. Resolve the conflict at '{:?}' and try again.",
         junction_path
     )))
 }

@@ -25,6 +25,24 @@ pub fn add(repo_path: &Path, worktree_path: &Path, commit: &str, branch: &str) -
     Ok(())
 }
 
+pub fn update_submodules(worktree_path: &Path) -> Result<()> {
+    if !worktree_path.join(".gitmodules").exists() {
+        return Ok(());
+    }
+    let output = Command::new("git")
+        .args(["submodule", "update", "--init", "--recursive"])
+        .current_dir(worktree_path)
+        .output()?;
+    if !output.status.success() {
+        return Err(GitError::Worktree(format!(
+            "Failed to initialize submodules: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ))
+        .into());
+    }
+    Ok(())
+}
+
 pub fn remove(worktree_path: &Path) -> Result<()> {
     // First, try the standard `git worktree remove --force` command
     let output = Command::new("git")

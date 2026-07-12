@@ -88,6 +88,15 @@ pub enum Commands {
         #[arg(long)]
         id: Option<String>,
 
+        /// Explicit task branch name used in every primary repository.
+        /// Defaults to task/<workspace>/<task-id>.
+        #[arg(long)]
+        branch: Option<String>,
+
+        /// Git ref used as the base in every primary repository.
+        #[arg(long)]
+        base_ref: Option<String>,
+
         /// Primary plugin names.
         #[arg(long, value_delimiter = ',')]
         primary: Option<Vec<String>>,
@@ -166,6 +175,15 @@ pub enum Commands {
         /// Custom task ID (overrides auto-suggestion)
         #[arg(long)]
         id: Option<String>,
+
+        /// Explicit task branch name used in every primary repository.
+        /// Defaults to task/<workspace>/<task-id>.
+        #[arg(long)]
+        branch: Option<String>,
+
+        /// Git ref used as the base in every primary repository.
+        #[arg(long)]
+        base_ref: Option<String>,
 
         /// Original prompt/task description to save in metadata
         #[arg(long)]

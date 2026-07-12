@@ -168,7 +168,7 @@ pub fn create_host_with_plugins(
     fs::create_dir_all(host_dir)?;
 
     // Create .uproject with all primary + project-dependency plugins enabled.
-    let uproject_path = host_dir.join(format!("T-{}_Host.uproject", task_id));
+    let uproject_path = host_dir.join(format!("{}.uproject", task_project_name(task_id)));
     let mut enabled = Vec::new();
     enabled.extend(primary_names.iter().cloned());
     enabled.extend(project_dependency_names.iter().cloned());
@@ -180,6 +180,20 @@ pub fn create_host_with_plugins(
     fs::write(&uproject_path, uproject_content)?;
 
     Ok(())
+}
+
+pub fn task_project_name(task_id: &str) -> String {
+    let sanitized = task_id
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || character == '_' {
+                character
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    format!("T_{}_Host", sanitized)
 }
 
 pub fn write_meta(host_dir: &Path, meta: &TaskMeta) -> Result<()> {

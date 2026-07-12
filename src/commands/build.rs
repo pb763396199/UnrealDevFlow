@@ -24,7 +24,7 @@ pub fn run(
     let (host_dir, mut meta, task_context) = host::resolve_task(&config, task_id)?;
     crate::migration::backfill_source_repo(&mut meta, &config);
 
-    let uproject_path = host_dir.join(format!("T-{}_Host.uproject", task_id));
+    let uproject_path = host_dir.join(format!("{}.uproject", host::task_project_name(&meta.id)));
 
     if !uproject_path.exists() {
         return Err(UdfError::TaskNotFound(task_id.to_string()));

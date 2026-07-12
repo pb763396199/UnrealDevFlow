@@ -140,6 +140,7 @@ pub fn run(task_id: &str, force: bool, skip_confirm: bool, dry_run: bool) -> Res
 
     let task_id_only = meta.id.clone();
     let expected_branches = vec![
+        meta.branch.clone(),
         format!("task-{}", task_id_only),
         format!(
             "task/{}/{}",
@@ -233,7 +234,7 @@ pub fn run(task_id: &str, force: bool, skip_confirm: bool, dry_run: bool) -> Res
     // Step 0: Clean up junctions in all known projects that point to this task's worktrees.
     // This prevents "broken junctions" that would block future switch operations.
     output::print_info("Checking for junctions pointing to this task...");
-    let state = crate::state::GlobalState::load()?;
+    let mut state = crate::state::GlobalState::load()?;
     let mut junctions_cleaned = 0;
 
     for (project_name, project_state) in &state.projects {
@@ -290,6 +291,35 @@ pub fn run(task_id: &str, force: bool, skip_confirm: bool, dry_run: bool) -> Res
             junctions_cleaned
         ));
     }
+
+    // Remove stale task-owned Junction records as part of the same lifecycle.
+    for project_state in state.projects.values_mut() {
+        project_state.junctions.retain(|junction_state| {
+            !meta
+                .primary_plugins
+                .iter()
+                .any(|p| junction_state.junction_target == host_dir.join(&p.worktree))
+                && !meta.dependency_plugins.iter().any(|d| {
+                    d.junction
+                        .as_ref()
+                        .map(|rel| junction_state.junction_target == host_dir.join(rel))
+                        .unwrap_or(false)
+                })
+        });
+        let owned_active_task = project_state.active_task.as_deref() == Some(task_id)
+            || project_state.active_task.as_deref() == meta.task_uid.as_deref()
+            || project_state.active_task.as_deref() == Some(meta.id.as_str());
+        if owned_active_task {
+            project_state.active_task = None;
+        }
+        let first = project_state.junctions.first().cloned();
+        project_state.junction_path = first
+            .as_ref()
+            .map(|entry| entry.junction_path.clone())
+            .unwrap_or_default();
+        project_state.junction_target = first.map(|entry| entry.junction_target);
+    }
+    state.save()?;
 
     // Step 1: Remove dependency junctions explicitly.
     for dep in &meta.dependency_plugins {

@@ -6,10 +6,13 @@ use crate::error::{Result, UdfError};
 use crate::host;
 use crate::output;
 
+#[allow(clippy::too_many_arguments)]
 pub fn start(
     description: &str,
     workspace: Option<String>,
     id: Option<String>,
+    branch: Option<String>,
+    base_ref: Option<String>,
     primary: Option<Vec<String>>,
     overrides: Vec<DepOverride>,
     skip_confirm: bool,
@@ -17,6 +20,8 @@ pub fn start(
     crate::commands::create::run(
         description,
         id,
+        branch,
+        base_ref,
         Some(description.to_string()),
         workspace,
         primary,

@@ -75,6 +75,17 @@ pub fn fast_forward_upstream(repo_path: &Path) -> Result<()> {
     Ok(())
 }
 
+pub fn resolve_commit(repo_path: &Path, reference: &str) -> Result<String> {
+    git_stdout(
+        repo_path,
+        &[
+            "rev-parse",
+            "--verify",
+            &format!("{}^{{commit}}", reference),
+        ],
+    )
+}
+
 pub fn get_current_commit(repo: &Repository) -> Result<String> {
     let head = repo.head()?;
     let commit = head.peel_to_commit()?;

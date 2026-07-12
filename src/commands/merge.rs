@@ -120,6 +120,7 @@ pub fn run(
             task_id,
             &host_dir,
             primary,
+            &meta.branch,
             strategy,
             force,
             skip_confirm,
@@ -156,10 +157,12 @@ pub fn run(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn merge_single_plugin(
     task_id: &str,
     host_dir: &Path,
     primary: &PrimaryPlugin,
+    task_branch: &str,
     strategy: &crate::cli::MergeStrategy,
     force: bool,
     skip_confirm: bool,
@@ -168,7 +171,8 @@ fn merge_single_plugin(
     let (_, task_id_only) = host::parse_task_ref(task_id);
     let legacy_expected = format!("task-{}", task_id_only);
     let namespaced_suffix = format!("/{}", task_id_only);
-    let branch_matches = primary.branch == legacy_expected
+    let branch_matches = primary.branch == task_branch
+        || primary.branch == legacy_expected
         || (primary.branch.starts_with("task/") && primary.branch.ends_with(&namespaced_suffix));
     if !branch_matches {
         return Err(UdfError::Other(format!(

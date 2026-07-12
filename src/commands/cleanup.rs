@@ -231,6 +231,7 @@ pub fn run(task_id: &str, force: bool, skip_confirm: bool) -> Result<()> {
 
     let task_id_only = meta.id.clone();
     let expected_branches = vec![
+        meta.branch.clone(),
         format!("task-{}", task_id_only),
         format!(
             "task/{}/{}",

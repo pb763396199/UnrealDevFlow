@@ -31,9 +31,12 @@ struct DependencyOverrides {
     engine: HashSet<String>,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn run(
     description: &str,
     custom_id: Option<String>,
+    custom_branch: Option<String>,
+    base_ref: Option<String>,
     prompt: Option<String>,
     workspace: Option<String>,
     primary: Option<Vec<String>>,
@@ -68,8 +71,15 @@ pub fn run(
     })?;
     let project_plugin_locations = scanner::enumerate_plugin_locations(&plugins_root);
     let primary_selection = resolve_primary_names(primary, &workspace_config)?;
-    let preferred_primary_plugins = preferred_primary_plugins(&workspace_config)?;
     let primary_names = primary_selection.names;
+    let mut preferred_primary_plugins = preferred_primary_plugins(&workspace_config)?;
+    for override_value in &overrides {
+        if primary_names.contains(&override_value.name) {
+            if let DepOverrideKind::CustomPath(path) = &override_value.kind {
+                preferred_primary_plugins.insert(override_value.name.clone(), path.clone());
+            }
+        }
+    }
     let mut project_plugins = resolve_required_project_plugins(
         &primary_names,
         &project_plugin_locations,
@@ -78,9 +88,16 @@ pub fn run(
     )?;
     validate_primary_names(&primary_names, &project_plugins)?;
     validate_primary_sources_are_main_worktrees(&primary_names, &project_plugins)?;
-    let branch_name = format!("task/{}/{}", workspace_name, task_id);
-    let primary_plans =
-        prepare_primary_plans(&primary_names, &project_plugins, &host_dir, &branch_name)?;
+    let branch_name =
+        custom_branch.unwrap_or_else(|| format!("task/{}/{}", workspace_name, task_id));
+    validate_branch_name(&branch_name)?;
+    let primary_plans = prepare_primary_plans(
+        &primary_names,
+        &project_plugins,
+        &host_dir,
+        &branch_name,
+        base_ref.as_deref(),
+    )?;
 
     // === Discover dependencies via .uplugin parsing ===
     let engine_plugin_locations = scanner::enumerate_plugin_locations(
@@ -95,15 +112,64 @@ pub fn run(
 
     let mut all_dep_names: Vec<String> = Vec::new();
     let mut seen_deps: HashSet<String> = HashSet::new();
+    let mut primary_descriptor_names = Vec::new();
+    for primary_name in &primary_names {
+        let primary_dir = project_plugins
+            .get(primary_name)
+            .ok_or_else(|| UdfError::Other(format!("主插件目录不存在：{}", primary_name)))?;
+        primary_descriptor_names.extend(uplugin::read_plugin_names(primary_dir)?);
+    }
+    primary_descriptor_names.sort();
+    primary_descriptor_names.dedup();
     for primary_name in &primary_names {
         let primary_dir = project_plugins
             .get(primary_name)
             .ok_or_else(|| UdfError::Other(format!("主插件目录不存在：{}", primary_name)))?;
         let deps = uplugin::read_dependencies(primary_dir)?;
         for d in deps {
-            if !seen_deps.contains(&d) && !primary_names.contains(&d) {
+            if !seen_deps.contains(&d) && !primary_descriptor_names.contains(&d) {
                 seen_deps.insert(d.clone());
                 all_dep_names.push(d);
+            }
+        }
+    }
+
+    // Expand project-plugin dependencies transitively. UBT resolves engine
+    // plugin internals itself, but every project dependency must be present in
+    // the generated Host, including dependencies several descriptors deep.
+    let mut dependency_index = 0;
+    while dependency_index < all_dep_names.len() {
+        let dependency_name = all_dep_names[dependency_index].clone();
+        dependency_index += 1;
+
+        let explicit_project = combined_overrides.project.get(&dependency_name).cloned();
+        let project_path = match explicit_project {
+            Some(path) => Some(path),
+            None => unique_project_plugin_path(
+                &dependency_name,
+                &project_plugin_locations,
+                &HashMap::new(),
+                "递归依赖插件",
+            )?,
+        };
+        let forced_engine = combined_overrides.engine.contains(&dependency_name);
+        let engine_exists = engine_plugin_locations
+            .get(&dependency_name)
+            .map(|locations| !locations.is_empty())
+            .unwrap_or(false);
+        if forced_engine
+            || (engine_exists && !combined_overrides.project.contains_key(&dependency_name))
+        {
+            continue;
+        }
+        let Some(project_path) = project_path else {
+            continue;
+        };
+        for transitive in uplugin::read_dependencies(&project_path)? {
+            if !primary_descriptor_names.contains(&transitive)
+                && seen_deps.insert(transitive.clone())
+            {
+                all_dep_names.push(transitive);
             }
         }
     }
@@ -179,10 +245,10 @@ pub fn run(
         &host_dir,
         &task_id,
         &engine_version,
-        &primary_names,
+        &primary_descriptor_names,
         &project_dep_names,
     ) {
-        cleanup_partial_create(&host_dir, &[]);
+        cleanup_partial_create(&host_dir, &[], &primary_plans, &branch_name);
         return Err(err);
     }
 
@@ -203,6 +269,7 @@ pub fn run(
                 &branch_name,
             )?;
             created_worktrees.push(plan.worktree_abs.clone());
+            git::worktree::update_submodules(&plan.worktree_abs)?;
             primary_meta.push(PrimaryPlugin {
                 name: plan.name.clone(),
                 source_repo: plan.source_repo.clone(),
@@ -216,7 +283,7 @@ pub fn run(
     let primary_meta = match create_result {
         Ok(meta) => meta,
         Err(err) => {
-            cleanup_partial_create(&host_dir, &created_worktrees);
+            cleanup_partial_create(&host_dir, &created_worktrees, &primary_plans, &branch_name);
             return Err(err);
         }
     };
@@ -256,7 +323,7 @@ pub fn run(
     let dep_meta = match dep_result {
         Ok(meta) => meta,
         Err(err) => {
-            cleanup_partial_create(&host_dir, &created_worktrees);
+            cleanup_partial_create(&host_dir, &created_worktrees, &primary_plans, &branch_name);
             return Err(err);
         }
     };
@@ -289,7 +356,7 @@ pub fn run(
         )),
     };
     if let Err(err) = host::write_meta(&host_dir, &meta) {
-        cleanup_partial_create(&host_dir, &created_worktrees);
+        cleanup_partial_create(&host_dir, &created_worktrees, &primary_plans, &branch_name);
         return Err(err);
     }
 
@@ -550,11 +617,25 @@ fn invalid_task_id(task_id: &str) -> UdfError {
     ))
 }
 
+fn validate_branch_name(branch_name: &str) -> Result<()> {
+    let output = std::process::Command::new("git")
+        .args(["check-ref-format", "--branch", branch_name])
+        .output()?;
+    if !output.status.success() {
+        return Err(UdfError::Other(format!(
+            "非法 Git 分支名：'{}'。请使用例如 feature/test 或 task/my-task。",
+            branch_name
+        )));
+    }
+    Ok(())
+}
+
 fn prepare_primary_plans(
     names: &[String],
     project_plugins: &HashMap<String, PathBuf>,
     host_dir: &Path,
     branch_name: &str,
+    base_ref: Option<&str>,
 ) -> Result<Vec<PrimaryPlan>> {
     let mut plans = Vec::new();
     for name in names {
@@ -564,21 +645,27 @@ fn prepare_primary_plans(
             .ok_or_else(|| UdfError::Other(format!("主插件目录不存在：{}", name)))?;
         let source_repo = dunce::canonicalize(&source_repo).unwrap_or(source_repo);
         let repo = git::open_repo(&source_repo)?;
-        let current_branch = git::get_current_branch(&repo)?;
-        if current_branch != CREATE_BASE_BRANCH {
-            return Err(UdfError::Other(format!(
-                "主插件 '{}' 当前分支是 '{}'，不能创建任务。\n\
+        if base_ref.is_none() {
+            let current_branch = git::get_current_branch(&repo)?;
+            if current_branch != CREATE_BASE_BRANCH {
+                return Err(UdfError::Other(format!(
+                    "主插件 '{}' 当前分支是 '{}'，不能创建任务。\n\
                  请先切回 '{}' 并确保它是最新基线。",
-                name, current_branch, CREATE_BASE_BRANCH
-            )));
+                    name, current_branch, CREATE_BASE_BRANCH
+                )));
+            }
+            let status = git::status_porcelain(&source_repo)?;
+            if !status.is_empty() {
+                return Err(UdfError::Other(format!(
+                    "主插件 '{}' 的主仓工作区不干净，不能创建任务：\n{}",
+                    name, status
+                )));
+            }
         }
-        let status = git::status_porcelain(&source_repo)?;
-        if !status.is_empty() {
-            return Err(UdfError::Other(format!(
-                "主插件 '{}' 的主仓工作区不干净，不能创建任务：\n{}",
-                name, status
-            )));
-        }
+        let based_on = match base_ref {
+            Some(reference) => git::resolve_commit(&source_repo, reference)?,
+            None => git::get_current_commit(&repo)?,
+        };
         if git::branch_exists(&source_repo, branch_name)? {
             return Err(UdfError::Other(format!(
                 "任务分支已存在：{} ({:?})",
@@ -598,7 +685,7 @@ fn prepare_primary_plans(
         plans.push(PrimaryPlan {
             name: name.clone(),
             source_repo,
-            based_on: git::get_current_commit(&repo)?,
+            based_on,
             worktree_rel,
             worktree_abs,
         });
@@ -647,11 +734,26 @@ fn validate_primary_sources_are_main_worktrees(
     Ok(())
 }
 
-fn cleanup_partial_create(host_dir: &Path, created_worktrees: &[PathBuf]) {
+fn cleanup_partial_create(
+    host_dir: &Path,
+    created_worktrees: &[PathBuf],
+    primary_plans: &[PrimaryPlan],
+    branch_name: &str,
+) {
     for worktree in created_worktrees.iter().rev() {
         if worktree.exists() {
             if let Err(err) = git::worktree::remove(worktree) {
                 output::print_warning(&format!("回滚 worktree 失败 {:?}：{}", worktree, err));
+            }
+        }
+    }
+    for plan in primary_plans {
+        if git::branch_exists(&plan.source_repo, branch_name).unwrap_or(false) {
+            if let Err(err) = git::delete_branch_safe(&plan.source_repo, branch_name) {
+                output::print_warning(&format!(
+                    "回滚分支失败 '{}' ({:?})：{}",
+                    branch_name, plan.source_repo, err
+                ));
             }
         }
     }
