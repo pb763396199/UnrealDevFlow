@@ -433,15 +433,37 @@ pub fn run(task_id: &str, force: bool, skip_confirm: bool, dry_run: bool) -> Res
         true
     };
 
-    println!();
-    if host_deleted && all_worktrees_removed && all_branches_deleted {
-        output::print_success(&format!("Task '{}' deleted successfully!", task_id));
-    } else {
-        output::print_warning(&format!(
-            "Task '{}' partially deleted. Some resources may remain.",
-            task_id
-        ));
-    }
-
+    output::emit(
+        "task delete",
+        DeleteOutcome {
+            task_ref: task_id.to_string(),
+            worktrees_removed: all_worktrees_removed,
+            branches_deleted: all_branches_deleted,
+            host_deleted,
+            complete: host_deleted && all_worktrees_removed && all_branches_deleted,
+        },
+        render_delete,
+    );
     Ok(())
+}
+
+/// Which resources actually went away. A partial delete must not read as success.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DeleteOutcome {
+    task_ref: String,
+    worktrees_removed: bool,
+    branches_deleted: bool,
+    host_deleted: bool,
+    complete: bool,
+}
+
+fn render_delete(data: &DeleteOutcome) -> String {
+    if data.complete {
+        return format!("\n✓ Task '{}' deleted successfully!", data.task_ref);
+    }
+    format!(
+        "\n⚠ Task '{}' partially deleted. Some resources may remain (worktrees={}, branches={}, host={}).",
+        data.task_ref, data.worktrees_removed, data.branches_deleted, data.host_deleted
+    )
 }

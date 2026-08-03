@@ -37,7 +37,7 @@ pub fn run(workspace: Option<String>) -> Result<()> {
         tasks: inventory.tasks,
         damaged_tasks: inventory.damaged_tasks,
     };
-    output::emit("list", data, render);
+    output::emit("task list", data, render);
     Ok(())
 }
 

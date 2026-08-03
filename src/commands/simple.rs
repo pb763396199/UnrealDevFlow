@@ -1,33 +1,19 @@
-//! Friendly workflow wrappers: start and next.
+//! The `task next` advisor: where a task stands and what to run next.
 
-use crate::cli::DepOverride;
 use crate::config::Config;
 use crate::error::{Result, UdfError};
 use crate::host;
 use crate::output;
+use serde::Serialize;
 
-#[allow(clippy::too_many_arguments)]
-pub fn start(
-    description: &str,
-    workspace: Option<String>,
-    id: Option<String>,
-    branch: Option<String>,
-    base_ref: Option<String>,
-    primary: Option<Vec<String>>,
-    overrides: Vec<DepOverride>,
-    skip_confirm: bool,
-) -> Result<()> {
-    crate::commands::create::run(
-        description,
-        id,
-        branch,
-        base_ref,
-        Some(description.to_string()),
-        workspace,
-        primary,
-        overrides,
-        skip_confirm,
-    )
+/// Where the task stands, plus the single next command to run.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct NextStep {
+    task_ref: String,
+    state: String,
+    summary: String,
+    commands: Vec<String>,
 }
 
 pub fn next(task_ref: Option<String>) -> Result<()> {
@@ -39,37 +25,61 @@ pub fn next(task_ref: Option<String>) -> Result<()> {
     let (_host_dir, meta, _context) = host::resolve_task(&config, &task_ref)?;
     let display_ref = meta.task_uid.clone().unwrap_or_else(|| meta.id.clone());
 
-    output::print_info(&format!("当前任务：{}", display_ref));
-    match meta.build_status.as_ref().map(|s| s.state.as_str()) {
-        None => {
-            output::print_info("状态：已创建，还没有编译");
-            output::print_info("下一步：");
-            output::print_info(&format!("  udf build {}", display_ref));
-        }
-        Some("building") => {
-            output::print_info("状态：正在编译");
-            output::print_info("下一步：");
-            output::print_info(&format!("  udf build-status {}", display_ref));
-        }
-        Some("failed") => {
-            output::print_warning("状态：上次编译失败");
-            output::print_info("下一步：查看日志并修复后重新编译");
-            output::print_info(&format!("  udf build-status {}", display_ref));
-        }
-        Some("success") => {
-            output::print_success("状态：编译通过，等待 UE 验收");
-            output::print_info("下一步：关闭 UE Editor 后切换项目并验收");
-            output::print_info(&format!("  udf switch {}", display_ref));
-            output::print_info("验收通过后：");
-            output::print_info(&format!("  udf finish {}", display_ref));
-        }
-        Some(other) => {
-            output::print_info(&format!("状态：{}", other));
-            output::print_info("下一步：");
-            output::print_info(&format!("  udf build {}", display_ref));
-        }
-    }
+    let state = meta
+        .build_status
+        .as_ref()
+        .map(|status| status.state.clone())
+        .unwrap_or_else(|| "created".to_string());
+
+    let (summary, commands) = match state.as_str() {
+        "created" => (
+            "已创建，还没有编译".to_string(),
+            vec![format!("udf build {}", display_ref)],
+        ),
+        "building" => (
+            "正在编译".to_string(),
+            vec![format!("udf build-status {}", display_ref)],
+        ),
+        "failed" => (
+            "上次编译失败，看日志修复后重新编译".to_string(),
+            vec![format!("udf build-status {}", display_ref)],
+        ),
+        "success" => (
+            "编译通过，等待 UE 验收".to_string(),
+            vec![
+                format!("udf task switch {}", display_ref),
+                format!("udf task finish {}", display_ref),
+            ],
+        ),
+        other => (
+            other.to_string(),
+            vec![format!("udf build {}", display_ref)],
+        ),
+    };
+
+    output::emit(
+        "task next",
+        NextStep {
+            task_ref: display_ref,
+            state,
+            summary,
+            commands,
+        },
+        render_next,
+    );
     Ok(())
+}
+
+fn render_next(data: &NextStep) -> String {
+    let mut lines = vec![
+        format!("当前任务：{}", data.task_ref),
+        format!("状态：{}", data.summary),
+        "下一步：".to_string(),
+    ];
+    for command in &data.commands {
+        lines.push(format!("  {}", command));
+    }
+    lines.join("\n")
 }
 
 pub fn latest_task_ref(config: &Config) -> Result<String> {

@@ -229,8 +229,57 @@ pub fn run(
         output::print_info("Skipped: --skip-regen-project-files (run UBT manually to refresh IDE)");
     }
 
-    output::print_info("Restart UnrealEditor to load the new task DLLs.");
+    output::emit(
+        "task switch",
+        SwitchOutcome {
+            task_ref: task_id.to_string(),
+            projects: target_projects
+                .iter()
+                .map(|path| path.to_string_lossy().to_string())
+                .collect(),
+            junctions: switch_plan
+                .iter()
+                .map(|(plugin_name, target)| SwitchedJunction {
+                    plugin: plugin_name.clone(),
+                    target: target.to_string_lossy().to_string(),
+                })
+                .collect(),
+            project_files_regenerated: !skip_regen_project_files,
+        },
+        render_switch,
+    );
     Ok(())
+}
+
+/// Which Junctions now point where, so a caller does not have to inspect the
+/// filesystem to find out what changed.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SwitchOutcome {
+    task_ref: String,
+    projects: Vec<String>,
+    junctions: Vec<SwitchedJunction>,
+    project_files_regenerated: bool,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SwitchedJunction {
+    plugin: String,
+    target: String,
+}
+
+fn render_switch(data: &SwitchOutcome) -> String {
+    let mut lines = vec![format!(
+        "✓ Switched to '{}' ({} junction(s))",
+        data.task_ref,
+        data.junctions.len()
+    )];
+    for junction in &data.junctions {
+        lines.push(format!("  {} -> {}", junction.plugin, junction.target));
+    }
+    lines.push("Restart UnrealEditor to load the new task DLLs.".to_string());
+    lines.join("\n")
 }
 
 /// A task belongs to exactly one UE project — the one frozen in its context.

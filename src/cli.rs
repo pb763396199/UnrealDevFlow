@@ -45,144 +45,22 @@ pub enum Commands {
     #[command(name = "aw-status", hide = true)]
     AwStatus,
 
-    /// Start a task with a friendly workflow wrapper around create.
-    Start {
-        /// Original task description.
-        description: String,
-
-        /// Workspace name. Required when more than one workspace exists.
-        #[arg(long)]
-        workspace: Option<String>,
-
-        /// Custom task ID.
-        #[arg(long)]
-        id: Option<String>,
-
-        /// Explicit task branch name used in every primary repository.
-        /// Defaults to task/<workspace>/<task-id>.
-        #[arg(long)]
-        branch: Option<String>,
-
-        /// Git ref used as the base in every primary repository.
-        #[arg(long)]
-        base_ref: Option<String>,
-
-        /// Primary plugin names.
-        #[arg(long, value_delimiter = ',')]
-        primary: Option<Vec<String>>,
-
-        /// Dependency override mappings.
-        #[arg(long = "override-dep", value_parser = parse_dep_override)]
-        override_dep: Vec<DepOverride>,
-
-        /// Skip confirmation prompts.
-        #[arg(long, short = 'y')]
-        yes: bool,
-    },
-
-    /// Tell the user the single next step for a task.
-    Next {
-        /// Task ref, e.g. workspace/task-id. If omitted, uses latest task when unambiguous.
-        task_ref: Option<String>,
-    },
-
-    /// Finish a task by running the merge guide.
-    Finish {
-        /// Task ref, e.g. workspace/task-id. If omitted, uses latest task when unambiguous.
-        task_ref: Option<String>,
-
-        /// Merge strategy. If omitted, asks interactively.
-        #[arg(long, value_enum)]
-        strategy: Option<MergeStrategy>,
-
-        /// Merge all primary plugins.
-        #[arg(long)]
-        all: bool,
-
-        /// Target primary plugin.
-        #[arg(long)]
-        plugin: Option<String>,
-
-        /// Skip confirmation prompts after strategy is known.
-        #[arg(long, short = 'y')]
-        yes: bool,
-    },
-
-    /// Manage named project workspaces.
+    /// Set up and inspect the UE project environments you work in.
     Workspace {
         #[command(subcommand)]
         action: WorkspaceAction,
     },
 
-    /// Create a new task workspace (worktree + Host)
-    Create {
-        /// Task description (used to suggest task ID)
-        description: String,
-
-        /// Custom task ID (overrides auto-suggestion)
-        #[arg(long)]
-        id: Option<String>,
-
-        /// Explicit task branch name used in every primary repository.
-        /// Defaults to task/<workspace>/<task-id>.
-        #[arg(long)]
-        branch: Option<String>,
-
-        /// Git ref used as the base in every primary repository.
-        #[arg(long)]
-        base_ref: Option<String>,
-
-        /// Original prompt/task description to save in metadata
-        #[arg(long)]
-        prompt: Option<String>,
-
-        /// Workspace name. Required when more than one workspace exists.
-        #[arg(long)]
-        workspace: Option<String>,
-
-        /// v2: primary plugin names (comma-separated). If omitted, falls back
-        /// to the legacy `plugin_path` configured plugin.
-        #[arg(long, value_delimiter = ',')]
-        primary: Option<Vec<String>>,
-
-        /// v2: dependency override mappings as `name=engine` / `name=project` /
-        /// `name=<absolute-path>`. Repeatable.
-        #[arg(long = "override-dep", value_parser = parse_dep_override)]
-        override_dep: Vec<DepOverride>,
-
-        /// Skip confirmation prompts
-        #[arg(long, short = 'y')]
-        yes: bool,
-    },
-
-    /// Switch Junction to a specific task (affects next Editor launch)
-    Switch {
-        /// Task ID to switch to (use "main" to switch back to main repo)
-        task_id: String,
-
-        /// UE project path(s) to update (comma-separated for multiple).
-        ///
-        /// Only "main" may target several projects. A task is bound to the
-        /// project frozen in its metadata, so naming any other project is
-        /// refused before any Junction changes.
-        #[arg(long, value_delimiter = ',')]
-        project: Option<Vec<PathBuf>>,
-
-        /// Force switch even if Editor is running
-        #[arg(long)]
-        force: bool,
-
-        /// Skip the automatic "Generate Visual Studio project files" step that
-        /// normally runs after all Junctions are updated. Use this when you
-        /// are switching between tasks and want to defer IDE re-indexing.
-        #[arg(long)]
-        skip_regen_project_files: bool,
+    /// Create, inspect and retire isolated development tasks.
+    Task {
+        #[command(subcommand)]
+        action: TaskAction,
     },
 
     /// Build a task's Host project
     Build {
-        /// Task ID to build
-        task_id: String,
+        /// Task ref, e.g. workspace/task-id.
+        task_ref: String,
 
         /// Build in background
         #[arg(long)]
@@ -195,47 +73,34 @@ pub enum Commands {
         ///           to -NoMutex.
         /// wait    : always -WaitMutex (queue if another build is running)
         /// no-mutex: always -NoMutex (parallel; fastest when PCH cached)
-        #[arg(
-            long,
-            value_enum,
-            default_value = "auto",
-            alias = "safe",
-            alias = "no-mutex"
-        )]
+        #[arg(long, value_enum, default_value = "auto")]
         mutex: crate::build_profile::MutexMode,
 
         /// Hint: build is invoked by a validator / CI (not an IDE).
-        /// When `--mutex auto`, prefers -NoMutex so the validator can
-        /// detect contention instead of queueing.
         #[arg(long)]
         validator: bool,
 
-        /// v2: only compile primary plugin modules (passes `-Module=` per primary)
+        /// Only compile primary plugin modules (passes `-Module=` per primary)
         #[arg(long)]
         primary_only: bool,
 
         /// Build strictness profile. Default: light.
-        ///   light  : -FailIfGeneratedCodeChanges -NoUBTMakefiles -DisableAdaptiveUnity
-        ///   medium : light + -WarningsAsErrors
-        ///   heavy  : -ForceHeaderGeneration -Rebuild -DisableUnity -NoSharedPCH -WarningsAsErrors
-        ///           (still keeps -FailIfGeneratedCodeChanges)
         #[arg(long, value_enum, default_value = "light")]
         profile: crate::build_profile::BuildProfile,
 
         /// Override the UBT log directory. Default: <host>/Logs/UBT/
         #[arg(long)]
-        build_log_dir: Option<std::path::PathBuf>,
+        build_log_dir: Option<PathBuf>,
     },
 
     /// Check build status of a task
+    #[command(name = "build-status")]
     BuildStatus {
-        /// Task ID to check
-        task_id: String,
+        /// Task ref, e.g. workspace/task-id.
+        task_ref: String,
     },
 
     /// Report whether a controlled UE build may start right now (never builds)
-    ///
-    /// Prints one of: ready / needsUserInput / blocked / deferred.
     #[command(name = "build-check")]
     BuildCheck {
         /// Task ref, e.g. workspace/task-id. If omitted, checks the workspace's
@@ -284,6 +149,57 @@ pub enum Commands {
         target: Option<String>,
     },
 
+    /// Install/inspect/remove the UnrealDevFlow skill for AI agent providers
+    /// (opencode / copilot / codex / claude code).
+    Skills {
+        #[command(subcommand)]
+        action: SkillsAction,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum TaskAction {
+    /// Create an isolated task: one git worktree per primary plugin, plus a Host project.
+    Create {
+        /// Task description. Also saved as the original prompt unless --prompt is given.
+        description: String,
+
+        /// Custom task ID (overrides auto-suggestion)
+        #[arg(long)]
+        id: Option<String>,
+
+        /// Explicit task branch name used in every primary repository.
+        /// Defaults to task/<workspace>/<task-id>.
+        #[arg(long)]
+        branch: Option<String>,
+
+        /// Git ref used as the base in every primary repository.
+        #[arg(long)]
+        base_ref: Option<String>,
+
+        /// Original prompt to save in metadata. Defaults to the description.
+        #[arg(long)]
+        prompt: Option<String>,
+
+        /// Workspace name. Required when more than one workspace exists.
+        #[arg(long)]
+        workspace: Option<String>,
+
+        /// Primary plugin names (comma-separated). If omitted, falls back to the
+        /// legacy `plugin_path` configured plugin.
+        #[arg(long, value_delimiter = ',')]
+        primary: Option<Vec<String>>,
+
+        /// Dependency override mappings as `name=engine` / `name=project` /
+        /// `name=<absolute-path>`. Repeatable.
+        #[arg(long = "override-dep", value_parser = parse_dep_override)]
+        override_dep: Vec<DepOverride>,
+
+        /// Skip confirmation prompts
+        #[arg(long, short = 'y')]
+        yes: bool,
+    },
+
     /// List all tasks
     List {
         /// Workspace name to filter tasks
@@ -291,41 +207,57 @@ pub enum Commands {
         workspace: Option<String>,
     },
 
-    /// Merge a task into main repo
+    /// Tell the user the single next step for a task.
+    Next {
+        /// Task ref, e.g. workspace/task-id. If omitted, uses latest task when unambiguous.
+        task_ref: Option<String>,
+    },
+
+    /// Point a UE project's Junctions at this task (affects next Editor launch)
+    Switch {
+        /// Task ref, e.g. workspace/task-id. Use "main" to switch back to the main repos.
+        task_ref: String,
+
+        /// UE project path(s) to update (comma-separated for multiple).
+        ///
+        /// Only "main" may target several projects. A task is bound to the
+        /// project frozen in its metadata, so naming any other project is
+        /// refused before any Junction changes.
+        #[arg(long, value_delimiter = ',')]
+        project: Option<Vec<PathBuf>>,
+
+        /// Force switch even if Editor is running
+        #[arg(long)]
+        force: bool,
+
+        /// Skip the automatic "Generate Visual Studio project files" step.
+        #[arg(long)]
+        skip_regen_project_files: bool,
+    },
+
+    /// Merge a task into its primary repositories
     ///
     /// ⚠️ THIS COMMAND ONLY MERGES - IT NEVER DELETES ANYTHING
-    /// After merge, you MUST manually run `cleanup <task-id>` to remove worktree/branch
+    /// After merge, you MUST run `task cleanup` to remove worktree/branch.
     ///
-    /// v2: tasks may have multiple primary plugins. Use --plugin to merge a
+    /// Tasks may have multiple primary plugins. Use --plugin to merge a
     /// specific plugin, or --all to iterate in reverse order with independent
     /// confirmations per plugin.
-    ///
-    /// Commit message format (Chinese required):
-    ///   Task#[number] [content]
-    ///
-    ///   修改内容：
-    ///   - [change 1]
-    ///
-    ///   过程反思：
-    ///   - [lesson learned]
-    ///
-    ///   后续注意：
-    ///   - [avoid in future]
     Merge {
-        /// Task ID to merge
-        task_id: String,
+        /// Task ref, e.g. workspace/task-id.
+        task_ref: String,
 
         /// Merge strategy (required - agent must ask user)
         /// Options: rebase, merge, squash, ff-only
         #[arg(long, value_enum)]
         strategy: MergeStrategy,
 
-        /// v2: target a specific primary plugin (required when task has >1
-        /// primary plugin unless --all is set)
+        /// Target a specific primary plugin (required when task has >1 primary
+        /// plugin unless --all is set)
         #[arg(long)]
         plugin: Option<String>,
 
-        /// v2: merge every primary plugin in reverse declaration order, with
+        /// Merge every primary plugin in reverse declaration order, with
         /// independent confirmation per plugin
         #[arg(long)]
         all: bool,
@@ -343,10 +275,32 @@ pub enum Commands {
         dry_run: bool,
     },
 
+    /// Finish a task by running the merge guide.
+    Finish {
+        /// Task ref, e.g. workspace/task-id. If omitted, uses latest task when unambiguous.
+        task_ref: Option<String>,
+
+        /// Merge strategy. If omitted, asks interactively.
+        #[arg(long, value_enum)]
+        strategy: Option<MergeStrategy>,
+
+        /// Merge all primary plugins.
+        #[arg(long)]
+        all: bool,
+
+        /// Target primary plugin.
+        #[arg(long)]
+        plugin: Option<String>,
+
+        /// Skip confirmation prompts after strategy is known.
+        #[arg(long, short = 'y')]
+        yes: bool,
+    },
+
     /// Cleanup worktree and branch after merge verification
     Cleanup {
-        /// Task ID to cleanup
-        task_id: String,
+        /// Task ref, e.g. workspace/task-id.
+        task_ref: String,
 
         /// Force cleanup without confirmation
         #[arg(long)]
@@ -359,8 +313,8 @@ pub enum Commands {
 
     /// Delete a task without merging
     Delete {
-        /// Task ID to delete
-        task_id: String,
+        /// Task ref, e.g. workspace/task-id.
+        task_ref: String,
 
         /// Force delete without confirmation
         #[arg(long)]
@@ -373,13 +327,6 @@ pub enum Commands {
         /// Show what would be deleted without actually deleting
         #[arg(long)]
         dry_run: bool,
-    },
-
-    /// Install/inspect/remove the UnrealDevFlow skill for AI agent providers
-    /// (opencode / copilot / codex / claude code).
-    Skills {
-        #[command(subcommand)]
-        action: SkillsAction,
     },
 }
 

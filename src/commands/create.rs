@@ -357,35 +357,60 @@ pub fn run(
         return Err(err);
     }
 
-    output::print_success(&format!("Task '{}' created successfully!", task_id));
-    output::print_info(&format!("  Workspace: {}", workspace_name));
-    output::print_info(&format!("  Host: {:?}", host_dir));
-    output::print_info(&format!("  Primary plugins: {}", primary_names.join(", ")));
-    let project_deps_summary: Vec<String> =
-        resolution.project.iter().map(|p| p.name.clone()).collect();
-    if !project_deps_summary.is_empty() {
-        output::print_info(&format!(
-            "  Project dependencies (Junction): {}",
-            project_deps_summary.join(", ")
-        ));
-    }
-    let engine_deps_summary: Vec<String> =
-        resolution.engine.iter().map(|p| p.name.clone()).collect();
-    if !engine_deps_summary.is_empty() {
-        output::print_info(&format!(
-            "  Engine dependencies (auto-enabled): {}",
-            engine_deps_summary.join(", ")
-        ));
-    }
-    output::print_info(&format!(
-        "  Build:  udf build {}/{}",
-        workspace_name, task_id
-    ));
-    output::print_info(&format!(
-        "  Switch: udf switch {}/{}",
-        workspace_name, task_id
-    ));
+    output::emit(
+        "task create",
+        TaskCreated {
+            task_ref: format!("{}/{}", workspace_name, task_id),
+            workspace: workspace_name,
+            task_id,
+            host_dir: host_dir.to_string_lossy().to_string(),
+            branch: branch_name,
+            primary_plugins: primary_names,
+            project_dependencies: resolution.project.iter().map(|p| p.name.clone()).collect(),
+            engine_dependencies: resolution.engine.iter().map(|p| p.name.clone()).collect(),
+        },
+        render_created,
+    );
     Ok(())
+}
+
+/// Everything a caller needs to act on the new task without re-reading metadata.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TaskCreated {
+    task_ref: String,
+    workspace: String,
+    task_id: String,
+    host_dir: String,
+    branch: String,
+    primary_plugins: Vec<String>,
+    project_dependencies: Vec<String>,
+    engine_dependencies: Vec<String>,
+}
+
+fn render_created(data: &TaskCreated) -> String {
+    let mut lines = vec![
+        format!("✓ Task '{}' created successfully!", data.task_id),
+        format!("  Workspace: {}", data.workspace),
+        format!("  Host: {}", data.host_dir),
+        format!("  Branch: {}", data.branch),
+        format!("  Primary plugins: {}", data.primary_plugins.join(", ")),
+    ];
+    if !data.project_dependencies.is_empty() {
+        lines.push(format!(
+            "  Project dependencies (Junction): {}",
+            data.project_dependencies.join(", ")
+        ));
+    }
+    if !data.engine_dependencies.is_empty() {
+        lines.push(format!(
+            "  Engine dependencies (auto-enabled): {}",
+            data.engine_dependencies.join(", ")
+        ));
+    }
+    lines.push(format!("  Build:  udf build {}", data.task_ref));
+    lines.push(format!("  Switch: udf task switch {}", data.task_ref));
+    lines.join("\n")
 }
 
 fn resolve_primary_names(

@@ -343,15 +343,37 @@ pub fn run(task_id: &str, force: bool, skip_confirm: bool) -> Result<()> {
         true
     };
 
-    println!();
-    if host_deleted && all_worktrees_removed && all_branches_deleted {
-        output::print_success(&format!("Task '{}' cleaned up successfully!", task_id));
-    } else {
-        output::print_warning(&format!(
-            "Task '{}' cleanup incomplete. Some resources may remain.",
-            task_id
-        ));
-    }
-
+    output::emit(
+        "task cleanup",
+        CleanupOutcome {
+            task_ref: task_id.to_string(),
+            worktrees_removed: all_worktrees_removed,
+            branches_deleted: all_branches_deleted,
+            host_deleted,
+            complete: host_deleted && all_worktrees_removed && all_branches_deleted,
+        },
+        render_cleanup,
+    );
     Ok(())
+}
+
+/// Which resources actually went away, so "incomplete" is never reported as success.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CleanupOutcome {
+    task_ref: String,
+    worktrees_removed: bool,
+    branches_deleted: bool,
+    host_deleted: bool,
+    complete: bool,
+}
+
+fn render_cleanup(data: &CleanupOutcome) -> String {
+    if data.complete {
+        return format!("\n✓ Task '{}' cleaned up successfully!", data.task_ref);
+    }
+    format!(
+        "\n⚠ Task '{}' cleanup incomplete. Some resources may remain (worktrees={}, branches={}, host={}).",
+        data.task_ref, data.worktrees_removed, data.branches_deleted, data.host_deleted
+    )
 }

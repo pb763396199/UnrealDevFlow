@@ -142,19 +142,40 @@ pub fn run(
     }
 
     println!();
-    if all_ok {
-        output::print_success(&format!("Task '{}' merge sequence completed.", task_id));
-    } else {
-        output::print_warning(&format!(
-            "Task '{}' merge sequence completed with failures.",
-            task_id
-        ));
-    }
-    output::print_info(
-        "⚠️  Worktrees and branches RETAINED for inspection. Run cleanup after verification:",
+    output::emit(
+        "task merge",
+        MergeOutcome {
+            task_ref: task_id.to_string(),
+            all_ok,
+            cleanup_command: format!("udf task cleanup {}", task_id),
+        },
+        render_merge,
     );
-    output::print_info(&format!("  udf cleanup {}", task_id));
     Ok(())
+}
+
+/// Merge never deletes anything, so the result always carries the cleanup step.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MergeOutcome {
+    task_ref: String,
+    all_ok: bool,
+    cleanup_command: String,
+}
+
+fn render_merge(data: &MergeOutcome) -> String {
+    let headline = if data.all_ok {
+        format!("✓ Task '{}' merge sequence completed.", data.task_ref)
+    } else {
+        format!(
+            "⚠ Task '{}' merge sequence completed with failures.",
+            data.task_ref
+        )
+    };
+    format!(
+        "{}\n⚠️  Worktrees and branches RETAINED for inspection. Run cleanup after verification:\n  {}",
+        headline, data.cleanup_command
+    )
 }
 
 #[allow(clippy::too_many_arguments)]

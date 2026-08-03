@@ -238,6 +238,7 @@ fn create_rejects_primary_source_that_resolves_to_linked_worktree() {
         .expect("binary")
         .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
         .args([
+            "task",
             "create",
             "bad source",
             "--workspace",
@@ -289,7 +290,8 @@ fn create_rejects_plugins_root_inside_default_project() {
         .expect("binary")
         .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
         .args([
-            "start",
+            "task",
+            "create",
             "bad source",
             "--workspace",
             "bad",
@@ -320,7 +322,8 @@ fn create_rejects_path_like_task_id_before_host_creation() {
         .expect("binary")
         .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
         .args([
-            "start",
+            "task",
+            "create",
             "bad id",
             "--workspace",
             "bad",
@@ -359,7 +362,8 @@ fn create_rejects_primary_repo_when_current_branch_is_not_dev() {
         .expect("binary")
         .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
         .args([
-            "start",
+            "task",
+            "create",
             "wrong branch",
             "--workspace",
             "bad",
@@ -389,7 +393,8 @@ fn start_from_valid_main_repo_records_canonical_source_and_base() {
         .expect("binary")
         .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
         .args([
-            "start",
+            "task",
+            "create",
             "good task",
             "--workspace",
             "bad",
@@ -553,7 +558,8 @@ fn start_ignores_duplicate_unrelated_plugins_in_plugins_root() {
         .expect("binary")
         .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
         .args([
-            "start",
+            "task",
+            "create",
             "good task",
             "--workspace",
             "bad",
@@ -594,7 +600,8 @@ fn start_uses_exact_default_plugin_path_to_resolve_duplicate_primary_name() {
         .expect("binary")
         .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
         .args([
-            "start",
+            "task",
+            "create",
             "good task",
             "--workspace",
             "bad",
@@ -638,7 +645,8 @@ fn explicit_primary_uses_default_plugin_path_to_resolve_duplicate_primary_name()
         .expect("binary")
         .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
         .args([
-            "start",
+            "task",
+            "create",
             "bad explicit primary",
             "--workspace",
             "bad",
@@ -696,7 +704,8 @@ fn override_dep_engine_stays_engine_and_creates_no_junction() {
         .expect("binary")
         .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
         .args([
-            "start",
+            "task",
+            "create",
             "engine dep",
             "--workspace",
             "bad",
@@ -747,7 +756,8 @@ fn create_rejects_duplicate_relevant_engine_dependency() {
         .expect("binary")
         .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
         .args([
-            "start",
+            "task",
+            "create",
             "dup engine",
             "--workspace",
             "bad",
@@ -808,7 +818,8 @@ fn create_rejects_linked_worktree_project_dependency() {
         .expect("binary")
         .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
         .args([
-            "start",
+            "task",
+            "create",
             "bad dep",
             "--workspace",
             "bad",
@@ -841,7 +852,8 @@ fn create_rejects_missing_dependencies_before_host_creation() {
         .expect("binary")
         .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
         .args([
-            "start",
+            "task",
+            "create",
             "missing dep",
             "--workspace",
             "bad",
@@ -885,7 +897,8 @@ fn create_rejects_duplicate_plugin_names_in_plugins_root() {
         .expect("binary")
         .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
         .args([
-            "start",
+            "task",
+            "create",
             "duplicate plugin",
             "--workspace",
             "bad",

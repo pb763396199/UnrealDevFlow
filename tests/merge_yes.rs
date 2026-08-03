@@ -238,6 +238,7 @@ plugins_root = "{}"
         .expect("binary")
         .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
         .args([
+            "task",
             "merge",
             "test/merge-yes",
             "--plugin",
@@ -286,7 +287,7 @@ fn cleanup_yes_skips_confirmation_without_force() {
     Command::cargo_bin("udf")
         .expect("binary")
         .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
-        .args(["cleanup", "test/cleanup-yes", "-y"])
+        .args(["task", "cleanup", "test/cleanup-yes", "-y"])
         .assert()
         .success();
 
@@ -328,7 +329,7 @@ fn cleanup_force_skips_confirmation_without_yes() {
     Command::cargo_bin("udf")
         .expect("binary")
         .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
-        .args(["cleanup", "test/cleanup-force", "--force"])
+        .args(["task", "cleanup", "test/cleanup-force", "--force"])
         .assert()
         .success();
 
@@ -381,7 +382,7 @@ fn cleanup_removes_worktree_before_deleting_branch_and_host() {
     Command::cargo_bin("udf")
         .expect("binary")
         .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
-        .args(["cleanup", "test/cleanup-worktree", "--force"])
+        .args(["task", "cleanup", "test/cleanup-worktree", "--force"])
         .assert()
         .success();
 
@@ -413,7 +414,7 @@ fn cleanup_missing_host_deletes_residual_local_task_branch() {
     Command::cargo_bin("udf")
         .expect("binary")
         .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
-        .args(["cleanup", "test/orphan-cleanup", "--force"])
+        .args(["task", "cleanup", "test/orphan-cleanup", "--force"])
         .assert()
         .success();
 
@@ -458,7 +459,7 @@ fn delete_force_skips_double_confirmation_for_unmerged_task() {
     Command::cargo_bin("udf")
         .expect("binary")
         .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
-        .args(["delete", "test/delete-force", "--force"])
+        .args(["task", "delete", "test/delete-force", "--force"])
         .assert()
         .success();
 
@@ -505,7 +506,7 @@ fn delete_removes_broken_non_git_worktree_residue() {
     Command::cargo_bin("udf")
         .expect("binary")
         .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
-        .args(["delete", "test/broken-worktree", "--yes", "--force"])
+        .args(["task", "delete", "test/broken-worktree", "--yes", "--force"])
         .assert()
         .success();
 
@@ -558,7 +559,7 @@ fn delete_removes_worktree_before_deleting_branch_and_host() {
     Command::cargo_bin("udf")
         .expect("binary")
         .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
-        .args(["delete", "test/delete-worktree", "--force"])
+        .args(["task", "delete", "test/delete-worktree", "--force"])
         .assert()
         .success();
 
@@ -681,6 +682,7 @@ plugins_root = "{}"
         .expect("binary")
         .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
         .args([
+            "task",
             "merge",
             "test/rebase-preserve",
             "--plugin",
@@ -770,6 +772,7 @@ fn rebase_merge_uses_actual_merge_base_when_metadata_base_is_stale_in_target() {
         .expect("binary")
         .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
         .args([
+            "task",
             "merge",
             "test/stale-base",
             "--plugin",
@@ -876,6 +879,7 @@ fn rebase_merge_replays_from_actual_merge_base_when_based_on_is_not_in_target() 
         .expect("binary")
         .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
         .args([
+            "task",
             "merge",
             "test/feature-rebase",
             "--plugin",
@@ -990,6 +994,7 @@ fn rebase_merge_restores_target_tip_after_replay_conflict() {
         .expect("binary")
         .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
         .args([
+            "task",
             "merge",
             "test/conflict-rebase",
             "--plugin",

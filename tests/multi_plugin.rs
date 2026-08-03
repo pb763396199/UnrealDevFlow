@@ -137,6 +137,7 @@ plugins_root = "{}"
         command
             .env("UNREALDEVFLOW_CONFIG_DIR", &self.config_dir)
             .args([
+                "task",
                 "create",
                 "three primary plugins",
                 "--workspace",
@@ -159,6 +160,7 @@ plugins_root = "{}"
             .unwrap()
             .env("UNREALDEVFLOW_CONFIG_DIR", &self.config_dir)
             .args([
+                "task",
                 "switch",
                 "test/multi",
                 "--force",
@@ -244,7 +246,7 @@ fn switch_creates_three_junctions_and_delete_removes_every_resource_and_state_en
     Command::cargo_bin("udf")
         .unwrap()
         .env("UNREALDEVFLOW_CONFIG_DIR", &f.config_dir)
-        .args(["delete", "test/multi", "--force"])
+        .args(["task", "delete", "test/multi", "--force"])
         .assert()
         .success();
     assert!(!f.host().exists());
@@ -280,7 +282,14 @@ fn merge_requires_selection_for_multi_primary_and_all_dry_run_is_reverse_order()
     Command::cargo_bin("udf")
         .unwrap()
         .env("UNREALDEVFLOW_CONFIG_DIR", &f.config_dir)
-        .args(["merge", "test/multi", "--strategy", "rebase", "--dry-run"])
+        .args([
+            "task",
+            "merge",
+            "test/multi",
+            "--strategy",
+            "rebase",
+            "--dry-run",
+        ])
         .assert()
         .failure()
         .stderr(predicate::str::contains("Use --plugin <name> or --all"));
@@ -289,6 +298,7 @@ fn merge_requires_selection_for_multi_primary_and_all_dry_run_is_reverse_order()
         .unwrap()
         .env("UNREALDEVFLOW_CONFIG_DIR", &f.config_dir)
         .args([
+            "task",
             "merge",
             "test/multi",
             "--strategy",
