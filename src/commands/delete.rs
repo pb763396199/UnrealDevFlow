@@ -348,7 +348,7 @@ pub fn run(task_id: &str, force: bool, skip_confirm: bool, dry_run: bool) -> Res
                     "Removing worktree for '{}': {:?}",
                     primary.name, worktree_abs
                 ));
-                if let Err(e) = git::worktree::remove(&worktree_abs) {
+                if let Err(e) = git::worktree::remove(&primary.source_repo, &worktree_abs) {
                     if is_git_worktree(&worktree_abs) {
                         output::print_warning(&format!("Failed to remove worktree: {}", e));
                         all_worktrees_removed = false;

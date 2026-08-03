@@ -43,7 +43,20 @@ pub fn update_submodules(worktree_path: &Path) -> Result<()> {
     Ok(())
 }
 
-pub fn remove(worktree_path: &Path) -> Result<()> {
+/// Remove a worktree, driving git from the owning repository.
+///
+/// `repo_path` is not a convenience: on Windows a process whose working
+/// directory is inside the worktree holds that directory open, so git cannot
+/// delete it and the removal fails halfway.
+pub fn remove(repo_path: &Path, worktree_path: &Path) -> Result<()> {
+    // Migrated v1 metadata can carry an empty source_repo. Fall back to the
+    // worktree's parent — still outside the directory being deleted.
+    let git_cwd = if repo_path.is_dir() {
+        repo_path
+    } else {
+        worktree_path.parent().unwrap_or(worktree_path)
+    };
+
     // First, try the standard `git worktree remove --force` command
     let output = Command::new("git")
         .args([
@@ -52,29 +65,24 @@ pub fn remove(worktree_path: &Path) -> Result<()> {
             "--force",
             &worktree_path.to_string_lossy(),
         ])
-        .current_dir(worktree_path)
+        .current_dir(git_cwd)
         .output()?;
 
     if output.status.success() {
         return Ok(());
     }
 
-    // If that failed, the directory might already be gone
-    // Try `git worktree prune` to clean up stale references
-    // First, we need to run prune from the main repo, not the worktree
-    if let Some(parent) = worktree_path.parent() {
-        if let Some(grandparent) = parent.parent() {
-            let _ = Command::new("git")
-                .args(["worktree", "prune"])
-                .current_dir(grandparent)
-                .output();
-        }
-    }
+    // The directory may already be gone; prune stale references from the owning
+    // repository and re-check before reporting failure.
+    let _ = Command::new("git")
+        .args(["worktree", "prune"])
+        .current_dir(git_cwd)
+        .output();
 
     // Check if the worktree reference is gone now
     let check_output = Command::new("git")
         .args(["worktree", "list", "--porcelain"])
-        .current_dir(worktree_path.parent().unwrap_or(worktree_path))
+        .current_dir(git_cwd)
         .output()?;
 
     if check_output.status.success() {

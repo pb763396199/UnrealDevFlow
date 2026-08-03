@@ -248,13 +248,12 @@ pub fn run(
         &primary_descriptor_names,
         &project_dep_names,
     ) {
-        cleanup_partial_create(&host_dir, &[], &primary_plans, &branch_name);
+        cleanup_partial_create(&host_dir, &primary_plans, &branch_name);
         return Err(err);
     }
 
     // === Create one worktree per primary plugin ===
     let mut primary_meta: Vec<PrimaryPlugin> = Vec::new();
-    let mut created_worktrees: Vec<PathBuf> = Vec::new();
     let create_result = (|| -> Result<Vec<PrimaryPlugin>> {
         for plan in &primary_plans {
             output::print_info(&format!(
@@ -268,7 +267,6 @@ pub fn run(
                 &plan.based_on,
                 &branch_name,
             )?;
-            created_worktrees.push(plan.worktree_abs.clone());
             git::worktree::update_submodules(&plan.worktree_abs)?;
             primary_meta.push(PrimaryPlugin {
                 name: plan.name.clone(),
@@ -283,7 +281,7 @@ pub fn run(
     let primary_meta = match create_result {
         Ok(meta) => meta,
         Err(err) => {
-            cleanup_partial_create(&host_dir, &created_worktrees, &primary_plans, &branch_name);
+            cleanup_partial_create(&host_dir, &primary_plans, &branch_name);
             return Err(err);
         }
     };
@@ -323,7 +321,7 @@ pub fn run(
     let dep_meta = match dep_result {
         Ok(meta) => meta,
         Err(err) => {
-            cleanup_partial_create(&host_dir, &created_worktrees, &primary_plans, &branch_name);
+            cleanup_partial_create(&host_dir, &primary_plans, &branch_name);
             return Err(err);
         }
     };
@@ -356,7 +354,7 @@ pub fn run(
         )),
     };
     if let Err(err) = host::write_meta(&host_dir, &meta) {
-        cleanup_partial_create(&host_dir, &created_worktrees, &primary_plans, &branch_name);
+        cleanup_partial_create(&host_dir, &primary_plans, &branch_name);
         return Err(err);
     }
 
@@ -734,17 +732,43 @@ fn validate_primary_sources_are_main_worktrees(
     Ok(())
 }
 
-fn cleanup_partial_create(
-    host_dir: &Path,
-    created_worktrees: &[PathBuf],
-    primary_plans: &[PrimaryPlan],
-    branch_name: &str,
-) {
-    for worktree in created_worktrees.iter().rev() {
-        if worktree.exists() {
-            if let Err(err) = git::worktree::remove(worktree) {
-                output::print_warning(&format!("回滚 worktree 失败 {:?}：{}", worktree, err));
+/// Undo a `create` that failed part way through.
+///
+/// Works from the plans rather than from what was recorded as created: a
+/// worktree that git made but that we never got to record must still go.
+fn cleanup_partial_create(host_dir: &Path, primary_plans: &[PrimaryPlan], branch_name: &str) {
+    let mut source_repositories = HashSet::new();
+    for plan in primary_plans.iter().rev() {
+        source_repositories.insert(plan.source_repo.clone());
+        if plan.worktree_abs.exists() {
+            if let Err(err) = git::worktree::remove(&plan.source_repo, &plan.worktree_abs) {
+                output::print_warning(&format!(
+                    "回滚 worktree 失败 {:?}：{}",
+                    plan.worktree_abs, err
+                ));
             }
+        }
+    }
+    if host_dir.exists() {
+        if let Err(err) = host::delete_host(host_dir) {
+            match quarantine_partial_host(host_dir) {
+                Ok(path) => output::print_warning(&format!(
+                    "回滚 Host 目录时遇到错误：{err}；残留已隔离到 {:?}",
+                    path
+                )),
+                Err(quarantine_error) => output::print_warning(&format!(
+                    "回滚 Host 目录失败 {:?}：{err}；隔离也失败：{quarantine_error}",
+                    host_dir
+                )),
+            }
+        }
+    }
+    for repository in &source_repositories {
+        if let Err(err) = git::worktree::prune(repository) {
+            output::print_warning(&format!(
+                "回滚 worktree 元数据失败 {:?}：{}",
+                repository, err
+            ));
         }
     }
     for plan in primary_plans {
@@ -757,11 +781,32 @@ fn cleanup_partial_create(
             }
         }
     }
-    if host_dir.exists() {
-        if let Err(err) = host::delete_host(host_dir) {
-            output::print_warning(&format!("回滚 Host 目录失败 {:?}：{}", host_dir, err));
-        }
+    if let Some(workspace_dir) = host_dir.parent() {
+        let _ = std::fs::remove_dir(workspace_dir);
     }
+}
+
+/// Move a Host that refuses to delete out of the way instead of leaving it
+/// where the next `create` would trip over it.
+fn quarantine_partial_host(host_dir: &Path) -> std::io::Result<PathBuf> {
+    let workspace_dir = host_dir.parent().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "Host 缺少 workspace 父目录",
+        )
+    })?;
+    let hosts_root = workspace_dir.parent().ok_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::InvalidInput, "Host 缺少 hosts root")
+    })?;
+    let quarantine_root = hosts_root.join(".udf-failed");
+    std::fs::create_dir_all(&quarantine_root)?;
+    let destination = quarantine_root.join(format!(
+        "failed-{}-{}",
+        std::process::id(),
+        Utc::now().timestamp_millis()
+    ));
+    std::fs::rename(host_dir, &destination)?;
+    Ok(destination)
 }
 
 fn combined_overrides(
@@ -893,4 +938,23 @@ fn ensure_parent(p: &Path) -> Result<()> {
         std::fs::create_dir_all(parent)?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn failed_host_can_be_quarantined_without_recursive_deletion() {
+        let root = tempfile::tempdir().unwrap();
+        let host_dir = root.path().join("W-overlong-workspace").join("T-task_Host");
+        std::fs::create_dir_all(host_dir.join("Plugins/AesWorld")).unwrap();
+        std::fs::write(host_dir.join("Plugins/AesWorld/partial.txt"), "partial").unwrap();
+
+        let quarantined = quarantine_partial_host(&host_dir).unwrap();
+
+        assert!(!host_dir.exists());
+        assert!(quarantined.starts_with(root.path().join(".udf-failed")));
+        assert!(quarantined.join("Plugins/AesWorld/partial.txt").is_file());
+    }
 }
