@@ -2,6 +2,16 @@
 
 本文档面向 AI agent（如 Codex、Copilot、Claude Code、Cursor、opencode），说明如何使用 UnrealDevFlow 工具协助用户完成 UE 插件开发任务。
 
+## 本仓库自身的开发流程：AES Workflow
+
+本仓库采用 AES Workflow。**改本仓库的代码之前，先走 `aes-using-workflow`**，由它找到当前任务并决定下一步交给哪个 Skill。用户没点名也要走。
+
+- 流程状态就是 `workflow/` 目录里的文件，没有数据库也没有后台服务。
+- 干活期间只提交代码，`workflow/` 下的记录留在工作区，等任务收口时一次性提交。两者混在一次提交里工具会拒绝。
+- 提交信息用 `workflow_tool.py commit-message` 生成骨架，任务编号和标题工具自己填。
+
+这一节只管**开发 UnrealDevFlow 这个工具本身**。用 UnrealDevFlow 工具做 UE 插件开发的流程，看下面的 5 步标准工作流，两者互不替代。
+
 ## 发布流程硬规则
 
 当用户要求发布、打包、创建 GitHub Release、准备版本或修复安装分发流程时，必须先读取并遵守 `skills/unrealdevflow-release/SKILL.md` 与 `docs/RELEASE.md`。
