@@ -157,6 +157,44 @@ unrealdevflow build neon-dev/prefab-save-bug --primary-only
 unrealdevflow build-status neon-dev/prefab-save-bug
 ```
 
+### 3.5 受控构建（build-check / build-gate / build-project）
+
+同一个引擎目录下只有一把 UnrealBuildTool 互斥锁。两个编译同时开工会互相破坏中间产物，
+所以不要自己拼 `Build.bat` 命令行，先问工具。
+
+```powershell
+# 现在能不能编？不会启动任何编译，只给结论
+unrealdevflow build-check neon-dev/prefab-save-bug
+unrealdevflow build-check neon-dev/prefab-save-bug --format json
+
+# 省略任务时检查 workspace 的主项目
+unrealdevflow build-check --workspace neon-dev
+```
+
+结论有四种：
+
+| 结论 | 意思 | 该怎么办 |
+|---|---|---|
+| `ready` | 可以开始编译 | 直接 `build` |
+| `deferred` | 另一个 UBT 正在跑 | 等它结束再来，不要绕过互斥锁 |
+| `blocked` | 被策略拒绝，比如命令里带了 `-NoMutex` | 看 `reason` 字段 |
+| `needsUserInput` | 缺信息，比如引擎路径解析不出来 | 补 `--workspace` 或修 workspace 配置 |
+
+命令本身永远返回 0：结论就是答案，不是失败。
+
+```powershell
+# 检查一条命令有没有绕过受控入口。拦下时退出码为 1，适合放进 hook
+unrealdevflow build-gate "unrealdevflow build neon-dev/prefab-save-bug"   # 放行
+unrealdevflow build-gate "Build.bat DEVEditor Win64 Development -NoMutex" # 拦截
+
+# 编 workspace 的主项目，而不是任务宿主
+unrealdevflow build-project --workspace neon-dev
+unrealdevflow build-project --workspace neon-dev --profile medium
+```
+
+引擎路径的解析顺序是：命令行 `--workspace` 对应的 `engine_path` →
+环境变量 `UNREALDEVFLOW_UE_ENGINE_ROOT` → `.uproject` 里的 `EngineAssociation`。
+
 ### 4. 切换验收
 
 ```powershell
@@ -199,6 +237,9 @@ unrealdevflow finish neon-dev/prefab-save-bug
 | `create` | 创建任务（多主插件 + 智能依赖扫描） |
 | `build` | 编译任务（全 Host .uproject，可 `--primary-only`） |
 | `build-status` | 查看编译状态 |
+| `build-check` | 只回答现在能不能编，永远不启动编译 |
+| `build-gate` | 检查一条命令有没有绕过受控构建；拦下时退出码为 1 |
+| `build-project` | 编译 workspace 的主项目，而不是任务宿主 |
 | `switch` | 切换 Junction 到指定任务（多 Junction 遍历） |
 | `list` | 列出所有任务 |
 | `status` | 查看当前 Junction 状态 |
@@ -222,7 +263,7 @@ GitHub Release 由 `v*.*.*` tag 触发，并自动生成 draft release、Windows
 
 | 参数 | 说明 |
 |---|---|
-| `--format <json\|human>` | 输出格式 |
+| `--format <json\|human>` | 输出格式。目前只有 `list`、`status`、`build-check`、`build-gate`、`build-project` 会读它，其余命令始终输出人类可读文本 |
 | `-v, --verbose` | 详细日志 |
 | `-h, --help` | 帮助信息 |
 | `-V, --version` | 版本信息 |

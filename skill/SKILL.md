@@ -229,6 +229,10 @@ Task#001 添加建筑轮廓线拍平功能
 | `configure --hosts-root ... --plugins-root ... --default-project ...` | 兼容配置 |
 | `create "描述" --workspace <w> --id xxx --prompt "原始 prompt" --yes` | 专业创建任务 |
 | `build <workspace/task>` | 编译 |
+| `build-status <workspace/task>` | 查编译状态 |
+| `build-check [workspace/task]` | 只回答现在能不能编，不启动编译；`ready`/`deferred`/`blocked`/`needsUserInput` |
+| `build-gate "<完整命令>"` | 检查命令有没有绕过受控构建，拦下时退出码 1 |
+| `build-project [--workspace <w>]` | 编主项目而不是任务宿主 |
 | `switch <workspace/task> --force` | 切换 Junction |
 | `list` | 列出任务 |
 | `status` | 查看状态 |

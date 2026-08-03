@@ -98,17 +98,38 @@ unrealdevflow build <task-ref>                          # 前台编译（编全 
 unrealdevflow build <task-ref> --background             # 后台编译
 unrealdevflow build <task-ref> --primary-only           # 只编主插件模块（增量）
 unrealdevflow build <task-ref> --profile medium|heavy   # 加严严格度（PR/merge 前）
-unrealdevflow build <task-ref> --mutex wait|nomutex     # 强制 mutex 模式
+unrealdevflow build <task-ref> --mutex wait|no-mutex     # 强制 mutex 模式
 unrealdevflow build <task-ref> --validator              # 标记为 CI/Validator 调用
 unrealdevflow build-status <task-ref>                   # 查状态
 ```
+
+**编之前先问一句。** 同一个引擎目录只有一把 UnrealBuildTool 互斥锁，两个编译同时开工会互相
+破坏中间产物。`build-check` 只回答能不能编，永远不启动编译，命令本身永远返回 0：
+
+```powershell
+unrealdevflow build-check <task-ref>                    # 四种结论之一
+unrealdevflow build-check <task-ref> --format json      # 同样的结论，机器可读
+unrealdevflow build-check --workspace <name>            # 不给任务时检查主项目
+unrealdevflow build-gate "<完整命令>"                    # 这条命令绕过受控构建了吗，拦下时退出码 1
+unrealdevflow build-project [--workspace <name>]        # 编主项目而不是任务宿主
+```
+
+| 结论 | 意思 | 该怎么办 |
+|---|---|---|
+| `ready` | 可以开始编译 | 直接 `build` |
+| `deferred` | 另一个 UBT 正拿着锁 | 等它结束，**不要**改用 `--mutex no-mutex` 绕过去 |
+| `blocked` | 被策略拒绝，比如命令里带 `-NoMutex` | 看 `reason` 字段 |
+| `needsUserInput` | 引擎或项目解析不出来 | 补 `--workspace`，或修 workspace 配置 |
+
+引擎路径解析顺序：workspace 的 `engine_path` → 环境变量 `UNREALDEVFLOW_UE_ENGINE_ROOT`
+→ `.uproject` 里的 `EngineAssociation`。
 
 工具自动用严格模式（Task#006 修复 + Task#009 profile 化）：
 - **light（默认）**：` -FailIfGeneratedCodeChanges -NoUBTMakefiles -DisableAdaptiveUnity`
 - **medium**：light + `-WarningsAsErrors`
 - **heavy**：完整重建 + 强制 UHT 重生成
 
-**Mutex 三态**（`--mutex auto|wait|nomutex`）：auto 模式根据 engine 中间产物是否就绪自动选择，validator hint 会偏向 no-mutex。
+**Mutex 三态**（`--mutex auto|wait|no-mutex`）：auto 模式根据 engine 中间产物是否就绪自动选择，validator hint 会偏向 no-mutex。
 
 **遇到失败**：先看 `Build_<profile>_<时间>.log`（默认在 `<host>/Logs/UBT/`）；依赖路径 dirty 会警告但**不阻塞**（依赖按 v2 设计是只读的）。
 
@@ -181,6 +202,9 @@ unrealdevflow merge <task-ref> --all --strategy rebase               # 全部逆
 | `build <task-ref> --background` | — | 后台编译 |
 | `build <task-ref> --primary-only` | — | 只编主插件模块 |
 | `build-status <task-ref>` | — | 查编译状态 |
+| `build-check [task-ref]` | — | 只回答现在能不能编，不启动编译 |
+| `build-gate "<命令>"` | — | 检查某条命令有没有绕过受控构建 |
+| `build-project` | — | 编主项目而不是任务宿主 |
 | `switch <task-ref>` | — | 切 Junction（多 Junction 自动） |
 | `list` / `status` | — | 看任务/状态 |
 | `merge <task-ref> --strategy <s>` | **✅ 策略必问** | 合并（多主插件加 `--plugin` 或 `--all`） |

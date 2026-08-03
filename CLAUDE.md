@@ -53,6 +53,15 @@ unrealdevflow build-status <task-ref>
 - 严格模式自动启用：`-FailIfGeneratedCodeChanges -NoUBTMakefiles -DisableAdaptiveUnity`
 - 失败看 `Build_<time>.log`
 
+**编之前先问能不能编**（同一引擎只有一把 UBT 互斥锁）：
+```powershell
+unrealdevflow build-check <task-ref>              # ready / deferred / blocked / needsUserInput
+unrealdevflow build-gate "<完整命令>"              # 这条命令绕过受控构建了吗，拦下时退出码 1
+unrealdevflow build-project [--workspace <name>]  # 编主项目而不是任务宿主
+```
+- `deferred` 表示别人正在编，等它结束；**不要**改用 `--mutex no-mutex` 绕过去。
+- `build-check` 本身永远返回 0，结论就是答案。
+
 ### 4. SWITCH — 让用户验收
 **不要自己执行 switch！** 告诉用户：
 ```
@@ -105,6 +114,9 @@ unrealdevflow merge <task-ref> --all --strategy rebase   # 逆序逐个
 | 下一步 | `unrealdevflow next <workspace/task>` |
 | 编译 | `unrealdevflow build <workspace/task> [--background] [--primary-only]` |
 | 编译状态 | `unrealdevflow build-status <workspace/task>` |
+| 能不能编 | `unrealdevflow build-check <workspace/task> [--format json]` |
+| 命令是否绕过受控构建 | `unrealdevflow build-gate "<完整命令>"` |
+| 编主项目 | `unrealdevflow build-project [--workspace <w>]` |
 | 通知用户验收 | 告诉用户 `unrealdevflow switch <workspace/task>` + 重启 Editor |
 | 合并向导 | `unrealdevflow finish <workspace/task>` |
 | 合并（必问策略） | `unrealdevflow merge <workspace/task> --strategy <s> [--plugin <name> \| --all]` |

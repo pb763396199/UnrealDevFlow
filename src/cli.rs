@@ -11,7 +11,8 @@ pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
 
-    /// Output format (json or human)
+    /// Output format. Honored by `list`, `status`, `build-check`, `build-gate`
+    /// and `build-project`; other commands always print human-readable text.
     #[arg(long, global = true, default_value = "human")]
     pub format: OutputFormat,
 
@@ -241,13 +242,13 @@ pub enum Commands {
         #[arg(long)]
         background: bool,
 
-        /// Mutex mode: auto (default) / wait / nomutex
+        /// Mutex mode: auto (default) / wait / no-mutex
         ///
-        /// auto  : -WaitMutex if engine Intermediate/Build/Shared is missing,
-        ///         -NoMutex once shared PCH is ready. Validator hint biases
-        ///         to -NoMutex.
-        /// wait  : always -WaitMutex (queue if another build is running)
-        /// nomutex: always -NoMutex (parallel; fastest when PCH cached)
+        /// auto    : -WaitMutex if engine Intermediate/Build/Shared is missing,
+        ///           -NoMutex once shared PCH is ready. Validator hint biases
+        ///           to -NoMutex.
+        /// wait    : always -WaitMutex (queue if another build is running)
+        /// no-mutex: always -NoMutex (parallel; fastest when PCH cached)
         #[arg(
             long,
             value_enum,

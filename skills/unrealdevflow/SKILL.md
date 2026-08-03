@@ -109,6 +109,39 @@ unrealdevflow build-status <task-ref>
 - Light profile: `-FailIfGeneratedCodeChanges -NoUBTMakefiles -DisableAdaptiveUnity`.
 - Failure log: `<host>/Logs/UBT/Build_<profile>_<timestamp>.log`.
 
+#### Controlled build: ask before you compile
+
+One engine directory has exactly one UnrealBuildTool mutex. Two builds at once
+corrupt each other's intermediates, so never hand-assemble a `Build.bat` line.
+
+```powershell
+unrealdevflow build-check <task-ref>                 # may a build start right now?
+unrealdevflow build-check <task-ref> --format json   # same answer, machine readable
+unrealdevflow build-check --workspace <name>         # no task ref = the main project
+```
+
+Four verdicts. The command itself always exits 0 — the verdict is the answer,
+not a failure to answer.
+
+| Verdict | Meaning | What to do |
+|---|---|---|
+| `ready` | a build may start | run `unrealdevflow build <task-ref>` |
+| `deferred` | another UBT holds the mutex | wait, do not bypass it |
+| `blocked` | refused by policy (e.g. `-NoMutex` present) | read the `reason` field |
+| `needsUserInput` | engine/project could not be resolved | pass `--workspace`, or fix the workspace config |
+
+```powershell
+# Does a proposed command bypass the controlled path? Exit code 1 when refused.
+unrealdevflow build-gate "<the full command you were about to run>"
+
+# Build the workspace's main project instead of a task Host
+unrealdevflow build-project [--workspace <name>] [--profile light|medium|heavy]
+```
+
+Engine root resolution order: the workspace's `engine_path` → the
+`UNREALDEVFLOW_UE_ENGINE_ROOT` environment variable → `EngineAssociation` in
+the `.uproject`.
+
 ### 4. SWITCH — NEVER run without explicit user authorization
 
 **⛔ HARD RULE: You MUST NOT run `unrealdevflow switch` unless the user explicitly says to do so.**
@@ -170,7 +203,8 @@ unrealdevflow cleanup <task-ref>
 | Auto-`cleanup` right after merge | Wait for explicit user confirmation |
 | Picking `--strategy` without asking the user | Ask, then pass the user's choice |
 | Editing the main plugin repo `{plugins_root}/<plugin>/` | Edit only the task worktree |
-| Running `Build.bat` / `RunUBT.bat` directly | `unrealdevflow build` |
+| Running `Build.bat` / `RunUBT.bat` directly | `unrealdevflow build`, after `unrealdevflow build-check` says `ready` |
+| Passing `-NoMutex` to work around a busy build | Wait out the `deferred` verdict |
 
 ## Failure recovery
 
@@ -178,6 +212,7 @@ unrealdevflow cleanup <task-ref>
 |---|---|
 | "目录被占用" on `switch` | Close Rider/VSCode/file explorer, retry with `unrealdevflow switch <task-ref> --force` |
 | "Build.bat 不存在" | Re-run `unrealdevflow configure --engine-path "正确路径"` |
+| `build` seems to hang behind another compile | `unrealdevflow build-check <task-ref>` — `deferred` means another UBT holds the mutex |
 | Wrong merge order | `git reflog`, then `git reset --hard <before-merge-commit>`, re-run `unrealdevflow merge` |
 | Engine+project dep conflict | `unrealdevflow create ... --override-dep <name>=engine\|project` |
 | Short task id is ambiguous | Use full ref `workspace/task-id` |
