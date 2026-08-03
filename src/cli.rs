@@ -213,7 +213,11 @@ pub enum Commands {
         /// Task ID to switch to (use "main" to switch back to main repo)
         task_id: String,
 
-        /// UE project path(s) to update (comma-separated for multiple)
+        /// UE project path(s) to update (comma-separated for multiple).
+        ///
+        /// Only "main" may target several projects. A task is bound to the
+        /// project frozen in its metadata, so naming any other project is
+        /// refused before any Junction changes.
         #[arg(long, value_delimiter = ',')]
         project: Option<Vec<PathBuf>>,
 

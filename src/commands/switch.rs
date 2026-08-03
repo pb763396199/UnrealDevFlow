@@ -19,6 +19,7 @@ pub fn run(
 ) -> Result<()> {
     let config = Config::load()?;
     let mut regen_engine_path = config.engine_path.clone();
+    let mut task_bound_project: Option<PathBuf> = None;
 
     let mut target_projects = projects;
 
@@ -61,12 +62,13 @@ pub fn run(
         if plan.is_empty() {
             // Nothing in state; fall back to v1 single plugin if configured.
             if let Some(legacy) = &config.plugin_path {
-                let name = legacy
-                    .file_name()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("AesWorld")
-                    .to_string();
-                plan.push((name, legacy.clone()));
+                if let Some(name) = legacy.file_name().and_then(|s| s.to_str()) {
+                    plan.push((name.to_string(), legacy.clone()));
+                } else {
+                    output::print_warning(
+                        "legacy plugin_path 没有可证明的插件目录名；不会假设它叫 AesWorld。",
+                    );
+                }
             }
         }
         plan
@@ -74,9 +76,10 @@ pub fn run(
         let (host_dir, mut meta, task_context) = host::resolve_task(&config, task_id)?;
         crate::migration::backfill_source_repo(&mut meta, &config);
         regen_engine_path = task_context.engine_path.clone();
-        if target_projects.is_none() {
-            target_projects = Some(vec![task_context.default_project.clone()]);
-        }
+        let bound_project = task_context.default_project.clone();
+        validate_task_project_scope(task_id, &bound_project, target_projects.as_deref())?;
+        target_projects = Some(vec![bound_project.clone()]);
+        task_bound_project = Some(bound_project);
 
         let mut plan: Vec<(String, PathBuf)> = Vec::new();
         for primary in &meta.primary_plugins {
@@ -97,9 +100,26 @@ pub fn run(
         )));
     }
     let target_projects = target_projects.unwrap_or_else(|| vec![config.default_project.clone()]);
+    let mut state = GlobalState::load()?;
+    let shared_plugins_aliases = task_bound_project
+        .as_deref()
+        .map(|bound_project| {
+            diagnose_shared_plugins_directories(&config, &state, bound_project, task_id)
+        })
+        .unwrap_or_default();
 
     // Validate the complete cross-project plan before touching any Junction.
     // A conflict on plugin N must not leave plugins 1..N-1 partially switched.
+    if let Some(bound_project) = task_bound_project.as_deref() {
+        diagnose_cross_project_task_routes(
+            &config,
+            &state,
+            bound_project,
+            &shared_plugins_aliases,
+            &switch_plan,
+            task_id,
+        );
+    }
     for project_path in &target_projects {
         let project_name = canonical_project_key(project_path);
         for (plugin_name, target_path) in &switch_plan {
@@ -109,7 +129,9 @@ pub fn run(
                     plugin_name, target_path
                 )));
             }
-            preflight_existing_path(&junction_path_for(project_path, plugin_name), &project_name)?;
+            let junction_path = junction_path_for(project_path, plugin_name);
+            diagnose_existing_junction_ledger(&state, project_path, plugin_name, &junction_path);
+            preflight_existing_path(&junction_path, &project_name)?;
         }
     }
 
@@ -139,6 +161,15 @@ pub fn run(
                 handle_existing_path(&junction_path, &project_name)?;
             }
             junction::create(target_path, &junction_path)?;
+            let actual_target = junction::get_target(&junction_path)?;
+            if !paths_equal(&actual_target, target_path) {
+                return Err(UdfError::Other(format!(
+                    "Junction 创建后校验失败：'{}' 实际指向 '{}'，期望 '{}'。state 未写入；请移除该异常 Junction 后重试。",
+                    junction_path.display(),
+                    actual_target.display(),
+                    target_path.display()
+                )));
+            }
             output::print_success(&format!("  {} -> {:?}", plugin_name, target_path));
             junctions_state.push(JunctionState {
                 plugin_name: plugin_name.clone(),
@@ -147,7 +178,6 @@ pub fn run(
             });
         }
 
-        let mut state = GlobalState::load()?;
         let previous_task = state
             .get_project(&project_name)
             .and_then(|p| p.active_task.clone());
@@ -165,13 +195,14 @@ pub fn run(
             junctions: junctions_state,
         };
         state.set_project(project_name.clone(), project_state);
-        state.save()?;
 
         output::print_success(&format!(
             "Project '{}' switched to task '{}'",
             project_name, task_id
         ));
     }
+    clear_alias_project_state(&mut state, &shared_plugins_aliases);
+    state.save()?;
 
     // === Regenerate IDE project files (last step) ===
     // After Junctions are re-pointed, VS/Rider/VSCode need to re-scan the
@@ -186,6 +217,253 @@ pub fn run(
 
     output::print_info("Restart UnrealEditor to load the new task DLLs.");
     Ok(())
+}
+
+/// A task belongs to exactly one UE project — the one frozen in its context.
+///
+/// Pointing that task's plugin worktree into some other project produces two
+/// projects sharing one Host, which is the cross-project routing mess the
+/// diagnostics below exist to detect. Refuse it up front instead.
+fn validate_task_project_scope(
+    task_id: &str,
+    bound_project: &Path,
+    requested_projects: Option<&[PathBuf]>,
+) -> Result<()> {
+    let Some(requested_projects) = requested_projects else {
+        return Ok(());
+    };
+    if requested_projects.len() == 1 && paths_equal(&requested_projects[0], bound_project) {
+        return Ok(());
+    }
+
+    let requested = requested_projects
+        .iter()
+        .map(|path| path.display().to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    Err(UdfError::Other(format!(
+        "任务 '{}' 已绑定主项目 '{}'，不能切换或改写其他项目 Junction（请求：{}）。\n\
+         恢复动作：去掉本次 --project 参数并重试；如果确实要为其他项目开发，请为该项目创建独立任务。未修改任何 Junction。",
+        task_id,
+        bound_project.display(),
+        requested
+    )))
+}
+
+/// Warn when the Junction on disk disagrees with what state.json recorded.
+///
+/// Read-only: an explicit `switch` is authorization to take the route over, so
+/// the caller rebuilds both the Junction and the ledger afterwards.
+fn diagnose_existing_junction_ledger(
+    state: &GlobalState,
+    project_path: &Path,
+    plugin_name: &str,
+    junction_path: &Path,
+) {
+    if !junction::exists(junction_path).unwrap_or(false) {
+        return;
+    }
+
+    let actual_target = match junction::get_target(junction_path) {
+        Ok(target) => target,
+        Err(error) => {
+            output::print_warning(&format!(
+                "现有 Junction '{}' 无法读取目标（{}）；本次显式 switch 将在绑定项目内安全接管。",
+                junction_path.display(),
+                error
+            ));
+            return;
+        }
+    };
+    let project_key = canonical_project_key(project_path);
+    let Some(project_state) = state.get_project(&project_key).or_else(|| {
+        state
+            .projects
+            .values()
+            .find(|entry| paths_equal(&entry.path, project_path))
+    }) else {
+        warn_untracked_junction(project_path, plugin_name, junction_path, &actual_target);
+        return;
+    };
+    let Some(recorded) = project_state
+        .junctions
+        .iter()
+        .find(|entry| entry.plugin_name.eq_ignore_ascii_case(plugin_name))
+    else {
+        warn_untracked_junction(project_path, plugin_name, junction_path, &actual_target);
+        return;
+    };
+
+    if project_state.active_task.is_none()
+        || !paths_equal(&recorded.junction_path, junction_path)
+        || !paths_equal(&recorded.junction_target, &actual_target)
+    {
+        output::print_warning(&format!(
+            "项目 '{}' 的插件 '{}' Junction 与 state 账本不一致。实际：'{}' -> '{}'；账本：'{}' -> '{}'（activeTask={:?}）。本次显式 switch 将在绑定项目内重建 Junction 和 state。",
+            project_path.display(),
+            plugin_name,
+            junction_path.display(),
+            actual_target.display(),
+            recorded.junction_path.display(),
+            recorded.junction_target.display(),
+            project_state.active_task
+        ));
+    }
+}
+
+fn warn_untracked_junction(
+    project_path: &Path,
+    plugin_name: &str,
+    junction_path: &Path,
+    actual_target: &Path,
+) {
+    output::print_warning(&format!(
+        "发现未记账 Junction：项目 '{}' 的插件 '{}'，'{}' -> '{}'。本次显式 switch 将在绑定项目内安全接管并写入 state。",
+        project_path.display(),
+        plugin_name,
+        junction_path.display(),
+        actual_target.display()
+    ));
+}
+
+/// Warn when another project's Junction already points at this task's Host.
+///
+/// Never touches those projects: they are outside the task's scope.
+fn diagnose_cross_project_task_routes(
+    config: &Config,
+    state: &GlobalState,
+    bound_project: &Path,
+    shared_plugins_aliases: &[PathBuf],
+    switch_plan: &[(String, PathBuf)],
+    task_id: &str,
+) {
+    let mut projects = Vec::new();
+    push_unique_project(&mut projects, config.default_project.clone());
+    for workspace in config.workspaces.values() {
+        push_unique_project(&mut projects, workspace.default_project.clone());
+    }
+    for project_state in state.projects.values() {
+        push_unique_project(&mut projects, project_state.path.clone());
+    }
+
+    for project_path in projects {
+        if paths_equal(&project_path, bound_project)
+            || shared_plugins_aliases
+                .iter()
+                .any(|alias| paths_equal(alias, &project_path))
+        {
+            continue;
+        }
+        for (plugin_name, target_path) in switch_plan {
+            let other_junction = junction_path_for(&project_path, plugin_name);
+            if !junction::exists(&other_junction).unwrap_or(false) {
+                continue;
+            }
+            let actual_target = match junction::get_target(&other_junction) {
+                Ok(target) => target,
+                Err(error) => {
+                    output::print_warning(&format!(
+                        "无法核对其他项目 Junction '{}'：{}。该项目不属于本任务，本次 switch 不会修改它。",
+                        other_junction.display(),
+                        error
+                    ));
+                    continue;
+                }
+            };
+            if paths_equal(&actual_target, target_path) {
+                output::print_warning(&format!(
+                    "检测到跨项目任务路由：任务 '{}' 绑定项目 '{}'，但其他项目 '{}' 的插件 '{}' 也指向该任务 Host '{}'。本次 switch 只修改绑定项目；建议随后将其他项目切回它自己的任务或主线。",
+                    task_id,
+                    bound_project.display(),
+                    project_path.display(),
+                    plugin_name,
+                    actual_target.display()
+                ));
+            }
+        }
+    }
+}
+
+/// Find projects whose `Plugins` directory is physically the same directory as
+/// the bound project's, so switching one silently switches the others.
+fn diagnose_shared_plugins_directories(
+    config: &Config,
+    state: &GlobalState,
+    bound_project: &Path,
+    task_id: &str,
+) -> Vec<PathBuf> {
+    let bound_plugins = bound_project.join("Plugins");
+    let Some(bound_plugins_physical) = canonical_existing_path(&bound_plugins) else {
+        return Vec::new();
+    };
+
+    let mut projects = Vec::new();
+    push_unique_project(&mut projects, config.default_project.clone());
+    for workspace in config.workspaces.values() {
+        push_unique_project(&mut projects, workspace.default_project.clone());
+    }
+    for project_state in state.projects.values() {
+        push_unique_project(&mut projects, project_state.path.clone());
+    }
+
+    let mut aliases = Vec::new();
+    for project_path in projects {
+        if paths_equal(&project_path, bound_project) {
+            continue;
+        }
+        let Some(other_plugins_physical) = canonical_existing_path(&project_path.join("Plugins"))
+        else {
+            continue;
+        };
+        if paths_equal(&other_plugins_physical, &bound_plugins_physical) {
+            push_unique_project(&mut aliases, project_path);
+        }
+    }
+
+    if !aliases.is_empty() {
+        let affected = aliases
+            .iter()
+            .map(|path| path.display().to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+        output::print_warning(&format!(
+            "shared_plugins_directory: 任务 '{}' 的绑定项目 '{}' 与以下项目共享物理 Plugins 目录 '{}'：{}。本次显式 switch 仍会执行，并会通过该共享目录影响这些项目；成功后将清除别名项目的陈旧 state 路由。",
+            task_id,
+            bound_project.display(),
+            bound_plugins_physical.display(),
+            affected
+        ));
+    }
+
+    aliases
+}
+
+fn clear_alias_project_state(state: &mut GlobalState, aliases: &[PathBuf]) {
+    if aliases.is_empty() {
+        return;
+    }
+    state.projects.retain(|_, project_state| {
+        !aliases
+            .iter()
+            .any(|alias| paths_equal(&project_state.path, alias))
+    });
+}
+
+fn canonical_existing_path(path: &Path) -> Option<PathBuf> {
+    dunce::canonicalize(path).ok()
+}
+
+fn push_unique_project(projects: &mut Vec<PathBuf>, candidate: PathBuf) {
+    if !projects
+        .iter()
+        .any(|existing| paths_equal(existing, &candidate))
+    {
+        projects.push(candidate);
+    }
+}
+
+fn paths_equal(left: &Path, right: &Path) -> bool {
+    canonical_project_key(left) == canonical_project_key(right)
 }
 
 fn clear_ubt_cache(project_path: &Path) {
@@ -501,4 +779,190 @@ fn regenerate_project_files(engine_path: &Path, target_projects: &[PathBuf]) -> 
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+    use tempfile::tempdir;
+
+    fn test_config(default_project: PathBuf, other_project: PathBuf) -> Config {
+        let mut workspaces = HashMap::new();
+        workspaces.insert(
+            "other".to_string(),
+            crate::config::WorkspaceConfig {
+                hosts_root: PathBuf::from("hosts-other"),
+                plugin_path: None,
+                default_project: other_project,
+                engine_path: PathBuf::from("engine"),
+                plugins_root: None,
+                plugin_overrides: HashMap::new(),
+            },
+        );
+        Config {
+            hosts_root: PathBuf::from("hosts"),
+            plugin_path: None,
+            default_project,
+            engine_path: PathBuf::from("engine"),
+            plugins_root: None,
+            plugin_overrides: HashMap::new(),
+            workspaces,
+            last_used_workspace: None,
+        }
+    }
+
+    fn empty_state() -> GlobalState {
+        GlobalState {
+            version: 2,
+            projects: HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn task_switch_rejects_second_project_with_same_plugin() {
+        let root = tempdir().expect("temp dir");
+        let project_a = root.path().join("ProjectA");
+        let project_b = root.path().join("ProjectB");
+        fs::create_dir_all(&project_a).expect("project A");
+        fs::create_dir_all(&project_b).expect("project B");
+
+        let error = validate_task_project_scope(
+            "workspace-a/task-a",
+            &project_a,
+            Some(std::slice::from_ref(&project_b)),
+        )
+        .expect_err("cross-project switch must be rejected");
+
+        let message = error.to_string();
+        assert!(message.contains("已绑定主项目"));
+        assert!(message.contains("未修改任何 Junction"));
+        assert!(
+            validate_task_project_scope(
+                "workspace-a/task-a",
+                &project_a,
+                Some(std::slice::from_ref(&project_a)),
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn task_switch_only_diagnoses_same_host_routed_from_second_project() {
+        let root = tempdir().expect("temp dir");
+        let project_a = root.path().join("ProjectA");
+        let project_b = root.path().join("ProjectB");
+        let host_plugin = root.path().join("Host").join("Plugins").join("AesWorld");
+        fs::create_dir_all(project_a.join("Plugins")).expect("project A plugins");
+        fs::create_dir_all(project_b.join("Plugins")).expect("project B plugins");
+        fs::create_dir_all(&host_plugin).expect("host plugin");
+        let project_b_junction = junction_path_for(&project_b, "AesWorld");
+        junction::create(&host_plugin, &project_b_junction).expect("project B junction");
+
+        let config = test_config(project_a.clone(), project_b.clone());
+        diagnose_cross_project_task_routes(
+            &config,
+            &empty_state(),
+            &project_a,
+            &[],
+            &[("AesWorld".to_string(), host_plugin.clone())],
+            "workspace-a/task-a",
+        );
+
+        // Diagnostics must never mutate or block the unrelated project.
+        assert_eq!(
+            junction::get_target(&project_b_junction).expect("junction target"),
+            host_plugin
+        );
+        junction::delete(&project_b_junction).expect("junction cleanup");
+    }
+
+    #[test]
+    fn existing_junction_is_adopted_when_state_ledger_is_stale() {
+        let root = tempdir().expect("temp dir");
+        let project = root.path().join("ProjectA");
+        let actual_target = root.path().join("HostA").join("Plugins").join("AesWorld");
+        let recorded_target = root.path().join("HostB").join("Plugins").join("AesWorld");
+        fs::create_dir_all(project.join("Plugins")).expect("project plugins");
+        fs::create_dir_all(&actual_target).expect("actual target");
+        fs::create_dir_all(&recorded_target).expect("recorded target");
+        let junction_path = junction_path_for(&project, "AesWorld");
+        junction::create(&actual_target, &junction_path).expect("junction");
+
+        let project_key = canonical_project_key(&project);
+        let mut state = empty_state();
+        state.set_project(
+            project_key,
+            ProjectState {
+                path: project.clone(),
+                active_task: Some("workspace-a/old-task".to_string()),
+                junction_path: junction_path.clone(),
+                junction_target: Some(recorded_target.clone()),
+                last_switch: None,
+                previous_task: None,
+                junctions: vec![JunctionState {
+                    plugin_name: "AesWorld".to_string(),
+                    junction_path: junction_path.clone(),
+                    junction_target: recorded_target,
+                }],
+            },
+        );
+
+        diagnose_existing_junction_ledger(&state, &project, "AesWorld", &junction_path);
+        // Explicit switch is authorization to replace this route; diagnosis is
+        // read-only and the caller will rebuild both Junction and state.
+        assert_eq!(
+            junction::get_target(&junction_path).expect("junction target"),
+            actual_target
+        );
+        junction::delete(&junction_path).expect("junction cleanup");
+    }
+
+    #[test]
+    fn shared_plugins_parent_alias_is_reported_and_stale_alias_state_is_removed() {
+        let root = tempdir().expect("temp dir");
+        let project_a = root.path().join("ProjectA");
+        let project_b = root.path().join("ProjectB");
+        let shared_plugins = project_a.join("Plugins");
+        let host_plugin = root.path().join("Host").join("Plugins").join("AesWorld");
+        fs::create_dir_all(&shared_plugins).expect("shared plugins");
+        fs::create_dir_all(&project_b).expect("project B");
+        fs::create_dir_all(&host_plugin).expect("host plugin");
+        junction::create(&shared_plugins, &project_b.join("Plugins"))
+            .expect("shared Plugins junction");
+
+        let config = test_config(project_a.clone(), project_b.clone());
+        let mut state = empty_state();
+        state.set_project(
+            canonical_project_key(&project_b),
+            ProjectState {
+                path: project_b.clone(),
+                active_task: Some("workspace-b/stale-task".to_string()),
+                junction_path: project_b.join("Plugins").join("AesWorld"),
+                junction_target: Some(PathBuf::from("stale-target")),
+                last_switch: None,
+                previous_task: None,
+                junctions: Vec::new(),
+            },
+        );
+
+        let aliases =
+            diagnose_shared_plugins_directories(&config, &state, &project_a, "workspace-a/task-a");
+        assert_eq!(aliases.len(), 1);
+        assert!(paths_equal(&aliases[0], &project_b));
+
+        let bound_junction = junction_path_for(&project_a, "AesWorld");
+        junction::create(&host_plugin, &bound_junction).expect("bound project switch");
+        assert_eq!(
+            junction::get_target(&junction_path_for(&project_b, "AesWorld"))
+                .expect("alias observes same switched plugin"),
+            host_plugin
+        );
+
+        clear_alias_project_state(&mut state, &aliases);
+        assert!(state.projects.is_empty());
+        assert!(project_b.join("Plugins").exists());
+        junction::delete(&bound_junction).expect("plugin junction cleanup");
+        junction::delete(&project_b.join("Plugins")).expect("shared Plugins cleanup");
+    }
 }
