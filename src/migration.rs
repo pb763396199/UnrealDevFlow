@@ -6,11 +6,7 @@
 //! identify the primary plugin, so migration must not invent one.
 
 use crate::config::Config;
-use crate::error::Result;
 use crate::host::{CURRENT_SCHEMA_VERSION, TaskMeta};
-use crate::output;
-use std::fs;
-use std::path::Path;
 
 /// Mutate `meta` in place if it appears to be v1.
 pub fn migrate_in_place(meta: &mut TaskMeta) {
@@ -24,44 +20,6 @@ pub fn migrate_in_place(meta: &mut TaskMeta) {
         return;
     }
     meta.schema_version = CURRENT_SCHEMA_VERSION;
-}
-
-/// Persist migrated metadata, backing up the original `.udf-meta.json` to
-/// `.udf-meta.json.v1.bak` exactly once.
-pub fn persist_migration_if_needed(host_dir: &Path) -> Result<bool> {
-    let meta_path = host_dir.join(".udf-meta.json");
-    if !meta_path.exists() {
-        return Ok(false);
-    }
-    let original = fs::read_to_string(&meta_path)?;
-    let probe: serde_json::Value =
-        serde_json::from_str(&original).unwrap_or(serde_json::Value::Null);
-    let needs_migration = probe
-        .get("schema_version")
-        .and_then(|v| v.as_u64())
-        .map(|v| (v as u32) < CURRENT_SCHEMA_VERSION)
-        .unwrap_or(true);
-    if !needs_migration {
-        return Ok(false);
-    }
-
-    let backup_path = host_dir.join(".udf-meta.json.v1.bak");
-    if !backup_path.exists() {
-        fs::write(&backup_path, &original)?;
-        output::print_info(&format!("Backed up v1 metadata to {:?}", backup_path));
-    }
-
-    let mut meta: TaskMeta = serde_json::from_str(&original)
-        .map_err(|e| crate::error::HostError::InvalidMeta(format!("JSON parse error: {}", e)))?;
-    migrate_in_place(&mut meta);
-    if meta.schema_version < CURRENT_SCHEMA_VERSION {
-        return Err(crate::error::UdfError::Other(
-            "旧任务元数据缺少 primary plugin 身份，不能安全自动迁移；请从 Host/git/uproject 证据恢复后重试。"
-                .to_string(),
-        ));
-    }
-    crate::host::write_meta(host_dir, &meta)?;
-    Ok(true)
 }
 
 /// Try to ensure a migrated v1 primary plugin has a valid `source_repo`, using

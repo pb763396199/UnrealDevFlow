@@ -245,10 +245,18 @@ pub fn write_meta(host_dir: &Path, meta: &TaskMeta) -> Result<()> {
 
     // Only a parseable primary file is allowed to replace the last-known-good
     // backup. An interrupted/corrupt primary must never poison recovery.
+    //
+    // A failed backup must not block the primary write: the primary is written
+    // atomically on its own, and refusing to update it would let one locked
+    // `.bak` file (antivirus, indexer) stop every metadata update in the tool.
     if let Ok(previous_content) = fs::read(&meta_path)
         && parse_meta(&previous_content).is_ok()
+        && let Err(error) = write_file_atomically(&backup_path, &previous_content)
     {
-        write_file_atomically(&backup_path, &previous_content)?;
+        crate::output::print_warning(&format!(
+            "元数据备份写入失败：{}（{error}）；主文件仍会原子写入，但这次没有可回退的备份。",
+            backup_path.display()
+        ));
     }
 
     write_file_atomically(&meta_path, &content)

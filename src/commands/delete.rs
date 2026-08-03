@@ -138,6 +138,13 @@ pub fn run(task_id: &str, force: bool, skip_confirm: bool, dry_run: bool) -> Res
     let (host_dir, mut meta, _task_context) = host::resolve_task(&config, task_id)?;
     crate::migration::backfill_source_repo(&mut meta, &config);
 
+    if meta.primary_plugins.is_empty() {
+        return Err(UdfError::Other(format!(
+            "任务 '{}' 的元数据里没有主插件身份（旧版 schema 常见）。继续执行会删掉 Host 目录，但留下 git worktree 注册和任务分支清不掉。请先按 Host/git/uproject 证据恢复元数据，或者手工清理后再重试。",
+            task_id
+        )));
+    }
+
     let task_id_only = meta.id.clone();
     let expected_branches = vec![
         meta.branch.clone(),

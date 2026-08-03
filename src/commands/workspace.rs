@@ -405,7 +405,7 @@ fn load_or_seed_config(name: &str, workspace: &WorkspaceConfig) -> Result<Config
     })
 }
 
-fn find_uproject(project_dir: &Path) -> Option<PathBuf> {
+pub(crate) fn find_uproject(project_dir: &Path) -> Option<PathBuf> {
     std::fs::read_dir(project_dir)
         .ok()?
         .filter_map(|e| e.ok())

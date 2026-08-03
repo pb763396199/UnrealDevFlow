@@ -142,17 +142,26 @@ fn resolve_subject(
         }
         None => {
             let (name, workspace_config) = config.resolve_workspace(workspace.as_deref())?;
-            request.main_project = Some(
-                workspace_config
-                    .default_project
-                    .to_string_lossy()
-                    .to_string(),
-            );
+            // Resolve the .uproject here rather than handing over the directory.
+            // The policy resolver walks *up* when a directory holds no project,
+            // which would silently retarget the build at a neighbouring project.
+            let uproject = crate::commands::workspace::find_uproject(
+                &workspace_config.default_project,
+            )
+            .ok_or_else(|| {
+                UdfError::Other(format!(
+                    "workspace '{}' 的主项目目录里没有 .uproject：{}。请用 `unrealdevflow workspace doctor {}` 检查配置。",
+                    name,
+                    workspace_config.default_project.display(),
+                    name
+                ))
+            })?;
+            request.main_project = Some(uproject.to_string_lossy().to_string());
             request.engine_root = Some(workspace_config.engine_path.to_string_lossy().to_string());
             Ok(BuildSubject {
                 kind: "workspace",
                 name,
-                project_path: workspace_config.default_project,
+                project_path: uproject,
                 engine_root: workspace_config.engine_path,
             })
         }
@@ -213,15 +222,8 @@ fn format_project(out: &BuildProjectOutput) -> String {
                 .unwrap_or_else(|| "unknown".to_string())
         ),
     ];
-    let tail: Vec<&str> = execution.stdout.lines().rev().take(10).collect();
-    if !tail.is_empty() {
-        lines.push("构建输出末尾 10 行：".to_string());
-        for line in tail.into_iter().rev() {
-            lines.push(format!("  {}", line));
-        }
-    }
-    if !execution.stderr.trim().is_empty() {
-        lines.push(format!("错误输出：{}", execution.stderr.trim()));
+    if let Some(path) = &execution.log_path {
+        lines.push(format!("UBT 日志：{}", path.display()));
     }
     lines.join("\n")
 }

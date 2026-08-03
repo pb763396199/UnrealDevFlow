@@ -130,14 +130,19 @@ impl BuildGateReport {
     }
 }
 
+/// The outcome of a controlled build.
+///
+/// Deliberately carries no captured output: a full UE build writes hundreds of
+/// megabytes, so it streams straight to the terminal and to `log_path` instead
+/// of being buffered in memory and then embedded in JSON.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BuildExecution {
     #[serde(rename = "policy")]
     pub report: BuildPolicyReport,
     pub exit_code: Option<i32>,
-    pub stdout: String,
-    pub stderr: String,
+    #[serde(serialize_with = "serialize_optional_path")]
+    pub log_path: Option<PathBuf>,
 }
 
 impl BuildExecution {
@@ -355,6 +360,14 @@ pub fn inspect_provider_command(command: Option<&str>) -> BuildGateReport {
         return blocked_gate("shell_chaining_forbidden", "shell-chain");
     }
     if is_direct_controlled_command(command) {
+        // Going through this tool is not a licence to disable the mutex: the
+        // `--mutex no-mutex` flag ends up as `-NoMutex` on the UBT command line,
+        // which `resolve_build_policy` refuses outright.
+        if let Some(value) = mutex_mode_argument(command)
+            && value.replace('-', "").eq_ignore_ascii_case("nomutex")
+        {
+            return blocked_gate("no_mutex_forbidden", "--mutex no-mutex");
+        }
         return BuildGateReport {
             allowed: true,
             status: BuildPolicyStatus::Ready,
@@ -406,6 +419,23 @@ fn is_direct_controlled_command(command: &str) -> bool {
     CONTROLLED_BUILD_ACTIONS
         .iter()
         .any(|action| arguments == *action || arguments.starts_with(&format!("{action} ")))
+}
+
+/// Extract the value of `--mutex`, written either as `--mutex X` or `--mutex=X`.
+fn mutex_mode_argument(command: &str) -> Option<String> {
+    let tokens: Vec<&str> = command.split_whitespace().collect();
+    for (index, token) in tokens.iter().enumerate() {
+        let token = token.trim_matches(['\'', '"']);
+        if let Some(value) = token.strip_prefix("--mutex=") {
+            return Some(value.trim_matches(['\'', '"']).to_string());
+        }
+        if token.eq_ignore_ascii_case("--mutex") {
+            return tokens
+                .get(index + 1)
+                .map(|value| value.trim_matches(['\'', '"']).to_string());
+        }
+    }
+    None
 }
 
 fn split_program(command: &str) -> Option<(&str, &str)> {
@@ -474,23 +504,55 @@ pub fn execute_project_build(request: &BuildPolicyRequest) -> Result<BuildExecut
         .target
         .as_ref()
         .ok_or_else(|| "resolved build is missing Editor target".to_string())?;
+    let project_dir = project.parent().unwrap_or(Path::new("."));
+    let log_path = ubt_log_path(project_dir, &report.build_profile);
+    if let Some(parent) = log_path.as_ref().and_then(|path| path.parent()) {
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("could not create the build log directory: {error}"))?;
+    }
+
     let project_arg = format!("-Project={}", project.display());
-    let output = Command::new(build_bat)
+    let mut command = Command::new(build_bat);
+    command
         .arg(target)
         .arg("Win64")
         .arg("Development")
         .arg(project_arg)
-        .arg("-NoHotReloadFromIDE")
+        .arg("-NoHotReloadFromIDE");
+    if let Some(path) = &log_path {
+        command.arg(format!("-Log={}", path.display()));
+    }
+    // `status`, not `output`: a full UE build must stream to the caller's
+    // terminal. Buffering it would hide all progress and hold the whole log in
+    // memory.
+    let status = command
         .args(project_build_profile(Some(&report.build_profile))?.flags())
-        .current_dir(project.parent().unwrap_or(Path::new(".")))
-        .output()
+        .current_dir(project_dir)
+        .status()
         .map_err(|error| format!("controlled UE build failed to start: {error}"))?;
     Ok(BuildExecution {
         report,
-        exit_code: output.status.code(),
-        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+        exit_code: status.code(),
+        log_path,
     })
+}
+
+/// Where UnrealBuildTool should write its log for a main-project build.
+///
+/// Uses the project's own `Saved/Logs` tree so the file lands where UE users
+/// already look, and so nothing is written outside the project.
+fn ubt_log_path(project_dir: &Path, profile: &str) -> Option<PathBuf> {
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_secs();
+    Some(
+        project_dir
+            .join("Saved")
+            .join("Logs")
+            .join("UnrealDevFlow")
+            .join(format!("BuildProject_{profile}_{stamp}.log")),
+    )
 }
 
 fn blocked_gate(reason: &str, trigger: &str) -> BuildGateReport {
@@ -829,6 +891,28 @@ mod tests {
             let controlled = inspect_provider_command(Some(command));
             assert!(controlled.allowed, "must allow {command}");
             assert_eq!(controlled.reason, "controlled_build_command");
+        }
+    }
+
+    #[test]
+    fn going_through_the_tool_does_not_licence_disabling_the_mutex() {
+        for command in [
+            "unrealdevflow build my-workspace/my-task --mutex no-mutex",
+            "unrealdevflow build my-workspace/my-task --mutex=nomutex",
+            "& $udf build my-workspace/my-task --mutex 'no-mutex'",
+        ] {
+            let gate = inspect_provider_command(Some(command));
+            assert!(!gate.allowed, "must block {command}");
+            assert_eq!(gate.reason, "no_mutex_forbidden", "{command}");
+        }
+
+        // The other two mutex modes stay allowed.
+        for command in [
+            "unrealdevflow build my-workspace/my-task --mutex wait",
+            "unrealdevflow build my-workspace/my-task --mutex auto",
+        ] {
+            let gate = inspect_provider_command(Some(command));
+            assert!(gate.allowed, "must allow {command}");
         }
     }
 
