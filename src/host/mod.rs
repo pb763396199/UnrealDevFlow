@@ -196,6 +196,47 @@ pub fn task_project_name(task_id: &str) -> String {
     format!("T_{}_Host", sanitized)
 }
 
+/// Locate a Host's `.uproject`.
+///
+/// Prefers the canonical `T_<task>_Host.uproject` name. Hosts created before
+/// that naming rule keep a single legacy file, which is accepted as long as it
+/// is unambiguous — guessing between several would risk building the wrong
+/// project.
+pub fn resolve_host_uproject(host_dir: &Path, task_id: &str) -> Result<PathBuf> {
+    let canonical = host_dir.join(format!("{}.uproject", task_project_name(task_id)));
+    if canonical.is_file() {
+        return Ok(canonical);
+    }
+
+    let mut candidates = fs::read_dir(host_dir)?
+        .filter_map(std::result::Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.is_file()
+                && path
+                    .extension()
+                    .is_some_and(|extension| extension.eq_ignore_ascii_case("uproject"))
+        })
+        .collect::<Vec<_>>();
+    candidates.sort();
+
+    match candidates.as_slice() {
+        [legacy] => Ok(legacy.clone()),
+        [] => Err(UdfError::Other(format!(
+            "任务 Host 缺少 .uproject：{}",
+            host_dir.display()
+        ))),
+        _ => Err(UdfError::Other(format!(
+            "任务 Host 包含多个非规范 .uproject，无法安全选择：{}",
+            candidates
+                .iter()
+                .map(|path| path.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ))),
+    }
+}
+
 pub fn write_meta(host_dir: &Path, meta: &TaskMeta) -> Result<()> {
     let meta_path = host_dir.join(".udf-meta.json");
     let content = serde_json::to_string_pretty(meta)?;
@@ -363,4 +404,49 @@ pub fn delete_host(host_dir: &Path) -> Result<()> {
         fs::remove_dir_all(host_dir)?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolve_host_uproject_accepts_legacy_host_filename() {
+        let host = tempfile::tempdir().unwrap();
+        let legacy = host.path().join("T-hier-anchor-rebase_Host.uproject");
+        fs::write(&legacy, "{}").unwrap();
+
+        let resolved = resolve_host_uproject(host.path(), "hier-anchor-rebase").unwrap();
+
+        assert_eq!(resolved, legacy);
+    }
+
+    #[test]
+    fn resolve_host_uproject_prefers_canonical_filename() {
+        let host = tempfile::tempdir().unwrap();
+        let canonical = host
+            .path()
+            .join(format!("{}.uproject", task_project_name("current-task")));
+        fs::write(&canonical, "{}").unwrap();
+        fs::write(host.path().join("LegacyHost.uproject"), "{}").unwrap();
+
+        let resolved = resolve_host_uproject(host.path(), "current-task").unwrap();
+
+        assert_eq!(resolved, canonical);
+    }
+
+    #[test]
+    fn resolve_host_uproject_rejects_ambiguous_legacy_filenames() {
+        let host = tempfile::tempdir().unwrap();
+        fs::write(host.path().join("First.uproject"), "{}").unwrap();
+        fs::write(host.path().join("Second.uproject"), "{}").unwrap();
+
+        let error = resolve_host_uproject(host.path(), "legacy-task")
+            .unwrap_err()
+            .to_string();
+
+        assert!(error.contains("多个非规范 .uproject"), "{error}");
+        assert!(error.contains("First.uproject"), "{error}");
+        assert!(error.contains("Second.uproject"), "{error}");
+    }
 }

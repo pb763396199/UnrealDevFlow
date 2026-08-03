@@ -48,6 +48,7 @@ fn run() -> Result<()> {
     if !matches!(
         cli.command,
         Commands::AwStatus
+            | Commands::BuildGate { .. }
             | Commands::Configure { .. }
             | Commands::Init { .. }
             | Commands::Workspace { .. }
@@ -185,6 +186,26 @@ fn run() -> Result<()> {
             build_log_dir,
         )?,
         Commands::BuildStatus { task_id } => commands::build_status::run(&task_id)?,
+        Commands::BuildCheck {
+            task_ref,
+            workspace,
+            profile,
+            target,
+            build_command,
+        } => commands::build_policy::check(
+            &cli.format,
+            task_ref,
+            workspace,
+            profile,
+            target,
+            build_command,
+        )?,
+        Commands::BuildGate { command } => commands::build_policy::gate(&cli.format, command)?,
+        Commands::BuildProject {
+            workspace,
+            profile,
+            target,
+        } => commands::build_policy::project(&cli.format, workspace, profile, target)?,
         Commands::List { workspace } => commands::list::run(&cli.format, workspace)?,
         Commands::Status => commands::status::run(&cli.format)?,
         Commands::Merge {

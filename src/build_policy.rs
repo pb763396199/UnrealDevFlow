@@ -596,7 +596,10 @@ fn resolve_engine_root(
     candidates
         .into_iter()
         .find(|path| path.join("Engine/Build/BatchFiles/Build.bat").is_file())
-        .and_then(|path| path.canonicalize().ok())
+        // dunce, not std: a `\\?\` prefix would leak into the emitted build
+        // commands and, worse, change the MD5 that names the UBT mutex, so we
+        // would probe a lock UnrealBuildTool never takes.
+        .and_then(|path| dunce::canonicalize(path).ok())
         .ok_or_else(|| {
             if association.is_none() && explicit.is_none() {
                 "engine_association_missing".to_string()
@@ -757,6 +760,24 @@ mod tests {
                 .unwrap()
                 .to_string_lossy()
                 .starts_with(r"\\?\")
+        );
+        // A verbatim engine root would change the MD5 that names the UBT mutex,
+        // so we would probe a lock UnrealBuildTool never takes, and the emitted
+        // commands would carry an unpastable path.
+        assert!(
+            !report
+                .engine_root
+                .as_deref()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with(r"\\?\")
+        );
+        assert!(
+            !report
+                .validation_command
+                .as_deref()
+                .unwrap()
+                .contains(r"\\?\")
         );
         assert!(
             report

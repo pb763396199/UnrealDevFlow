@@ -282,6 +282,57 @@ pub enum Commands {
         task_id: String,
     },
 
+    /// Report whether a controlled UE build may start right now (never builds)
+    ///
+    /// Prints one of: ready / needsUserInput / blocked / deferred.
+    #[command(name = "build-check")]
+    BuildCheck {
+        /// Task ref, e.g. workspace/task-id. If omitted, checks the workspace's
+        /// main project instead of a task Host.
+        task_ref: Option<String>,
+
+        /// Workspace name. Used when no task ref is given.
+        #[arg(long)]
+        workspace: Option<String>,
+
+        /// Build strictness profile. Default: light.
+        #[arg(long, value_enum, default_value = "light")]
+        profile: crate::build_profile::BuildProfile,
+
+        /// Editor target override. Default: derived from the .uproject.
+        #[arg(long)]
+        target: Option<String>,
+
+        /// A build command to validate against the resolved project before it runs.
+        #[arg(long)]
+        build_command: Option<String>,
+    },
+
+    /// Check whether a proposed command bypasses the controlled build path
+    ///
+    /// Exits non-zero when the command is refused.
+    #[command(name = "build-gate")]
+    BuildGate {
+        /// The command a tool or agent proposes to run.
+        command: String,
+    },
+
+    /// Build the workspace's main UE project through the controlled path
+    #[command(name = "build-project")]
+    BuildProject {
+        /// Workspace name. Required when more than one workspace exists.
+        #[arg(long)]
+        workspace: Option<String>,
+
+        /// Build strictness profile. Default: light.
+        #[arg(long, value_enum, default_value = "light")]
+        profile: crate::build_profile::BuildProfile,
+
+        /// Editor target override. Default: derived from the .uproject.
+        #[arg(long)]
+        target: Option<String>,
+    },
+
     /// List all tasks
     List {
         /// Workspace name to filter tasks

@@ -2,6 +2,7 @@
 
 pub mod aw_status;
 pub mod build;
+pub mod build_policy;
 pub mod build_status;
 pub mod cleanup;
 pub mod configure;
