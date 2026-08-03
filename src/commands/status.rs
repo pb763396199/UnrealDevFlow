@@ -58,7 +58,7 @@ pub fn run() -> Result<()> {
             .map(|path| path.to_string_lossy().to_string()),
         active_tasks: project_statuses,
     };
-    output::emit("status", data, render);
+    output::emit("workspace status", data, render);
     Ok(())
 }
 

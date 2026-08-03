@@ -65,7 +65,8 @@ pub fn run(
         output::print_info("  Engine:  auto-detect from .uproject");
     }
 
-    crate::commands::workspace::add(
+    // Call the inner forms: `init` is one command, so it emits one envelope.
+    let saved = crate::commands::workspace::add_inner(
         workspace_name.clone(),
         project,
         hosts_root,
@@ -74,14 +75,52 @@ pub fn run(
         default_plugin_path,
         skip_confirm,
     )?;
+    let healthy = crate::commands::workspace::doctor_inner(&workspace_name, false)?.healthy;
 
-    crate::commands::workspace::doctor(&workspace_name, false)?;
     if skip_skill_install {
         output::print_warning("AI skill install skipped by --skip-skill-install.");
     } else {
         crate::commands::skills::install(true, None)?;
     }
+
+    output::emit(
+        "workspace init",
+        InitSummary {
+            workspace: workspace_name,
+            saved,
+            healthy,
+            skill_installed: !skip_skill_install,
+        },
+        render_init,
+    );
     Ok(())
+}
+
+/// What `workspace init` set up, in one place instead of scattered log lines.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct InitSummary {
+    workspace: String,
+    #[serde(flatten)]
+    saved: crate::commands::workspace::WorkspaceSaved,
+    healthy: bool,
+    skill_installed: bool,
+}
+
+fn render_init(data: &InitSummary) -> String {
+    let mut lines = vec![format!("✓ Workspace '{}' is ready.", data.workspace)];
+    if data.healthy {
+        lines.push("  Health check: passed".to_string());
+    }
+    lines.push(format!(
+        "  AI skill: {}",
+        if data.skill_installed {
+            "installed"
+        } else {
+            "skipped"
+        }
+    ));
+    lines.join("\n")
 }
 
 fn detect_project_from_cwd() -> Result<PathBuf> {

@@ -43,12 +43,10 @@ fn main() {
 fn command_name(command: &Commands) -> &'static str {
     match command {
         Commands::AwStatus => "aw-status",
-        Commands::Init { .. } => "init",
         Commands::Start { .. } => "start",
         Commands::Next { .. } => "next",
         Commands::Finish { .. } => "finish",
         Commands::Workspace { .. } => "workspace",
-        Commands::Configure { .. } => "configure",
         Commands::Create { .. } => "create",
         Commands::Switch { .. } => "switch",
         Commands::Build { .. } => "build",
@@ -57,7 +55,6 @@ fn command_name(command: &Commands) -> &'static str {
         Commands::BuildGate { .. } => "build-gate",
         Commands::BuildProject { .. } => "build-project",
         Commands::List { .. } => "list",
-        Commands::Status => "status",
         Commands::Merge { .. } => "merge",
         Commands::Cleanup { .. } => "cleanup",
         Commands::Delete { .. } => "delete",
@@ -81,8 +78,6 @@ fn run(cli: Cli) -> Result<()> {
         cli.command,
         Commands::AwStatus
             | Commands::BuildGate { .. }
-            | Commands::Configure { .. }
-            | Commands::Init { .. }
             | Commands::Workspace { .. }
             | Commands::Skills { .. }
     ) && !config::Config::exists()
@@ -92,23 +87,6 @@ fn run(cli: Cli) -> Result<()> {
 
     match cli.command {
         Commands::AwStatus => commands::aw_status::run()?,
-        Commands::Init {
-            workspace,
-            project,
-            plugins_root,
-            hosts_root,
-            engine_path,
-            yes,
-            skip_skill_install,
-        } => commands::init::run(
-            workspace,
-            project,
-            plugins_root,
-            hosts_root,
-            engine_path,
-            yes,
-            skip_skill_install,
-        )?,
         Commands::Start {
             description,
             workspace,
@@ -137,6 +115,23 @@ fn run(cli: Cli) -> Result<()> {
             yes,
         } => commands::finish::run(task_ref, strategy, all, plugin, yes)?,
         Commands::Workspace { action } => match action {
+            cli::WorkspaceAction::Init {
+                workspace,
+                project,
+                plugins_root,
+                hosts_root,
+                engine_path,
+                yes,
+                skip_skill_install,
+            } => commands::init::run(
+                workspace,
+                project,
+                plugins_root,
+                hosts_root,
+                engine_path,
+                yes,
+                skip_skill_install,
+            )?,
             cli::WorkspaceAction::Add {
                 name,
                 project,
@@ -159,20 +154,8 @@ fn run(cli: Cli) -> Result<()> {
                 commands::workspace::doctor(&name, deep)?
             }
             cli::WorkspaceAction::Remove { name, yes } => commands::workspace::remove(&name, yes)?,
+            cli::WorkspaceAction::Status => commands::status::run()?,
         },
-        Commands::Configure {
-            hosts_root,
-            plugin_path,
-            plugins_root,
-            default_project,
-            engine_path,
-        } => commands::configure::run(
-            hosts_root,
-            plugin_path,
-            plugins_root,
-            default_project,
-            engine_path,
-        )?,
         Commands::Create {
             description,
             id,
@@ -232,7 +215,6 @@ fn run(cli: Cli) -> Result<()> {
             target,
         } => commands::build_policy::project(workspace, profile, target)?,
         Commands::List { workspace } => commands::list::run(workspace)?,
-        Commands::Status => commands::status::run()?,
         Commands::Merge {
             task_id,
             strategy,

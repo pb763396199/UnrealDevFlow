@@ -45,37 +45,6 @@ pub enum Commands {
     #[command(name = "aw-status", hide = true)]
     AwStatus,
 
-    /// Simple first-run setup. Detect/register a workspace and install AI skill.
-    Init {
-        /// Workspace name. If omitted, UnrealDevFlow suggests one from project path.
-        #[arg(long)]
-        workspace: Option<String>,
-
-        /// UE project directory containing a .uproject file.
-        #[arg(long)]
-        project: Option<PathBuf>,
-
-        /// Project plugins root. If omitted, inferred from project siblings.
-        #[arg(long)]
-        plugins_root: Option<PathBuf>,
-
-        /// Hosts root. If omitted, defaults to <project-parent>/Hosts.
-        #[arg(long)]
-        hosts_root: Option<PathBuf>,
-
-        /// UE engine path. If omitted, inferred from .uproject EngineAssociation.
-        #[arg(long)]
-        engine_path: Option<PathBuf>,
-
-        /// Skip confirmation prompts.
-        #[arg(long, short = 'y')]
-        yes: bool,
-
-        /// Do not install the AI skill during init.
-        #[arg(long)]
-        skip_skill_install: bool,
-    },
-
     /// Start a task with a friendly workflow wrapper around create.
     Start {
         /// Original task description.
@@ -143,29 +112,6 @@ pub enum Commands {
     Workspace {
         #[command(subcommand)]
         action: WorkspaceAction,
-    },
-
-    /// First-time configuration (Hosts path, plugins root, engine path)
-    Configure {
-        /// Hosts root directory (skip prompt if provided)
-        #[arg(long)]
-        hosts_root: Option<String>,
-
-        /// v1 legacy single-plugin repository path (use --plugins-root in v2)
-        #[arg(long)]
-        plugin_path: Option<String>,
-
-        /// v2 plugins root directory (folder containing all project plugin Git repos)
-        #[arg(long)]
-        plugins_root: Option<String>,
-
-        /// Default UE project path (skip prompt if provided)
-        #[arg(long)]
-        default_project: Option<String>,
-
-        /// UE engine path (auto-detected from .uproject if not provided)
-        #[arg(long)]
-        engine_path: Option<String>,
     },
 
     /// Create a new task workspace (worktree + Host)
@@ -345,9 +291,6 @@ pub enum Commands {
         workspace: Option<String>,
     },
 
-    /// Show current Junction status and active task
-    Status,
-
     /// Merge a task into main repo
     ///
     /// ⚠️ THIS COMMAND ONLY MERGES - IT NEVER DELETES ANYTHING
@@ -442,6 +385,37 @@ pub enum Commands {
 
 #[derive(Subcommand)]
 pub enum WorkspaceAction {
+    /// First-run setup: detect and register a workspace, then install the AI skill.
+    Init {
+        /// Workspace name. If omitted, one is suggested from the project path.
+        #[arg(long)]
+        workspace: Option<String>,
+
+        /// UE project directory containing a .uproject file.
+        #[arg(long)]
+        project: Option<PathBuf>,
+
+        /// Project plugins root. If omitted, inferred from project siblings.
+        #[arg(long)]
+        plugins_root: Option<PathBuf>,
+
+        /// Hosts root. If omitted, defaults to <project-parent>/Hosts.
+        #[arg(long)]
+        hosts_root: Option<PathBuf>,
+
+        /// UE engine path. If omitted, inferred from .uproject EngineAssociation.
+        #[arg(long)]
+        engine_path: Option<PathBuf>,
+
+        /// Skip confirmation prompts.
+        #[arg(long, short = 'y')]
+        yes: bool,
+
+        /// Do not install the AI skill during init.
+        #[arg(long)]
+        skip_skill_install: bool,
+    },
+
     /// Add or update a named UE project workspace.
     Add {
         name: String,
@@ -479,6 +453,9 @@ pub enum WorkspaceAction {
         #[arg(long, short = 'y')]
         yes: bool,
     },
+
+    /// Show which task each UE project currently points at.
+    Status,
 }
 
 #[derive(Subcommand)]

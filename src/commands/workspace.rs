@@ -4,6 +4,7 @@ use crate::config::{Config, DEFAULT_WORKSPACE, WorkspaceConfig, sanitize_workspa
 use crate::error::{GitError, Result, UdfError};
 use crate::output;
 use crate::plugin::scanner;
+use serde::Serialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -19,6 +20,31 @@ pub fn add(
     plugin_path: Option<PathBuf>,
     skip_confirm: bool,
 ) -> Result<()> {
+    let saved = add_inner(
+        name,
+        project,
+        hosts_root,
+        plugins_root,
+        engine_path,
+        plugin_path,
+        skip_confirm,
+    )?;
+    output::emit("workspace add", saved, render_saved);
+    Ok(())
+}
+
+/// The work itself, without emitting. Composed commands such as
+/// `workspace init` call this so only one envelope reaches stdout.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn add_inner(
+    name: String,
+    project: PathBuf,
+    hosts_root: PathBuf,
+    plugins_root: PathBuf,
+    engine_path: Option<PathBuf>,
+    plugin_path: Option<PathBuf>,
+    skip_confirm: bool,
+) -> Result<WorkspaceSaved> {
     let raw_name = name;
     let name = sanitize_workspace_name(&raw_name);
     if name != raw_name {
@@ -43,51 +69,158 @@ pub fn add(
             .interact()
             .map_err(|e| UdfError::Other(format!("Dialog error: {}", e)))?;
         if !confirmed {
-            output::print_info("Workspace add cancelled.");
-            return Ok(());
+            return Ok(WorkspaceSaved {
+                workspace: name,
+                saved: false,
+                project: None,
+                plugins_root: None,
+                hosts_root: None,
+                engine_path: None,
+            });
         }
     }
 
+    let saved = WorkspaceSaved {
+        workspace: name.clone(),
+        saved: true,
+        project: Some(workspace.default_project.to_string_lossy().to_string()),
+        plugins_root: workspace
+            .effective_plugins_root()
+            .map(|path| path.to_string_lossy().to_string()),
+        hosts_root: Some(workspace.hosts_root.to_string_lossy().to_string()),
+        engine_path: Some(workspace.engine_path.to_string_lossy().to_string()),
+    };
     let mut config = load_or_seed_config(&name, &workspace)?;
     config.upsert_workspace(name.clone(), workspace);
     config.save()?;
-    output::print_success(&format!("Workspace '{}' saved.", name));
-    Ok(())
+    Ok(saved)
+}
+
+/// What `workspace add` did, so a caller can tell "saved" from "cancelled".
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WorkspaceSaved {
+    workspace: String,
+    saved: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    project: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    plugins_root: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hosts_root: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    engine_path: Option<String>,
+}
+
+fn render_saved(data: &WorkspaceSaved) -> String {
+    if !data.saved {
+        return format!("Workspace '{}' not saved (cancelled).", data.workspace);
+    }
+    format!("✓ Workspace '{}' saved.", data.workspace)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkspaceEntry {
+    name: String,
+    project: String,
+    plugins_root: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkspaceList {
+    workspaces: Vec<WorkspaceEntry>,
+}
+
+fn render_list(data: &WorkspaceList) -> String {
+    let mut lines = vec![
+        "Workspaces:".to_string(),
+        format!("{:<20} {:<50} {:<50}", "Name", "Project", "Plugins"),
+        "-".repeat(124),
+    ];
+    for entry in &data.workspaces {
+        lines.push(format!(
+            "{:<20} {:<50} {:<50}",
+            entry.name,
+            entry.project,
+            entry.plugins_root.as_deref().unwrap_or("-")
+        ));
+    }
+    lines.join("\n")
+}
+
+/// Result of `workspace doctor`. Reaching here at all means every check passed;
+/// a failure returns an error instead.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WorkspaceHealth {
+    workspace: String,
+    deep: bool,
+    pub(crate) healthy: bool,
+}
+
+fn render_health(data: &WorkspaceHealth) -> String {
+    let scope = if data.deep {
+        " (deep plugin scan passed)"
+    } else {
+        ""
+    };
+    format!("✓ Workspace '{}' looks good{}.", data.workspace, scope)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkspaceRemoved {
+    workspace: String,
+    removed: bool,
+}
+
+fn render_removed(data: &WorkspaceRemoved) -> String {
+    if data.removed {
+        format!("✓ Workspace '{}' removed.", data.workspace)
+    } else {
+        format!("Workspace '{}' kept (cancelled).", data.workspace)
+    }
 }
 
 pub fn list() -> Result<()> {
     let config = Config::load()?;
-    println!("Workspaces:");
-    println!("{:<20} {:<50} {:<50}", "Name", "Project", "Plugins");
-    println!("{}", "-".repeat(124));
+    let mut workspaces = Vec::new();
     if config.workspaces.is_empty() {
         let legacy = config.legacy_workspace();
-        println!(
-            "{:<20} {:<50} {:<50}",
-            DEFAULT_WORKSPACE,
-            legacy.default_project.display(),
-            legacy
+        workspaces.push(WorkspaceEntry {
+            name: DEFAULT_WORKSPACE.to_string(),
+            project: legacy.default_project.display().to_string(),
+            plugins_root: legacy
                 .effective_plugins_root()
-                .map(|p| p.display().to_string())
-                .unwrap_or_else(|| "-".to_string())
-        );
-        return Ok(());
+                .map(|path| path.display().to_string()),
+        });
+    } else {
+        for name in config.workspace_names() {
+            let (_, workspace) = config.resolve_workspace(Some(&name))?;
+            workspaces.push(WorkspaceEntry {
+                name,
+                project: workspace.default_project.display().to_string(),
+                plugins_root: workspace
+                    .effective_plugins_root()
+                    .map(|path| path.display().to_string()),
+            });
+        }
     }
-    for name in config.workspace_names() {
-        let (_, ws) = config.resolve_workspace(Some(&name))?;
-        println!(
-            "{:<20} {:<50} {:<50}",
-            name,
-            ws.default_project.display(),
-            ws.effective_plugins_root()
-                .map(|p| p.display().to_string())
-                .unwrap_or_else(|| "-".to_string())
-        );
-    }
+    output::emit("workspace list", WorkspaceList { workspaces }, render_list);
     Ok(())
 }
 
 pub fn doctor(name: &str, deep: bool) -> Result<()> {
+    let health = doctor_inner(name, deep)?;
+    output::emit("workspace doctor", health, render_health);
+    Ok(())
+}
+
+/// The checks themselves, without emitting. `workspace init` runs them as one
+/// stage of a larger command.
+pub(crate) fn doctor_inner(name: &str, deep: bool) -> Result<WorkspaceHealth> {
     let name = sanitize_workspace_name(name);
     let config = Config::load()?;
     let (_, workspace) = config.resolve_workspace(Some(&name))?;
@@ -97,10 +230,12 @@ pub fn doctor(name: &str, deep: bool) -> Result<()> {
             UdfError::Other("workspace 未配置 plugins_root 或 plugin_path".to_string())
         })?;
         validate_plugins_root_sources(&workspace, &plugins_root)?;
-        output::print_success(&format!("Workspace '{}' deep plugin scan passed.", name));
     }
-    output::print_success(&format!("Workspace '{}' looks good.", name));
-    Ok(())
+    Ok(WorkspaceHealth {
+        workspace: name,
+        deep,
+        healthy: true,
+    })
 }
 
 pub fn remove(name: &str, skip_confirm: bool) -> Result<()> {
@@ -116,7 +251,14 @@ pub fn remove(name: &str, skip_confirm: bool) -> Result<()> {
             .interact()
             .map_err(|e| UdfError::Other(format!("Dialog error: {}", e)))?;
         if !confirmed {
-            output::print_info("Workspace remove cancelled.");
+            output::emit(
+                "workspace remove",
+                WorkspaceRemoved {
+                    workspace: name,
+                    removed: false,
+                },
+                render_removed,
+            );
             return Ok(());
         }
     }
@@ -125,7 +267,14 @@ pub fn remove(name: &str, skip_confirm: bool) -> Result<()> {
         config.last_used_workspace = None;
     }
     config.save()?;
-    output::print_success(&format!("Workspace '{}' removed.", name));
+    output::emit(
+        "workspace remove",
+        WorkspaceRemoved {
+            workspace: name,
+            removed: true,
+        },
+        render_removed,
+    );
     Ok(())
 }
 

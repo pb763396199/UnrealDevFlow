@@ -5,7 +5,6 @@ pub mod build;
 pub mod build_policy;
 pub mod build_status;
 pub mod cleanup;
-pub mod configure;
 pub mod create;
 pub mod delete;
 pub mod finish;
