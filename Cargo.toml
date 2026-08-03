@@ -2,7 +2,8 @@
 name = "unrealdevflow"
 version = "0.1.2"
 edition = "2024"
-rust-version = "1.85"
+# Raised from 1.85 by ipc-lock 0.1.4, which the controlled build policy needs.
+rust-version = "1.89"
 description = "Unreal Engine plugin parallel development workflow tool"
 authors = ["UnrealDevFlow Contributors"]
 license = "MIT"
@@ -17,6 +18,10 @@ clap = { version = "4.5", features = ["derive", "env"] }
 
 # Junction management
 junction = "2.0"
+
+# UnrealBuildTool mutex probing (controlled build policy)
+ipc-lock = "0.1.4"
+md-5 = "0.10"
 
 # Git operations (minimal features - no SSH/HTTPS)
 git2 = { version = "0.19", default-features = false }

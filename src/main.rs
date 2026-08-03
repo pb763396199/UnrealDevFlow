@@ -4,6 +4,7 @@
 // variants that are intentionally not wired into every release yet.
 #![allow(dead_code)]
 
+mod build_policy;
 mod build_profile;
 mod cli;
 mod commands;
