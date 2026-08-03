@@ -3,16 +3,21 @@
 use crate::config::Config;
 use crate::error::Result;
 use crate::junction;
+use crate::output;
 use crate::state::GlobalState;
 use serde::Serialize;
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct StatusOutput {
     configured: bool,
+    hosts_root: String,
+    plugin_path: Option<String>,
     active_tasks: Vec<ProjectStatus>,
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct ProjectStatus {
     project: String,
     active_task: Option<String>,
@@ -20,7 +25,7 @@ struct ProjectStatus {
     junction_target: Option<String>,
 }
 
-pub fn run(format: &crate::cli::OutputFormat) -> Result<()> {
+pub fn run() -> Result<()> {
     let config = Config::load()?;
     let state = GlobalState::load()?;
 
@@ -44,43 +49,51 @@ pub fn run(format: &crate::cli::OutputFormat) -> Result<()> {
         });
     }
 
-    match format {
-        crate::cli::OutputFormat::Json => {
-            let output_data = StatusOutput {
-                configured: true,
-                active_tasks: project_statuses,
-            };
-            println!("{}", serde_json::to_string_pretty(&output_data)?);
-        }
-        crate::cli::OutputFormat::Human => {
-            println!("UnrealDevFlow Status:");
-            println!("  Configured: ✓");
-            println!("  Hosts root: {:?}", config.hosts_root);
-            println!("  Plugin path: {:?}", config.plugin_path);
-            println!();
+    let data = StatusOutput {
+        configured: true,
+        hosts_root: config.hosts_root.to_string_lossy().to_string(),
+        plugin_path: config
+            .plugin_path
+            .as_ref()
+            .map(|path| path.to_string_lossy().to_string()),
+        active_tasks: project_statuses,
+    };
+    output::emit("status", data, render);
+    Ok(())
+}
 
-            if project_statuses.is_empty() {
-                println!("No active projects.");
-            } else {
-                println!("Active Projects:");
-                for status in &project_statuses {
-                    println!("  Project: {}", status.project);
-                    println!(
-                        "    Active task: {}",
-                        status.active_task.as_deref().unwrap_or("none")
-                    );
-                    println!(
-                        "    Junction valid: {}",
-                        if status.junction_valid { "✓" } else { "✗" }
-                    );
-                    if let Some(target) = &status.junction_target {
-                        println!("    Junction target: {}", target);
-                    }
-                    println!();
-                }
-            }
-        }
+fn render(data: &StatusOutput) -> String {
+    let mut lines = vec![
+        "UnrealDevFlow Status:".to_string(),
+        "  Configured: ✓".to_string(),
+        format!("  Hosts root: {}", data.hosts_root),
+        format!(
+            "  Plugin path: {}",
+            data.plugin_path.as_deref().unwrap_or("none")
+        ),
+        String::new(),
+    ];
+
+    if data.active_tasks.is_empty() {
+        lines.push("No active projects.".to_string());
+        return lines.join("\n");
     }
 
-    Ok(())
+    lines.push("Active Projects:".to_string());
+    for status in &data.active_tasks {
+        lines.push(format!("  Project: {}", status.project));
+        lines.push(format!(
+            "    Active task: {}",
+            status.active_task.as_deref().unwrap_or("none")
+        ));
+        lines.push(format!(
+            "    Junction valid: {}",
+            if status.junction_valid { "✓" } else { "✗" }
+        ));
+        if let Some(target) = &status.junction_target {
+            lines.push(format!("    Junction target: {}", target));
+        }
+        lines.push(String::new());
+    }
+    lines.join("\n")
 }

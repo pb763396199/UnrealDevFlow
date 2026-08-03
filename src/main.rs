@@ -25,15 +25,47 @@ use error::Result;
 use tracing_subscriber::EnvFilter;
 
 fn main() {
-    if let Err(e) = run() {
-        output::print_error(&format!("{}", e));
-        std::process::exit(1);
+    let cli = Cli::parse();
+    // Decide how this run talks before anything can print.
+    output::set_format(&cli.format);
+    let command = command_name(&cli.command);
+
+    match run(cli) {
+        Ok(()) => output::flush_unemitted(command),
+        Err(error) => {
+            output::emit_failure(command, &format!("{}", error));
+            std::process::exit(1);
+        }
     }
 }
 
-fn run() -> Result<()> {
-    let cli = Cli::parse();
+/// Name reported in the JSON envelope, so callers can tell which command spoke.
+fn command_name(command: &Commands) -> &'static str {
+    match command {
+        Commands::AwStatus => "aw-status",
+        Commands::Init { .. } => "init",
+        Commands::Start { .. } => "start",
+        Commands::Next { .. } => "next",
+        Commands::Finish { .. } => "finish",
+        Commands::Workspace { .. } => "workspace",
+        Commands::Configure { .. } => "configure",
+        Commands::Create { .. } => "create",
+        Commands::Switch { .. } => "switch",
+        Commands::Build { .. } => "build",
+        Commands::BuildStatus { .. } => "build-status",
+        Commands::BuildCheck { .. } => "build-check",
+        Commands::BuildGate { .. } => "build-gate",
+        Commands::BuildProject { .. } => "build-project",
+        Commands::List { .. } => "list",
+        Commands::Status => "status",
+        Commands::Merge { .. } => "merge",
+        Commands::Cleanup { .. } => "cleanup",
+        Commands::Delete { .. } => "delete",
+        Commands::Skills { .. } => "skills",
+    }
+}
 
+fn run(cli: Cli) -> Result<()> {
     let filter = if cli.verbose {
         EnvFilter::new("debug")
     } else {
@@ -192,22 +224,15 @@ fn run() -> Result<()> {
             profile,
             target,
             build_command,
-        } => commands::build_policy::check(
-            &cli.format,
-            task_ref,
-            workspace,
-            profile,
-            target,
-            build_command,
-        )?,
-        Commands::BuildGate { command } => commands::build_policy::gate(&cli.format, command)?,
+        } => commands::build_policy::check(task_ref, workspace, profile, target, build_command)?,
+        Commands::BuildGate { command } => commands::build_policy::gate(command)?,
         Commands::BuildProject {
             workspace,
             profile,
             target,
-        } => commands::build_policy::project(&cli.format, workspace, profile, target)?,
-        Commands::List { workspace } => commands::list::run(&cli.format, workspace)?,
-        Commands::Status => commands::status::run(&cli.format)?,
+        } => commands::build_policy::project(workspace, profile, target)?,
+        Commands::List { workspace } => commands::list::run(workspace)?,
+        Commands::Status => commands::status::run()?,
         Commands::Merge {
             task_id,
             strategy,

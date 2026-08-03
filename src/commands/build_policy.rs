@@ -13,7 +13,6 @@ use crate::build_policy::{
     self, BuildExecution, BuildGateReport, BuildPolicyReport, BuildPolicyRequest, BuildPolicyStatus,
 };
 use crate::build_profile::BuildProfile;
-use crate::cli::OutputFormat;
 use crate::config::Config;
 use crate::error::{Result, UdfError};
 use crate::host;
@@ -49,7 +48,6 @@ struct BuildProjectOutput {
 /// The command itself succeeds even when the verdict is `blocked`: the verdict
 /// is the answer, not a failure to answer.
 pub fn check(
-    format: &OutputFormat,
     task_ref: Option<String>,
     workspace: Option<String>,
     profile: BuildProfile,
@@ -68,7 +66,7 @@ pub fn check(
         subject,
         build_policy: report,
     };
-    output::print_output(format, &out, format_check);
+    output::emit("build-check", out, format_check);
     Ok(())
 }
 
@@ -76,22 +74,23 @@ pub fn check(
 ///
 /// Exits non-zero when the command is not allowed, so a hook or wrapper can
 /// stop without parsing the JSON.
-pub fn gate(format: &OutputFormat, command: String) -> Result<()> {
+pub fn gate(command: String) -> Result<()> {
     let report = build_policy::inspect_provider_command(Some(&command));
-    output::print_output(format, &report, format_gate);
-    if report.allowed {
+    let allowed = report.allowed;
+    let reason = report.reason.clone();
+    output::emit("build-gate", report, format_gate);
+    if allowed {
         Ok(())
     } else {
         Err(UdfError::Other(format!(
             "命令未通过受控构建门禁：{}",
-            report.reason
+            reason
         )))
     }
 }
 
 /// Build the workspace's main UE project through the controlled path.
 pub fn project(
-    format: &OutputFormat,
     workspace: Option<String>,
     profile: BuildProfile,
     target: Option<String>,
@@ -106,7 +105,7 @@ pub fn project(
     let succeeded = execution.succeeded();
     let exit_code = execution.exit_code;
     let out = BuildProjectOutput { subject, execution };
-    output::print_output(format, &out, format_project);
+    output::emit("build-project", out, format_project);
     if succeeded {
         Ok(())
     } else {
