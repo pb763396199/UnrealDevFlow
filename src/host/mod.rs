@@ -5,10 +5,15 @@ pub mod uproject;
 use crate::config::{Config, WorkspaceConfig};
 use crate::error::{HostError, Result, UdfError};
 use serde::{Deserialize, Serialize};
-use std::fs;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 pub const CURRENT_SCHEMA_VERSION: u32 = 3;
+const META_FILE_NAME: &str = ".udf-meta.json";
+const META_BACKUP_FILE_NAME: &str = ".udf-meta.json.bak";
+static TEMP_FILE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskContext {
@@ -172,10 +177,6 @@ pub fn create_host_with_plugins(
     let mut enabled = Vec::new();
     enabled.extend(primary_names.iter().cloned());
     enabled.extend(project_dependency_names.iter().cloned());
-    if enabled.is_empty() {
-        // Backward-compatible fallback used by tests and v1 callers.
-        enabled.push("AesWorld".to_string());
-    }
     let uproject_content = uproject::generate(engine_version, &enabled);
     fs::write(&uproject_path, uproject_content)?;
 
@@ -238,31 +239,161 @@ pub fn resolve_host_uproject(host_dir: &Path, task_id: &str) -> Result<PathBuf> 
 }
 
 pub fn write_meta(host_dir: &Path, meta: &TaskMeta) -> Result<()> {
-    let meta_path = host_dir.join(".udf-meta.json");
-    let content = serde_json::to_string_pretty(meta)?;
-    fs::write(&meta_path, content)?;
-    Ok(())
+    let meta_path = host_dir.join(META_FILE_NAME);
+    let backup_path = host_dir.join(META_BACKUP_FILE_NAME);
+    let content = serde_json::to_vec_pretty(meta)?;
+
+    // Only a parseable primary file is allowed to replace the last-known-good
+    // backup. An interrupted/corrupt primary must never poison recovery.
+    if let Ok(previous_content) = fs::read(&meta_path) {
+        if parse_meta(&previous_content).is_ok() {
+            write_file_atomically(&backup_path, &previous_content)?;
+        }
+    }
+
+    write_file_atomically(&meta_path, &content)
 }
 
 /// Read `.udf-meta.json` from a Host directory, auto-migrating v1 metadata to
 /// v2 in-memory (the caller decides whether to persist the upgrade).
+///
+/// A primary file that is empty or unparseable falls back to the `.bak` written
+/// by the previous successful `write_meta`, and the recovered content is put
+/// back in place so the next read no longer needs the backup.
 pub fn read_meta(host_dir: &Path) -> Result<TaskMeta> {
-    let meta_path = host_dir.join(".udf-meta.json");
-    if !meta_path.exists() {
-        return Err(HostError::InvalidMeta("File not found".to_string()).into());
+    let meta_path = host_dir.join(META_FILE_NAME);
+    let backup_path = host_dir.join(META_BACKUP_FILE_NAME);
+
+    match read_meta_file(&meta_path) {
+        Ok(meta) => Ok(meta),
+        Err(primary_error) => match fs::read(&backup_path) {
+            Ok(backup_content) => match parse_meta(&backup_content) {
+                Ok(mut meta) => {
+                    write_file_atomically(&meta_path, &backup_content).map_err(|error| {
+                        HostError::InvalidMeta(format!(
+                            "主文件无效（{primary_error}），备份有效但自动恢复失败：{error}；\
+                             可从 '{}' 手动恢复到 '{}'",
+                            backup_path.display(),
+                            meta_path.display()
+                        ))
+                    })?;
+                    crate::migration::migrate_in_place(&mut meta);
+                    Ok(meta)
+                }
+                Err(backup_error) => Err(HostError::InvalidMeta(format!(
+                    "主文件无效（{primary_error}），备份也无效（{backup_error}）；\
+                     请从任务记录或版本控制恢复 '{}'",
+                    meta_path.display()
+                ))
+                .into()),
+            },
+            Err(backup_error) => Err(HostError::InvalidMeta(format!(
+                "主文件无效（{primary_error}），且无法读取备份 '{}'（{backup_error}）；\
+                 请从任务记录或版本控制恢复元数据",
+                backup_path.display()
+            ))
+            .into()),
+        },
     }
-    let content = fs::read_to_string(&meta_path)?;
-    let mut meta: TaskMeta = serde_json::from_str(&content)
-        .map_err(|e| HostError::InvalidMeta(format!("JSON parse error: {}", e)))?;
+}
+
+fn read_meta_file(path: &Path) -> std::result::Result<TaskMeta, String> {
+    let content =
+        fs::read(path).map_err(|error| format!("读取 '{}' 失败：{error}", path.display()))?;
+    let mut meta = parse_meta(&content)?;
     crate::migration::migrate_in_place(&mut meta);
     Ok(meta)
 }
 
+fn parse_meta(content: &[u8]) -> std::result::Result<TaskMeta, String> {
+    if content.is_empty() {
+        return Err("文件为空（可能是写入进程中断）".to_string());
+    }
+    serde_json::from_slice(content).map_err(|error| format!("JSON 解析失败：{error}"))
+}
+
+/// Write via a uniquely named temp file plus rename, so a crash mid-write
+/// leaves either the old file or the new one, never a truncated one.
+fn write_file_atomically(path: &Path, content: &[u8]) -> Result<()> {
+    let parent = path.parent().ok_or_else(|| {
+        UdfError::Other(format!("无法确定元数据文件 '{}' 的父目录", path.display()))
+    })?;
+    fs::create_dir_all(parent)?;
+
+    let sequence = TEMP_FILE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("udf-meta");
+    let temp_path = parent.join(format!(
+        ".{file_name}.tmp.{}.{}",
+        std::process::id(),
+        sequence
+    ));
+
+    let result = (|| -> Result<()> {
+        let mut temp_file = OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&temp_path)?;
+        temp_file.write_all(content)?;
+        temp_file.flush()?;
+        temp_file.sync_all()?;
+        drop(temp_file);
+
+        replace_file(&temp_path, path)?;
+        sync_parent_directory(parent)?;
+        Ok(())
+    })();
+
+    if result.is_err() {
+        let _ = fs::remove_file(&temp_path);
+    }
+    result
+}
+
+fn replace_file(source: &Path, destination: &Path) -> std::io::Result<()> {
+    fs::rename(source, destination)
+}
+
+#[cfg(windows)]
+fn sync_parent_directory(_parent: &Path) -> std::io::Result<()> {
+    // Windows does not support opening directories through std::fs::File.
+    // The temporary file itself has already been flushed and sync_all'ed.
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn sync_parent_directory(parent: &Path) -> std::io::Result<()> {
+    fs::File::open(parent)?.sync_all()
+}
+
+/// A Host directory that looks like a task but whose metadata cannot be read.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DamagedTask {
+    pub host_dir: PathBuf,
+    pub error: String,
+}
+
+#[derive(Debug, Clone, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskInventory {
+    pub tasks: Vec<TaskMeta>,
+    pub damaged_tasks: Vec<DamagedTask>,
+}
+
 pub fn list_tasks(hosts_root: &Path) -> Result<Vec<TaskMeta>> {
-    let mut tasks = Vec::new();
+    Ok(list_task_inventory(hosts_root)?.tasks)
+}
+
+/// Like `list_tasks`, but keeps unreadable tasks instead of silently dropping
+/// them: a task that disappears from `list` looks deleted, which it is not.
+pub fn list_task_inventory(hosts_root: &Path) -> Result<TaskInventory> {
+    let mut inventory = TaskInventory::default();
 
     if !hosts_root.exists() {
-        return Ok(tasks);
+        return Ok(inventory);
     }
 
     for entry in fs::read_dir(hosts_root)? {
@@ -277,8 +408,11 @@ pub fn list_tasks(hosts_root: &Path) -> Result<Vec<TaskMeta>> {
                 .starts_with("T-")
         {
             match read_meta(&path) {
-                Ok(meta) => tasks.push(meta),
-                Err(_) => continue,
+                Ok(meta) => inventory.tasks.push(meta),
+                Err(error) => inventory.damaged_tasks.push(DamagedTask {
+                    host_dir: path.clone(),
+                    error: error.to_string(),
+                }),
             }
         }
 
@@ -300,15 +434,18 @@ pub fn list_tasks(hosts_root: &Path) -> Result<Vec<TaskMeta>> {
                         .starts_with("T-")
                 {
                     match read_meta(&host_path) {
-                        Ok(meta) => tasks.push(meta),
-                        Err(_) => continue,
+                        Ok(meta) => inventory.tasks.push(meta),
+                        Err(error) => inventory.damaged_tasks.push(DamagedTask {
+                            host_dir: host_path,
+                            error: error.to_string(),
+                        }),
                     }
                 }
             }
         }
     }
 
-    Ok(tasks)
+    Ok(inventory)
 }
 
 pub fn get_task_host(hosts_root: &Path, task_id: &str) -> Result<PathBuf> {
@@ -409,6 +546,126 @@ pub fn delete_host(host_dir: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn task_meta(name: &str) -> TaskMeta {
+        TaskMeta {
+            schema_version: CURRENT_SCHEMA_VERSION,
+            id: "atomic-meta".to_string(),
+            name: name.to_string(),
+            branch: "task/test/atomic-meta".to_string(),
+            created: "2026-07-15T00:00:00Z".to_string(),
+            based_on: "0123456789abcdef".to_string(),
+            status: "active".to_string(),
+            prompt: None,
+            last_built: None,
+            build_pid: None,
+            build_log: None,
+            console_log: None,
+            build_status: None,
+            primary_plugins: Vec::new(),
+            dependency_plugins: Vec::new(),
+            workspace: Some("test-workspace".to_string()),
+            task_uid: Some("test-workspace/atomic-meta".to_string()),
+            context: None,
+        }
+    }
+
+    #[test]
+    fn write_meta_atomically_preserves_last_valid_primary_as_backup() {
+        let host = tempfile::tempdir().unwrap();
+        write_meta(host.path(), &task_meta("first")).unwrap();
+        write_meta(host.path(), &task_meta("second")).unwrap();
+
+        let current = read_meta_file(&host.path().join(META_FILE_NAME)).unwrap();
+        let backup = read_meta_file(&host.path().join(META_BACKUP_FILE_NAME)).unwrap();
+        assert_eq!(current.name, "second");
+        assert_eq!(backup.name, "first");
+
+        let temporary_files = fs::read_dir(host.path())
+            .unwrap()
+            .filter_map(std::result::Result::ok)
+            .filter(|entry| entry.file_name().to_string_lossy().contains(".tmp."))
+            .count();
+        assert_eq!(temporary_files, 0);
+    }
+
+    #[test]
+    fn read_meta_recovers_empty_primary_from_last_valid_backup() {
+        let host = tempfile::tempdir().unwrap();
+        write_meta(host.path(), &task_meta("recoverable")).unwrap();
+        write_meta(host.path(), &task_meta("latest")).unwrap();
+        fs::write(host.path().join(META_FILE_NAME), []).unwrap();
+
+        let recovered = read_meta(host.path()).unwrap();
+        assert_eq!(recovered.name, "recoverable");
+
+        let restored_primary = read_meta_file(&host.path().join(META_FILE_NAME)).unwrap();
+        assert_eq!(restored_primary.name, "recoverable");
+        let backup = read_meta_file(&host.path().join(META_BACKUP_FILE_NAME)).unwrap();
+        assert_eq!(backup.name, "recoverable");
+    }
+
+    #[test]
+    fn read_meta_recovers_malformed_primary_from_last_valid_backup() {
+        let host = tempfile::tempdir().unwrap();
+        write_meta(host.path(), &task_meta("recoverable")).unwrap();
+        write_meta(host.path(), &task_meta("latest")).unwrap();
+        fs::write(host.path().join(META_FILE_NAME), b"{truncated").unwrap();
+
+        let recovered = read_meta(host.path()).unwrap();
+        assert_eq!(recovered.name, "recoverable");
+        assert_eq!(read_meta(host.path()).unwrap().name, "recoverable");
+    }
+
+    #[test]
+    fn write_meta_does_not_replace_valid_backup_with_corrupt_primary() {
+        let host = tempfile::tempdir().unwrap();
+        write_meta(host.path(), &task_meta("last-known-good")).unwrap();
+        write_meta(host.path(), &task_meta("interrupted-update")).unwrap();
+        fs::write(host.path().join(META_FILE_NAME), b"{truncated").unwrap();
+
+        write_meta(host.path(), &task_meta("new-valid-state")).unwrap();
+
+        let current = read_meta_file(&host.path().join(META_FILE_NAME)).unwrap();
+        let backup = read_meta_file(&host.path().join(META_BACKUP_FILE_NAME)).unwrap();
+        assert_eq!(current.name, "new-valid-state");
+        assert_eq!(backup.name, "last-known-good");
+    }
+
+    #[test]
+    fn read_meta_reports_both_primary_and_backup_failures() {
+        let host = tempfile::tempdir().unwrap();
+        fs::write(host.path().join(META_FILE_NAME), []).unwrap();
+        fs::write(host.path().join(META_BACKUP_FILE_NAME), b"not-json").unwrap();
+
+        let error = read_meta(host.path()).unwrap_err().to_string();
+        assert!(error.contains("主文件无效"), "{error}");
+        assert!(error.contains("备份也无效"), "{error}");
+        assert!(error.contains("文件为空"), "{error}");
+        assert!(error.contains("JSON 解析失败"), "{error}");
+    }
+
+    #[test]
+    fn task_inventory_reports_corrupt_metadata_without_hiding_healthy_tasks() {
+        let root = tempfile::tempdir().unwrap();
+        let healthy = root.path().join("T-healthy_Host");
+        fs::create_dir_all(&healthy).unwrap();
+        write_meta(&healthy, &task_meta("healthy")).unwrap();
+        let host = root.path().join("T-corrupt_Host");
+        fs::create_dir_all(&host).unwrap();
+        fs::write(host.join(META_FILE_NAME), b"{broken").unwrap();
+
+        let inventory = list_task_inventory(root.path()).unwrap();
+        assert_eq!(inventory.tasks.len(), 1);
+        assert_eq!(inventory.tasks[0].name, "healthy");
+        assert_eq!(inventory.damaged_tasks.len(), 1);
+        assert!(
+            inventory.damaged_tasks[0]
+                .host_dir
+                .ends_with("T-corrupt_Host")
+        );
+        assert!(inventory.damaged_tasks[0].error.contains("JSON 解析失败"));
+    }
 
     #[test]
     fn resolve_host_uproject_accepts_legacy_host_filename() {
