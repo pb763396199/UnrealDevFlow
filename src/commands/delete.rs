@@ -138,11 +138,21 @@ pub fn run(task_id: &str, force: bool, skip_confirm: bool, dry_run: bool) -> Res
     let (host_dir, mut meta, _task_context) = host::resolve_task(&config, task_id)?;
     crate::migration::backfill_source_repo(&mut meta, &config);
 
+    // `delete` is the escape hatch for a task that is already broken, so this
+    // is a warning gate rather than a wall: `--force` still lets it through,
+    // but nobody gets an incomplete cleanup reported as a success.
     if meta.primary_plugins.is_empty() {
-        return Err(UdfError::Other(format!(
-            "任务 '{}' 的元数据里没有主插件身份（旧版 schema 常见）。继续执行会删掉 Host 目录，但留下 git worktree 注册和任务分支清不掉。请先按 Host/git/uproject 证据恢复元数据，或者手工清理后再重试。",
+        if !force {
+            return Err(UdfError::Other(format!(
+                "任务 '{}' 的元数据里没有主插件身份（旧版 schema 常见）。删除会清掉 Host 目录，但 git worktree 注册和任务分支清不掉，需要手工收拾。\n\
+                 确认接受这个后果就加 --force；想干净删除请先按 Host/git/uproject 证据恢复元数据。",
+                task_id
+            )));
+        }
+        output::print_warning(&format!(
+            "任务 '{}' 的元数据没有主插件身份，--force 已指定：Host 目录会被删除，但 git worktree 注册和任务分支需要你手工清理。",
             task_id
-        )));
+        ));
     }
 
     let task_id_only = meta.id.clone();
