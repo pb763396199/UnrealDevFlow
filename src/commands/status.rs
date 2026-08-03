@@ -32,7 +32,9 @@ pub fn run() -> Result<()> {
     let mut project_statuses = Vec::new();
 
     for (project_name, project_state) in &state.projects {
-        let junction_valid = junction::exists(&project_state.junction_path)?;
+        // One unreadable junction — locked by an indexer, or left over from a
+        // deleted task — must not take the whole status report down with it.
+        let junction_valid = junction::exists(&project_state.junction_path).unwrap_or(false);
         let junction_target = if junction_valid {
             junction::get_target(&project_state.junction_path)
                 .ok()

@@ -11,8 +11,8 @@ pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
 
-    /// Output format. Honored by `list`, `status`, `build-check`, `build-gate`
-    /// and `build-project`; other commands always print human-readable text.
+    /// Output format: `human` (default) or `json`. Every command honors it;
+    /// under `json` a command emits exactly one document on stdout.
     #[arg(long, global = true, default_value = "human")]
     pub format: OutputFormat,
 

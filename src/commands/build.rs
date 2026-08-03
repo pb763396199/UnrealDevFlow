@@ -146,12 +146,21 @@ pub fn run(
         });
         host::write_meta(&host_dir, &meta)?;
 
-        output::print_success(&format!(
-            "Build started in background (PID: {})",
-            child.id()
-        ));
-        output::print_info(&format!("  Console: {:?}", console_log));
-        output::print_info(&format!("  Check status: udf build status {}", task_id));
+        output::emit(
+            "build task",
+            BuildOutcome {
+                task_ref: task_id.to_string(),
+                background: true,
+                profile: profile.label().to_string(),
+                mutex_mode: effective_mutex.as_arg().to_string(),
+                primary_only,
+                succeeded: true,
+                exit_code: None,
+                ubt_log: ubt_log.to_string_lossy().to_string(),
+                build_pid: Some(child.id()),
+            },
+            render_build,
+        );
     } else {
         let status = cmd.status()?;
 
@@ -187,11 +196,54 @@ pub fn run(
         // Verify a DLL was produced for every primary plugin.
         verify_primary_dlls(&host_dir, &meta.primary_plugins)?;
 
-        output::print_success(&format!("Task '{}' built successfully!", task_id));
-        output::print_info(&format!("  UBT Log: {:?}", ubt_log));
+        output::emit(
+            "build task",
+            BuildOutcome {
+                task_ref: task_id.to_string(),
+                background: false,
+                profile: profile.label().to_string(),
+                mutex_mode: effective_mutex.as_arg().to_string(),
+                primary_only,
+                succeeded: true,
+                exit_code: status.code(),
+                ubt_log: ubt_log.to_string_lossy().to_string(),
+                build_pid: None,
+            },
+            render_build,
+        );
     }
 
     Ok(())
+}
+
+/// What the build did, so a caller does not have to scrape the log to find out.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BuildOutcome {
+    task_ref: String,
+    background: bool,
+    profile: String,
+    mutex_mode: String,
+    primary_only: bool,
+    succeeded: bool,
+    exit_code: Option<i32>,
+    ubt_log: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    build_pid: Option<u32>,
+}
+
+fn render_build(data: &BuildOutcome) -> String {
+    if data.background {
+        return format!(
+            "✓ Build started in background (PID: {})\n  Check status: udf build status {}",
+            data.build_pid.unwrap_or(0),
+            data.task_ref
+        );
+    }
+    format!(
+        "✓ Task '{}' built successfully!\n  UBT Log: {}",
+        data.task_ref, data.ubt_log
+    )
 }
 
 fn verify_primary_dlls(host_dir: &Path, primary_plugins: &[PrimaryPlugin]) -> Result<()> {

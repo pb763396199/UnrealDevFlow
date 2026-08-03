@@ -18,64 +18,119 @@ pub fn run(task_id: &str) -> Result<()> {
         );
     }
 
-    output::print_info(&format!("Build status for task '{}':", task_id));
-
-    // Check build status from meta
-    match &meta.build_status {
-        Some(status) => {
-            output::print_info(&format!("  State: {}", status.state));
-            output::print_info(&format!("  Started: {}", status.started));
-            if let Some(finished) = &status.finished {
-                output::print_info(&format!("  Finished: {}", finished));
-            }
-            if let Some(exit_code) = status.exit_code {
-                output::print_info(&format!("  Exit code: {}", exit_code));
-            }
-            output::print_info(&format!("  Mutex mode: {}", status.mutex_mode));
-        }
-        None => {
-            output::print_info("  No build status recorded");
-        }
-    }
-
-    // Check if PID is still running
-    if let Some(pid) = meta.build_pid {
-        if is_process_running(pid) {
-            output::print_warning(&format!("  Process {} is still running", pid));
-        } else {
-            output::print_info(&format!("  Process {} has exited", pid));
-        }
-    }
-
-    // Show log file locations
-    if let Some(build_log) = &meta.build_log
-        && build_log.exists()
-    {
-        output::print_info(&format!("  UBT Log: {:?}", build_log));
-        // Show last few lines of log
-        if let Ok(content) = fs::read_to_string(build_log) {
+    let running = meta.build_pid.map(is_process_running);
+    let log_tail = meta
+        .build_log
+        .as_ref()
+        .filter(|path| path.exists())
+        .and_then(|path| fs::read_to_string(path).ok())
+        .map(|content| {
             let lines: Vec<&str> = content.lines().collect();
-            if lines.len() > 5 {
-                output::print_info("  Last 5 lines of UBT log:");
-                for line in lines.iter().rev().take(5).rev() {
-                    output::print_info(&format!("    {}", line));
-                }
+            lines
+                .iter()
+                .rev()
+                .take(5)
+                .rev()
+                .map(|line| (*line).to_string())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    let data = BuildStatusReport {
+        task_ref: task_id.to_string(),
+        state: meta
+            .build_status
+            .as_ref()
+            .map(|status| status.state.clone()),
+        started: meta.build_status.as_ref().map(|s| s.started.clone()),
+        finished: meta.build_status.as_ref().and_then(|s| s.finished.clone()),
+        exit_code: meta.build_status.as_ref().and_then(|s| s.exit_code),
+        mutex_mode: meta.build_status.as_ref().map(|s| s.mutex_mode.clone()),
+        build_pid: meta.build_pid,
+        process_running: running,
+        ubt_log: meta
+            .build_log
+            .as_ref()
+            .map(|p| p.to_string_lossy().to_string()),
+        console_log: meta
+            .console_log
+            .as_ref()
+            .map(|p| p.to_string_lossy().to_string()),
+        last_built: meta.last_built.clone(),
+        log_tail,
+    };
+    output::emit("build status", data, render_status);
+    Ok(())
+}
+
+/// Everything a caller needs to decide whether a build is done, and how it went.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BuildStatusReport {
+    task_ref: String,
+    state: Option<String>,
+    started: Option<String>,
+    finished: Option<String>,
+    exit_code: Option<i32>,
+    mutex_mode: Option<String>,
+    build_pid: Option<u32>,
+    process_running: Option<bool>,
+    ubt_log: Option<String>,
+    console_log: Option<String>,
+    last_built: Option<String>,
+    log_tail: Vec<String>,
+}
+
+fn render_status(data: &BuildStatusReport) -> String {
+    let mut lines = vec![format!("Build status for task '{}':", data.task_ref)];
+    match &data.state {
+        Some(state) => {
+            lines.push(format!("  State: {}", state));
+            if let Some(started) = &data.started {
+                lines.push(format!("  Started: {}", started));
+            }
+            if let Some(finished) = &data.finished {
+                lines.push(format!("  Finished: {}", finished));
+            }
+            if let Some(code) = data.exit_code {
+                lines.push(format!("  Exit code: {}", code));
+            }
+            if let Some(mode) = &data.mutex_mode {
+                lines.push(format!("  Mutex mode: {}", mode));
             }
         }
+        None => lines.push("  No build status recorded".to_string()),
     }
-
-    if let Some(console_log) = &meta.console_log
-        && console_log.exists()
-    {
-        output::print_info(&format!("  Console Log: {:?}", console_log));
+    if let (Some(pid), Some(running)) = (data.build_pid, data.process_running) {
+        lines.push(format!(
+            "  Process {} {}",
+            pid,
+            if running {
+                "is still running"
+            } else {
+                "has exited"
+            }
+        ));
     }
-
-    // Show last built time
-    if let Some(last_built) = &meta.last_built {
-        output::print_info(&format!("  Last built: {}", last_built));
+    if let Some(log) = &data.ubt_log {
+        lines.push(format!("  UBT Log: {}", log));
     }
-
-    Ok(())
+    if !data.log_tail.is_empty() {
+        lines.push("  Last 5 lines of UBT log:".to_string());
+        for line in &data.log_tail {
+            lines.push(format!("    {}", line));
+        }
+    }
+    if let Some(log) = &data.console_log {
+        lines.push(format!("  Console Log: {}", log));
+    }
+    if let Some(last) = &data.last_built {
+        lines.push(format!("  Last built: {}", last));
+    }
+    lines.join(
+        "
+",
+    )
 }
 
 /// A background build whose process is gone leaves no exit code behind.

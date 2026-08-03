@@ -231,4 +231,4 @@ Write-Host ""
 Write-Host "Installed successfully." -ForegroundColor Green
 Write-Host ""
 Write-Host "Next step:" -ForegroundColor Cyan
-Write-Host "  udf configure" -ForegroundColor White
+Write-Host "  udf workspace init" -ForegroundColor White

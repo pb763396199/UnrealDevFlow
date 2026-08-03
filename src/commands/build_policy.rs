@@ -1,8 +1,8 @@
-//! Controlled build commands: `build-check`, `build-gate`, `build-project`.
+//! Controlled build commands: `build check`, `build gate`, `build project`.
 //!
 //! These sit in front of the Unreal build so that nobody hand-assembles a
-//! `Build.bat` line. `build-check` reports whether a build may start now,
-//! `build-gate` refuses commands that bypass this path, and `build-project`
+//! `Build.bat` line. `build check` reports whether a build may start now,
+//! `build gate` refuses commands that bypass this path, and `build project`
 //! builds the workspace's main project rather than a task Host.
 
 use std::path::PathBuf;
@@ -66,7 +66,7 @@ pub fn check(
         subject,
         build_policy: report,
     };
-    output::emit("build-check", out, format_check);
+    output::emit("build check", out, format_check);
     Ok(())
 }
 
@@ -78,7 +78,7 @@ pub fn gate(command: String) -> Result<()> {
     let report = build_policy::inspect_provider_command(Some(&command));
     let allowed = report.allowed;
     let reason = report.reason.clone();
-    output::emit("build-gate", report, format_gate);
+    output::emit("build gate", report, format_gate);
     if allowed {
         Ok(())
     } else {
@@ -105,7 +105,7 @@ pub fn project(
     let succeeded = execution.succeeded();
     let exit_code = execution.exit_code;
     let out = BuildProjectOutput { subject, execution };
-    output::emit("build-project", out, format_project);
+    output::emit("build project", out, format_project);
     if succeeded {
         Ok(())
     } else {
