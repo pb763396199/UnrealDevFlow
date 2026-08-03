@@ -308,14 +308,6 @@ fn validate_plugins_root_shape(workspace: &WorkspaceConfig, plugins_root: &Path)
         )));
     }
 
-    if plugins_root.join("Hosts").exists() {
-        return Err(UdfError::Other(format!(
-            "plugins_root 看起来过宽，包含 Hosts 目录：{:?}\n\
-             请指向只包含插件主仓库的目录。",
-            plugins_root
-        )));
-    }
-
     if let Ok(entries) = std::fs::read_dir(plugins_root) {
         for entry in entries.flatten() {
             let path = entry.path();
@@ -419,4 +411,27 @@ fn find_uproject(project_dir: &Path) -> Option<PathBuf> {
         .filter_map(|e| e.ok())
         .map(|e| e.path())
         .find(|p| p.extension().map(|e| e == "uproject").unwrap_or(false))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unrelated_hosts_child_is_not_a_plugins_root_hard_gate() {
+        let root =
+            std::env::temp_dir().join(format!("udf-plugins-root-shape-{}", std::process::id()));
+        let plugins = root.join("Plugins");
+        std::fs::create_dir_all(plugins.join("Hosts")).unwrap();
+        let workspace = WorkspaceConfig {
+            hosts_root: root.join("ExternalHosts"),
+            plugin_path: Some(plugins.join("Demo")),
+            default_project: root.join("Project"),
+            engine_path: root.join("Engine"),
+            plugins_root: Some(plugins.clone()),
+            plugin_overrides: HashMap::new(),
+        };
+        assert!(validate_plugins_root_shape(&workspace, &plugins).is_ok());
+        let _ = std::fs::remove_dir_all(root);
+    }
 }
