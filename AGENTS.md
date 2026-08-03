@@ -100,7 +100,7 @@ udf build task <task-ref> --primary-only           # 只编主插件模块（增
 udf build task <task-ref> --profile medium|heavy   # 加严严格度（PR/merge 前）
 udf build task <task-ref> --mutex wait|no-mutex     # 强制 mutex 模式
 udf build task <task-ref> --validator              # 标记为 CI/Validator 调用
-udf build status <task-ref>                   # 查状态
+udf build status [task-ref]                   # 查状态，省略时按最近任务
 ```
 
 **编之前先问一句。** 同一个引擎目录只有一把 UnrealBuildTool 互斥锁，两个编译同时开工会互相
@@ -209,7 +209,7 @@ udf task merge <task-ref> --all --strategy rebase               # 全部逆序
 | `build project` | — | 编主项目而不是任务宿主 |
 | `build check [task-ref]` | — | 只回答现在能不能编，不启动编译 |
 | `build gate "<命令>"` | — | 检查某条命令有没有绕过受控构建 |
-| `build status <task-ref>` | — | 查编译状态 |
+| `build status [task-ref]` | — | 查编译状态，省略时按最近任务 |
 | `skill install` / `list` / `remove` | — | 管理装到四个 AI provider 的 skill |
 
 完整版（参数、返回值、错误码）见后文「命令速查」章节。

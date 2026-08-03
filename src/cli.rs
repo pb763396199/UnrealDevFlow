@@ -159,8 +159,9 @@ pub enum BuildAction {
 
     /// Check build status of a task
     Status {
-        /// Task ref, e.g. workspace/task-id.
-        task_ref: String,
+        /// Task ref, e.g. workspace/task-id. If omitted, reports on the most
+        /// recently touched task.
+        task_ref: Option<String>,
     },
 }
 

@@ -6,8 +6,15 @@ use crate::host::{self, BuildStatus};
 use crate::output;
 use std::fs;
 
-pub fn run(task_id: &str) -> Result<()> {
+pub fn run(task_ref: Option<String>) -> Result<()> {
     let config = Config::load()?;
+    // Reading build status is a query, so it defaults to the task you were
+    // last working on — same rule as `build check` and `task next`.
+    let task_id = match task_ref {
+        Some(value) => value,
+        None => crate::commands::simple::latest_task_ref(&config)?,
+    };
+    let task_id = task_id.as_str();
     let (host_dir, mut meta, _task_context) = host::resolve_task(&config, task_id)?;
 
     let process_running = meta.build_pid.is_some_and(is_process_running);

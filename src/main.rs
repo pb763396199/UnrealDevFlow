@@ -244,7 +244,7 @@ fn run(cli: Cli) -> Result<()> {
                 commands::build_policy::check(task_ref, workspace, profile, target, build_command)?
             }
             cli::BuildAction::Gate { command } => commands::build_policy::gate(command)?,
-            cli::BuildAction::Status { task_ref } => commands::build_status::run(&task_ref)?,
+            cli::BuildAction::Status { task_ref } => commands::build_status::run(task_ref)?,
         },
         Commands::Skill { action } => match action {
             cli::SkillAction::Install { global, project } => {
