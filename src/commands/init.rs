@@ -24,10 +24,10 @@ pub fn run(
     };
     let plugins_root = absolutize_path(plugins_root)?;
     let (plugins_root, mut default_plugin_path) = normalize_plugins_root_input(plugins_root);
-    if default_plugin_path.is_none() {
-        if let Ok(cwd) = std::env::current_dir() {
-            default_plugin_path = detect_plugin_from_path(&cwd, &plugins_root);
-        }
+    if default_plugin_path.is_none()
+        && let Ok(cwd) = std::env::current_dir()
+    {
+        default_plugin_path = detect_plugin_from_path(&cwd, &plugins_root);
     }
     if let Some(path) = default_plugin_path.take() {
         default_plugin_path = Some(absolutize_path(path)?);
@@ -132,10 +132,10 @@ fn contains_uplugin(dir: &Path) -> bool {
 }
 
 fn normalize_plugins_root_input(path: PathBuf) -> (PathBuf, Option<PathBuf>) {
-    if contains_uplugin(&path) {
-        if let Some(parent) = path.parent() {
-            return (parent.to_path_buf(), Some(path));
-        }
+    if contains_uplugin(&path)
+        && let Some(parent) = path.parent()
+    {
+        return (parent.to_path_buf(), Some(path));
     }
     (path, None)
 }

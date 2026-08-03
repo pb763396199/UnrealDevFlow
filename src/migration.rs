@@ -76,15 +76,14 @@ pub fn backfill_source_repo(meta: &mut TaskMeta, config: &Config) {
                     continue;
                 }
             }
-            if let Some(legacy) = &config.plugin_path {
-                if legacy
+            if let Some(legacy) = &config.plugin_path
+                && legacy
                     .file_name()
                     .and_then(|n| n.to_str())
                     .map(|s| s == plugin.name)
                     .unwrap_or(false)
-                {
-                    plugin.source_repo = legacy.clone();
-                }
+            {
+                plugin.source_repo = legacy.clone();
             }
         }
     }

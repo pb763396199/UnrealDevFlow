@@ -74,10 +74,10 @@ pub fn run(
     let primary_names = primary_selection.names;
     let mut preferred_primary_plugins = preferred_primary_plugins(&workspace_config)?;
     for override_value in &overrides {
-        if primary_names.contains(&override_value.name) {
-            if let DepOverrideKind::CustomPath(path) = &override_value.kind {
-                preferred_primary_plugins.insert(override_value.name.clone(), path.clone());
-            }
+        if primary_names.contains(&override_value.name)
+            && let DepOverrideKind::CustomPath(path) = &override_value.kind
+        {
+            preferred_primary_plugins.insert(override_value.name.clone(), path.clone());
         }
     }
     let mut project_plugins = resolve_required_project_plugins(
@@ -401,14 +401,14 @@ fn resolve_primary_names(
             .collect(),
         None => Vec::new(),
     };
-    if names.is_empty() {
-        if let Some(legacy) = workspace.legacy_primary_plugin() {
-            output::print_info(&format!(
-                "未指定 --primary，使用 v1 兼容默认主插件：{}",
-                legacy
-            ));
-            names.push(legacy);
-        }
+    if names.is_empty()
+        && let Some(legacy) = workspace.legacy_primary_plugin()
+    {
+        output::print_info(&format!(
+            "未指定 --primary，使用 v1 兼容默认主插件：{}",
+            legacy
+        ));
+        names.push(legacy);
     }
     if names.is_empty() {
         return Err(UdfError::Other(
@@ -740,27 +740,27 @@ fn cleanup_partial_create(host_dir: &Path, primary_plans: &[PrimaryPlan], branch
     let mut source_repositories = HashSet::new();
     for plan in primary_plans.iter().rev() {
         source_repositories.insert(plan.source_repo.clone());
-        if plan.worktree_abs.exists() {
-            if let Err(err) = git::worktree::remove(&plan.source_repo, &plan.worktree_abs) {
-                output::print_warning(&format!(
-                    "回滚 worktree 失败 {:?}：{}",
-                    plan.worktree_abs, err
-                ));
-            }
+        if plan.worktree_abs.exists()
+            && let Err(err) = git::worktree::remove(&plan.source_repo, &plan.worktree_abs)
+        {
+            output::print_warning(&format!(
+                "回滚 worktree 失败 {:?}：{}",
+                plan.worktree_abs, err
+            ));
         }
     }
-    if host_dir.exists() {
-        if let Err(err) = host::delete_host(host_dir) {
-            match quarantine_partial_host(host_dir) {
-                Ok(path) => output::print_warning(&format!(
-                    "回滚 Host 目录时遇到错误：{err}；残留已隔离到 {:?}",
-                    path
-                )),
-                Err(quarantine_error) => output::print_warning(&format!(
-                    "回滚 Host 目录失败 {:?}：{err}；隔离也失败：{quarantine_error}",
-                    host_dir
-                )),
-            }
+    if host_dir.exists()
+        && let Err(err) = host::delete_host(host_dir)
+    {
+        match quarantine_partial_host(host_dir) {
+            Ok(path) => output::print_warning(&format!(
+                "回滚 Host 目录时遇到错误：{err}；残留已隔离到 {:?}",
+                path
+            )),
+            Err(quarantine_error) => output::print_warning(&format!(
+                "回滚 Host 目录失败 {:?}：{err}；隔离也失败：{quarantine_error}",
+                host_dir
+            )),
         }
     }
     for repository in &source_repositories {
@@ -772,13 +772,13 @@ fn cleanup_partial_create(host_dir: &Path, primary_plans: &[PrimaryPlan], branch
         }
     }
     for plan in primary_plans {
-        if git::branch_exists(&plan.source_repo, branch_name).unwrap_or(false) {
-            if let Err(err) = git::delete_branch_safe(&plan.source_repo, branch_name) {
-                output::print_warning(&format!(
-                    "回滚分支失败 '{}' ({:?})：{}",
-                    branch_name, plan.source_repo, err
-                ));
-            }
+        if git::branch_exists(&plan.source_repo, branch_name).unwrap_or(false)
+            && let Err(err) = git::delete_branch_safe(&plan.source_repo, branch_name)
+        {
+            output::print_warning(&format!(
+                "回滚分支失败 '{}' ({:?})：{}",
+                branch_name, plan.source_repo, err
+            ));
         }
     }
     if let Some(workspace_dir) = host_dir.parent() {

@@ -245,10 +245,10 @@ pub fn write_meta(host_dir: &Path, meta: &TaskMeta) -> Result<()> {
 
     // Only a parseable primary file is allowed to replace the last-known-good
     // backup. An interrupted/corrupt primary must never poison recovery.
-    if let Ok(previous_content) = fs::read(&meta_path) {
-        if parse_meta(&previous_content).is_ok() {
-            write_file_atomically(&backup_path, &previous_content)?;
-        }
+    if let Ok(previous_content) = fs::read(&meta_path)
+        && parse_meta(&previous_content).is_ok()
+    {
+        write_file_atomically(&backup_path, &previous_content)?;
     }
 
     write_file_atomically(&meta_path, &content)

@@ -325,13 +325,13 @@ pub fn run(task_id: &str, force: bool, skip_confirm: bool, dry_run: bool) -> Res
     for dep in &meta.dependency_plugins {
         if let Some(rel) = &dep.junction {
             let abs = host_dir.join(rel);
-            if abs.exists() {
-                if let Err(e) = crate::junction::delete(&abs) {
-                    output::print_warning(&format!(
-                        "Failed to remove junction for '{}': {}",
-                        dep.name, e
-                    ));
-                }
+            if abs.exists()
+                && let Err(e) = crate::junction::delete(&abs)
+            {
+                output::print_warning(&format!(
+                    "Failed to remove junction for '{}': {}",
+                    dep.name, e
+                ));
             }
         }
     }

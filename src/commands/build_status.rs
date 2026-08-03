@@ -48,26 +48,26 @@ pub fn run(task_id: &str) -> Result<()> {
     }
 
     // Show log file locations
-    if let Some(build_log) = &meta.build_log {
-        if build_log.exists() {
-            output::print_info(&format!("  UBT Log: {:?}", build_log));
-            // Show last few lines of log
-            if let Ok(content) = fs::read_to_string(build_log) {
-                let lines: Vec<&str> = content.lines().collect();
-                if lines.len() > 5 {
-                    output::print_info("  Last 5 lines of UBT log:");
-                    for line in lines.iter().rev().take(5).rev() {
-                        output::print_info(&format!("    {}", line));
-                    }
+    if let Some(build_log) = &meta.build_log
+        && build_log.exists()
+    {
+        output::print_info(&format!("  UBT Log: {:?}", build_log));
+        // Show last few lines of log
+        if let Ok(content) = fs::read_to_string(build_log) {
+            let lines: Vec<&str> = content.lines().collect();
+            if lines.len() > 5 {
+                output::print_info("  Last 5 lines of UBT log:");
+                for line in lines.iter().rev().take(5).rev() {
+                    output::print_info(&format!("    {}", line));
                 }
             }
         }
     }
 
-    if let Some(console_log) = &meta.console_log {
-        if console_log.exists() {
-            output::print_info(&format!("  Console Log: {:?}", console_log));
-        }
+    if let Some(console_log) = &meta.console_log
+        && console_log.exists()
+    {
+        output::print_info(&format!("  Console Log: {:?}", console_log));
     }
 
     // Show last built time

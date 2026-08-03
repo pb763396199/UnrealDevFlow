@@ -35,22 +35,22 @@ pub fn run(
             std::fs::create_dir_all(&hosts_root)?;
         }
 
-        if let Some(plugin_path) = &plugin_path_opt {
-            if !plugin_path.exists() {
-                return Err(UdfError::Other(format!(
-                    "v1 plugin_path 不存在：{:?}\n请检查路径，或改用 --plugins-root",
-                    plugin_path
-                )));
-            }
+        if let Some(plugin_path) = &plugin_path_opt
+            && !plugin_path.exists()
+        {
+            return Err(UdfError::Other(format!(
+                "v1 plugin_path 不存在：{:?}\n请检查路径，或改用 --plugins-root",
+                plugin_path
+            )));
         }
 
-        if let Some(plugins_root) = &plugins_root_opt {
-            if !plugins_root.exists() {
-                return Err(UdfError::Other(format!(
-                    "plugins_root 不存在：{:?}",
-                    plugins_root
-                )));
-            }
+        if let Some(plugins_root) = &plugins_root_opt
+            && !plugins_root.exists()
+        {
+            return Err(UdfError::Other(format!(
+                "plugins_root 不存在：{:?}",
+                plugins_root
+            )));
         }
 
         if !default_project.exists() {

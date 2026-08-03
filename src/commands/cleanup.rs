@@ -54,10 +54,10 @@ fn candidate_plugin_roots(config: &Config, task_ref: &str) -> Vec<PathBuf> {
     let mut roots = BTreeSet::new();
 
     if let Some(workspace) = workspace {
-        if let Ok((_, ws)) = config.resolve_workspace(Some(&workspace)) {
-            if let Some(root) = ws.effective_plugins_root() {
-                roots.insert(root);
-            }
+        if let Ok((_, ws)) = config.resolve_workspace(Some(&workspace))
+            && let Some(root) = ws.effective_plugins_root()
+        {
+            roots.insert(root);
         }
     } else {
         if let Some(root) = config.effective_plugins_root() {
@@ -298,13 +298,13 @@ pub fn run(task_id: &str, force: bool, skip_confirm: bool) -> Result<()> {
     for dep in &meta.dependency_plugins {
         if let Some(rel) = &dep.junction {
             let junction_abs = host_dir.join(rel);
-            if junction_abs.exists() {
-                if let Err(e) = crate::junction::delete(&junction_abs) {
-                    output::print_warning(&format!(
-                        "Failed to remove junction for '{}': {}",
-                        dep.name, e
-                    ));
-                }
+            if junction_abs.exists()
+                && let Err(e) = crate::junction::delete(&junction_abs)
+            {
+                output::print_warning(&format!(
+                    "Failed to remove junction for '{}': {}",
+                    dep.name, e
+                ));
             }
         }
     }

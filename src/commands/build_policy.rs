@@ -102,8 +102,7 @@ pub fn project(
         ..BuildPolicyRequest::default()
     };
     let subject = resolve_subject(None, workspace, &mut request)?;
-    let execution =
-        build_policy::execute_project_build(&request).map_err(|error| UdfError::Other(error))?;
+    let execution = build_policy::execute_project_build(&request).map_err(UdfError::Other)?;
     let succeeded = execution.succeeded();
     let exit_code = execution.exit_code;
     let out = BuildProjectOutput { subject, execution };
