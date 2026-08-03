@@ -153,7 +153,7 @@ pub fn run(
     output::print_info(
         "⚠️  Worktrees and branches RETAINED for inspection. Run cleanup after verification:",
     );
-    output::print_info(&format!("  unrealdevflow cleanup {}", task_id));
+    output::print_info(&format!("  udf cleanup {}", task_id));
     Ok(())
 }
 

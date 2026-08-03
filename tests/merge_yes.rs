@@ -234,7 +234,7 @@ plugins_root = "{}"
     )
     .expect("meta");
 
-    Command::cargo_bin("unrealdevflow")
+    Command::cargo_bin("udf")
         .expect("binary")
         .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
         .args([
@@ -283,7 +283,7 @@ fn cleanup_yes_skips_confirmation_without_force() {
         &based_on,
     );
 
-    Command::cargo_bin("unrealdevflow")
+    Command::cargo_bin("udf")
         .expect("binary")
         .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
         .args(["cleanup", "test/cleanup-yes", "-y"])
@@ -325,7 +325,7 @@ fn cleanup_force_skips_confirmation_without_yes() {
         &based_on,
     );
 
-    Command::cargo_bin("unrealdevflow")
+    Command::cargo_bin("udf")
         .expect("binary")
         .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
         .args(["cleanup", "test/cleanup-force", "--force"])
@@ -378,7 +378,7 @@ fn cleanup_removes_worktree_before_deleting_branch_and_host() {
         &based_on,
     );
 
-    Command::cargo_bin("unrealdevflow")
+    Command::cargo_bin("udf")
         .expect("binary")
         .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
         .args(["cleanup", "test/cleanup-worktree", "--force"])
@@ -410,7 +410,7 @@ fn cleanup_missing_host_deletes_residual_local_task_branch() {
     git(&source_repo, &["branch", "task-orphan-cleanup"]);
     write_test_config(root, &config_dir, &hosts_root, &plugins_root);
 
-    Command::cargo_bin("unrealdevflow")
+    Command::cargo_bin("udf")
         .expect("binary")
         .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
         .args(["cleanup", "test/orphan-cleanup", "--force"])
@@ -455,7 +455,7 @@ fn delete_force_skips_double_confirmation_for_unmerged_task() {
         &based_on,
     );
 
-    Command::cargo_bin("unrealdevflow")
+    Command::cargo_bin("udf")
         .expect("binary")
         .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
         .args(["delete", "test/delete-force", "--force"])
@@ -502,7 +502,7 @@ fn delete_removes_broken_non_git_worktree_residue() {
         &based_on,
     );
 
-    Command::cargo_bin("unrealdevflow")
+    Command::cargo_bin("udf")
         .expect("binary")
         .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
         .args(["delete", "test/broken-worktree", "--yes", "--force"])
@@ -555,7 +555,7 @@ fn delete_removes_worktree_before_deleting_branch_and_host() {
         &based_on,
     );
 
-    Command::cargo_bin("unrealdevflow")
+    Command::cargo_bin("udf")
         .expect("binary")
         .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
         .args(["delete", "test/delete-worktree", "--force"])
@@ -677,7 +677,7 @@ plugins_root = "{}"
     )
     .expect("meta");
 
-    Command::cargo_bin("unrealdevflow")
+    Command::cargo_bin("udf")
         .expect("binary")
         .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
         .args([
@@ -766,7 +766,7 @@ fn rebase_merge_uses_actual_merge_base_when_metadata_base_is_stale_in_target() {
         &stale_metadata_base,
     );
 
-    Command::cargo_bin("unrealdevflow")
+    Command::cargo_bin("udf")
         .expect("binary")
         .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
         .args([
@@ -872,7 +872,7 @@ fn rebase_merge_replays_from_actual_merge_base_when_based_on_is_not_in_target() 
         &feature_tip,
     );
 
-    Command::cargo_bin("unrealdevflow")
+    Command::cargo_bin("udf")
         .expect("binary")
         .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
         .args([
@@ -986,7 +986,7 @@ fn rebase_merge_restores_target_tip_after_replay_conflict() {
         &feature_tip,
     );
 
-    Command::cargo_bin("unrealdevflow")
+    Command::cargo_bin("udf")
         .expect("binary")
         .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
         .args([

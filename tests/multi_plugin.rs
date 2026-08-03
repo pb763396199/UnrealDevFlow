@@ -133,7 +133,7 @@ plugins_root = "{}"
 
     fn create(&self) {
         let wdp_api_override = format!("WdpAPI={}", self.repos[2].display());
-        let mut command = Command::cargo_bin("unrealdevflow").unwrap();
+        let mut command = Command::cargo_bin("udf").unwrap();
         command
             .env("UNREALDEVFLOW_CONFIG_DIR", &self.config_dir)
             .args([
@@ -155,7 +155,7 @@ plugins_root = "{}"
     }
 
     fn switch(&self) -> assert_cmd::assert::Assert {
-        Command::cargo_bin("unrealdevflow")
+        Command::cargo_bin("udf")
             .unwrap()
             .env("UNREALDEVFLOW_CONFIG_DIR", &self.config_dir)
             .args([
@@ -241,7 +241,7 @@ fn switch_creates_three_junctions_and_delete_removes_every_resource_and_state_en
         3
     );
 
-    Command::cargo_bin("unrealdevflow")
+    Command::cargo_bin("udf")
         .unwrap()
         .env("UNREALDEVFLOW_CONFIG_DIR", &f.config_dir)
         .args(["delete", "test/multi", "--force"])
@@ -277,7 +277,7 @@ fn switch_creates_three_junctions_and_delete_removes_every_resource_and_state_en
 fn merge_requires_selection_for_multi_primary_and_all_dry_run_is_reverse_order() {
     let f = Fixture::new();
     f.create();
-    Command::cargo_bin("unrealdevflow")
+    Command::cargo_bin("udf")
         .unwrap()
         .env("UNREALDEVFLOW_CONFIG_DIR", &f.config_dir)
         .args(["merge", "test/multi", "--strategy", "rebase", "--dry-run"])
@@ -285,7 +285,7 @@ fn merge_requires_selection_for_multi_primary_and_all_dry_run_is_reverse_order()
         .failure()
         .stderr(predicate::str::contains("Use --plugin <name> or --all"));
 
-    let output = Command::cargo_bin("unrealdevflow")
+    let output = Command::cargo_bin("udf")
         .unwrap()
         .env("UNREALDEVFLOW_CONFIG_DIR", &f.config_dir)
         .args([

@@ -65,8 +65,7 @@ pub fn run(
     // === Resolve primary plugins ===
     let plugins_root = workspace_config.effective_plugins_root().ok_or_else(|| {
         UdfError::Other(
-            "未配置 plugins_root（或 v1 plugin_path），请先运行 unrealdevflow configure"
-                .to_string(),
+            "未配置 plugins_root（或 v1 plugin_path），请先运行 udf configure".to_string(),
         )
     })?;
     let project_plugin_locations = scanner::enumerate_plugin_locations(&plugins_root);
@@ -379,11 +378,11 @@ pub fn run(
         ));
     }
     output::print_info(&format!(
-        "  Build:  unrealdevflow build {}/{}",
+        "  Build:  udf build {}/{}",
         workspace_name, task_id
     ));
     output::print_info(&format!(
-        "  Switch: unrealdevflow switch {}/{}",
+        "  Switch: udf switch {}/{}",
         workspace_name, task_id
     ));
     Ok(())

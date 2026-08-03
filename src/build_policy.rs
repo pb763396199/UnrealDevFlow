@@ -372,10 +372,9 @@ pub fn inspect_provider_command(command: Option<&str>) -> BuildGateReport {
             allowed: true,
             status: BuildPolicyStatus::Ready,
             reason: "controlled_build_command".to_string(),
-            matched_trigger: Some("unrealdevflow build".to_string()),
-            recommendation:
-                "Execute the single declared unrealdevflow command and preserve its JSON result."
-                    .to_string(),
+            matched_trigger: Some("udf build".to_string()),
+            recommendation: "Execute the single declared udf command and preserve its JSON result."
+                .to_string(),
         };
     }
     BuildGateReport {
@@ -383,7 +382,7 @@ pub fn inspect_provider_command(command: Option<&str>) -> BuildGateReport {
         status: BuildPolicyStatus::Blocked,
         reason: "undeclared_provider_command".to_string(),
         matched_trigger: None,
-        recommendation: "Use one direct unrealdevflow build command; arbitrary shell wrappers and undeclared commands are blocked.".to_string(),
+        recommendation: "Use one direct udf build command; arbitrary shell wrappers and undeclared commands are blocked.".to_string(),
     }
 }
 
@@ -408,11 +407,7 @@ fn is_direct_controlled_command(command: &str) -> bool {
     let program = program.trim_matches(['\'', '"']).replace('\\', "/");
     let executable = program.rsplit('/').next().unwrap_or(program.as_str());
     let executable = executable.strip_prefix('$').unwrap_or(executable);
-    if !executable.eq_ignore_ascii_case("unrealdevflow")
-        && !executable.eq_ignore_ascii_case("unrealdevflow.exe")
-        && !executable.eq_ignore_ascii_case("udf")
-        && !executable.eq_ignore_ascii_case("udf.exe")
-    {
+    if !executable.eq_ignore_ascii_case("udf") && !executable.eq_ignore_ascii_case("udf.exe") {
         return false;
     }
     let arguments = arguments.trim_start().to_ascii_lowercase();
@@ -561,7 +556,7 @@ fn blocked_gate(reason: &str, trigger: &str) -> BuildGateReport {
         status: BuildPolicyStatus::Blocked,
         reason: reason.to_string(),
         matched_trigger: Some(trigger.to_string()),
-        recommendation: "Use `unrealdevflow build-check --format json`, then run one declared `unrealdevflow build` or `unrealdevflow build-project`; do not run raw UE build commands.".to_string(),
+        recommendation: "Use `udf build-check --format json`, then run one declared `udf build` or `udf build-project`; do not run raw UE build commands.".to_string(),
     }
 }
 
@@ -876,7 +871,7 @@ mod tests {
             "Remove-Item file",
             "cmd /c echo unsafe",
             "powershell -NoProfile -Command \"Remove-Item file\"",
-            "pwsh -Command 'unrealdevflow build-check --format json'",
+            "pwsh -Command 'udf build-check --format json'",
         ] {
             let undeclared = inspect_provider_command(Some(command));
             assert!(!undeclared.allowed, "must block {command}");
@@ -884,9 +879,9 @@ mod tests {
         }
 
         for command in [
-            "unrealdevflow build-check --format json",
+            "udf build-check --format json",
             "& $udf build my-workspace/my-task",
-            "\"C:\\Tools\\unrealdevflow.exe\" build-project --format json",
+            "\"C:\\Tools\\udf.exe\" build-project --format json",
         ] {
             let controlled = inspect_provider_command(Some(command));
             assert!(controlled.allowed, "must allow {command}");
@@ -897,8 +892,8 @@ mod tests {
     #[test]
     fn going_through_the_tool_does_not_licence_disabling_the_mutex() {
         for command in [
-            "unrealdevflow build my-workspace/my-task --mutex no-mutex",
-            "unrealdevflow build my-workspace/my-task --mutex=nomutex",
+            "udf build my-workspace/my-task --mutex no-mutex",
+            "udf build my-workspace/my-task --mutex=nomutex",
             "& $udf build my-workspace/my-task --mutex 'no-mutex'",
         ] {
             let gate = inspect_provider_command(Some(command));
@@ -908,8 +903,8 @@ mod tests {
 
         // The other two mutex modes stay allowed.
         for command in [
-            "unrealdevflow build my-workspace/my-task --mutex wait",
-            "unrealdevflow build my-workspace/my-task --mutex auto",
+            "udf build my-workspace/my-task --mutex wait",
+            "udf build my-workspace/my-task --mutex auto",
         ] {
             let gate = inspect_provider_command(Some(command));
             assert!(gate.allowed, "must allow {command}");

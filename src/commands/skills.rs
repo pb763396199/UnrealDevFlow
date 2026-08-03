@@ -1,4 +1,4 @@
-//! `unrealdevflow skills {install,list,remove}` — minimal cross-provider skill
+//! `udf skills {install,list,remove}` — minimal cross-provider skill
 //! distribution for the 4 providers we target. **Each install location is
 //! verified against the provider's official docs** (sources below):
 //!
@@ -18,7 +18,7 @@
 //! - `remove` deletes the 4 dirs (project or global).
 //!
 //! No junctions, no hash tracking, no auto-sync. The user is the version source:
-//! `git pull` the UnrealDevFlow repo → re-run `unrealdevflow skills install`.
+//! `git pull` the UnrealDevFlow repo → re-run `udf skills install`.
 
 use crate::error::{Result, UdfError};
 use crate::output;
@@ -36,11 +36,11 @@ fn source_skill_file() -> Result<PathBuf> {
         .ok_or_else(|| UdfError::Other(format!("无法获取 exe 目录：{:?}", exe)))?;
 
     // Try several candidate locations (relative to the compiled binary).
-    // - dev:  target/release/unrealdevflow.exe → ../../../skills/unrealdevflow/SKILL.md
-    // - dev:  target/release/unrealdevflow.exe → ../../skills/.../SKILL.md
-    // - dev:  target/release/unrealdevflow.exe → skills/.../SKILL.md
+    // - dev:  target/release/udf.exe → ../../../skills/unrealdevflow/SKILL.md
+    // - dev:  target/release/udf.exe → ../../skills/.../SKILL.md
+    // - dev:  target/release/udf.exe → skills/.../SKILL.md
     // - dev:  target/debug/...
-    // - install (e.g. ~/.cargo/bin/unrealdevflow.exe): ../../skills/.../SKILL.md
+    // - install (e.g. ~/.cargo/bin/udf.exe): ../../skills/.../SKILL.md
     let candidates: [PathBuf; 6] = [
         exe_dir.join("../../../skills/unrealdevflow/SKILL.md"),
         exe_dir.join("../../skills/unrealdevflow/SKILL.md"),
@@ -230,7 +230,7 @@ pub fn list(project: Option<PathBuf>) -> Result<()> {
     ));
 
     if total_present < total {
-        output::print_info("To install: unrealdevflow skills install [--global]");
+        output::print_info("To install: udf skills install [--global]");
     }
 
     Ok(())

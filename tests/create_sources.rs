@@ -234,7 +234,7 @@ fn create_rejects_primary_source_that_resolves_to_linked_worktree() {
     );
     write_workspace_config(&config_dir, root, &project, &active_plugins_root);
 
-    Command::cargo_bin("unrealdevflow")
+    Command::cargo_bin("udf")
         .expect("binary")
         .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
         .args([
@@ -285,7 +285,7 @@ fn create_rejects_plugins_root_inside_default_project() {
     git(&project_plugin, &["checkout", "-B", "dev"]);
     write_workspace_config(&config_dir, root, &project, &project_plugins_root);
 
-    Command::cargo_bin("unrealdevflow")
+    Command::cargo_bin("udf")
         .expect("binary")
         .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
         .args([
@@ -316,7 +316,7 @@ fn create_rejects_path_like_task_id_before_host_creation() {
     let plugins_root = main_repo.parent().expect("plugins root");
     write_workspace_config(&config_dir, root, &project, plugins_root);
 
-    Command::cargo_bin("unrealdevflow")
+    Command::cargo_bin("udf")
         .expect("binary")
         .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
         .args([
@@ -355,7 +355,7 @@ fn create_rejects_primary_repo_when_current_branch_is_not_dev() {
     let plugins_root = main_repo.parent().expect("plugins root");
     write_workspace_config(&config_dir, root, &project, plugins_root);
 
-    Command::cargo_bin("unrealdevflow")
+    Command::cargo_bin("udf")
         .expect("binary")
         .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
         .args([
@@ -385,7 +385,7 @@ fn start_from_valid_main_repo_records_canonical_source_and_base() {
     let plugins_root = main_repo.parent().expect("plugins root");
     write_workspace_config(&config_dir, root, &project, plugins_root);
 
-    Command::cargo_bin("unrealdevflow")
+    Command::cargo_bin("udf")
         .expect("binary")
         .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
         .args([
@@ -471,7 +471,7 @@ plugins_root = "{}"
     let new_plugins = root.join("Plugins");
     fs::create_dir_all(&new_plugins).expect("new plugins");
 
-    Command::cargo_bin("unrealdevflow")
+    Command::cargo_bin("udf")
         .expect("binary")
         .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
         .args([
@@ -515,14 +515,14 @@ fn workspace_doctor_deep_scans_all_plugin_sources_but_default_is_shallow() {
     let project = root.join("UGA").join("DEV");
     write_workspace_config(&config_dir, root, &project, plugins_root);
 
-    Command::cargo_bin("unrealdevflow")
+    Command::cargo_bin("udf")
         .expect("binary")
         .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
         .args(["workspace", "doctor", "bad"])
         .assert()
         .success();
 
-    Command::cargo_bin("unrealdevflow")
+    Command::cargo_bin("udf")
         .expect("binary")
         .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
         .args(["workspace", "doctor", "bad", "--deep"])
@@ -549,7 +549,7 @@ fn start_ignores_duplicate_unrelated_plugins_in_plugins_root() {
     let project = root.join("UGA").join("DEV");
     write_workspace_config(&config_dir, root, &project, plugins_root);
 
-    Command::cargo_bin("unrealdevflow")
+    Command::cargo_bin("udf")
         .expect("binary")
         .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
         .args([
@@ -590,7 +590,7 @@ fn start_uses_exact_default_plugin_path_to_resolve_duplicate_primary_name() {
     let project = root.join("UGA").join("DEV");
     write_workspace_config_with_plugin_path(&config_dir, root, &project, plugins_root, &main_repo);
 
-    Command::cargo_bin("unrealdevflow")
+    Command::cargo_bin("udf")
         .expect("binary")
         .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
         .args([
@@ -634,7 +634,7 @@ fn explicit_primary_uses_default_plugin_path_to_resolve_duplicate_primary_name()
     let project = root.join("UGA").join("DEV");
     write_workspace_config_with_plugin_path(&config_dir, root, &project, plugins_root, &main_repo);
 
-    Command::cargo_bin("unrealdevflow")
+    Command::cargo_bin("udf")
         .expect("binary")
         .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
         .args([
@@ -692,7 +692,7 @@ fn override_dep_engine_stays_engine_and_creates_no_junction() {
     let project = root.join("UGA").join("DEV");
     write_workspace_config(&config_dir, root, &project, plugins_root);
 
-    Command::cargo_bin("unrealdevflow")
+    Command::cargo_bin("udf")
         .expect("binary")
         .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
         .args([
@@ -743,7 +743,7 @@ fn create_rejects_duplicate_relevant_engine_dependency() {
     let plugins_root = main_repo.parent().expect("plugins root");
     write_workspace_config(&config_dir, root, &project, plugins_root);
 
-    Command::cargo_bin("unrealdevflow")
+    Command::cargo_bin("udf")
         .expect("binary")
         .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
         .args([
@@ -804,7 +804,7 @@ fn create_rejects_linked_worktree_project_dependency() {
     let project = root.join("UGA").join("DEV");
     write_workspace_config(&config_dir, root, &project, plugins_root);
 
-    Command::cargo_bin("unrealdevflow")
+    Command::cargo_bin("udf")
         .expect("binary")
         .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
         .args([
@@ -837,7 +837,7 @@ fn create_rejects_missing_dependencies_before_host_creation() {
     let plugins_root = main_repo.parent().expect("plugins root");
     write_workspace_config(&config_dir, root, &project, plugins_root);
 
-    Command::cargo_bin("unrealdevflow")
+    Command::cargo_bin("udf")
         .expect("binary")
         .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
         .args([
@@ -881,7 +881,7 @@ fn create_rejects_duplicate_plugin_names_in_plugins_root() {
     let plugins_root = main_repo.parent().expect("plugins root");
     write_workspace_config(&config_dir, root, &project, plugins_root);
 
-    Command::cargo_bin("unrealdevflow")
+    Command::cargo_bin("udf")
         .expect("binary")
         .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
         .args([

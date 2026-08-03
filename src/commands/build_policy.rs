@@ -150,7 +150,7 @@ fn resolve_subject(
             )
             .ok_or_else(|| {
                 UdfError::Other(format!(
-                    "workspace '{}' 的主项目目录里没有 .uproject：{}。请用 `unrealdevflow workspace doctor {}` 检查配置。",
+                    "workspace '{}' 的主项目目录里没有 .uproject：{}。请用 `udf workspace doctor {}` 检查配置。",
                     name,
                     workspace_config.default_project.display(),
                     name

@@ -171,7 +171,7 @@ pub fn run(
                 return Err(UdfError::Other(format!(
                     "Junction 创建后校验失败：'{}' 实际指向 '{}'，期望 '{}'。\n\
                      项目 '{}' 已经有 {} 个 Junction 被切到本任务（{}），但 state 没有写入，账本仍指向上一个任务。\n\
-                     恢复动作：移除该异常 Junction 后重新执行同一条 switch；或者 `unrealdevflow switch main` 全部复位。",
+                     恢复动作：移除该异常 Junction 后重新执行同一条 switch；或者 `udf switch main` 全部复位。",
                     junction_path.display(),
                     actual_target.display(),
                     target_path.display(),

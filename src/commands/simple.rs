@@ -44,29 +44,29 @@ pub fn next(task_ref: Option<String>) -> Result<()> {
         None => {
             output::print_info("状态：已创建，还没有编译");
             output::print_info("下一步：");
-            output::print_info(&format!("  unrealdevflow build {}", display_ref));
+            output::print_info(&format!("  udf build {}", display_ref));
         }
         Some("building") => {
             output::print_info("状态：正在编译");
             output::print_info("下一步：");
-            output::print_info(&format!("  unrealdevflow build-status {}", display_ref));
+            output::print_info(&format!("  udf build-status {}", display_ref));
         }
         Some("failed") => {
             output::print_warning("状态：上次编译失败");
             output::print_info("下一步：查看日志并修复后重新编译");
-            output::print_info(&format!("  unrealdevflow build-status {}", display_ref));
+            output::print_info(&format!("  udf build-status {}", display_ref));
         }
         Some("success") => {
             output::print_success("状态：编译通过，等待 UE 验收");
             output::print_info("下一步：关闭 UE Editor 后切换项目并验收");
-            output::print_info(&format!("  unrealdevflow switch {}", display_ref));
+            output::print_info(&format!("  udf switch {}", display_ref));
             output::print_info("验收通过后：");
-            output::print_info(&format!("  unrealdevflow finish {}", display_ref));
+            output::print_info(&format!("  udf finish {}", display_ref));
         }
         Some(other) => {
             output::print_info(&format!("状态：{}", other));
             output::print_info("下一步：");
-            output::print_info(&format!("  unrealdevflow build {}", display_ref));
+            output::print_info(&format!("  udf build {}", display_ref));
         }
     }
     Ok(())

@@ -5,7 +5,7 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum UdfError {
-    #[error("UnrealDevFlow 未配置。请先运行 `unrealdevflow configure`")]
+    #[error("UnrealDevFlow 未配置。请先运行 `udf configure`")]
     NotConfigured,
 
     #[error("配置文件不存在：{0}")]

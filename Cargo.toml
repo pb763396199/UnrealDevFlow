@@ -9,7 +9,7 @@ authors = ["UnrealDevFlow Contributors"]
 license = "MIT"
 
 [[bin]]
-name = "unrealdevflow"
+name = "udf"
 path = "src/main.rs"
 
 [dependencies]
