@@ -387,12 +387,15 @@ pub fn inspect_provider_command(command: Option<&str>) -> BuildGateReport {
 }
 
 /// Build actions that go through this tool and therefore respect the UBT mutex.
+/// Two words now, not one: the build commands live under a `build` group, so
+/// the action word is the *second* token. Matching only `build` here would
+/// wave through anything that starts with it.
 const CONTROLLED_BUILD_ACTIONS: &[&str] = &[
-    "build-check",
-    "build-gate",
-    "build-project",
-    "build-status",
-    "build",
+    "build task",
+    "build project",
+    "build check",
+    "build gate",
+    "build status",
 ];
 
 fn is_direct_controlled_command(command: &str) -> bool {
@@ -556,7 +559,7 @@ fn blocked_gate(reason: &str, trigger: &str) -> BuildGateReport {
         status: BuildPolicyStatus::Blocked,
         reason: reason.to_string(),
         matched_trigger: Some(trigger.to_string()),
-        recommendation: "Use `udf build-check --format json`, then run one declared `udf build` or `udf build-project`; do not run raw UE build commands.".to_string(),
+        recommendation: "Use `udf build check --format json`, then run one declared `udf build task` or `udf build project`; do not run raw UE build commands.".to_string(),
     }
 }
 
@@ -856,13 +859,13 @@ mod tests {
         assert_eq!(gate.reason, "raw_ue_build_forbidden");
 
         let smuggled = inspect_provider_command(Some(
-            "& $udf build my-workspace/my-task --format json; Build.bat DEVEditor Win64 Development",
+            "& $udf build task my-workspace/my-task --format json; Build.bat DEVEditor Win64 Development",
         ));
         assert!(!smuggled.allowed);
         assert_eq!(smuggled.reason, "raw_ue_build_forbidden");
 
         let chained = inspect_provider_command(Some(
-            "& $udf build my-workspace/my-task --format json; Remove-Item file",
+            "& $udf build task my-workspace/my-task --format json; Remove-Item file",
         ));
         assert!(!chained.allowed);
         assert_eq!(chained.reason, "shell_chaining_forbidden");
@@ -871,7 +874,7 @@ mod tests {
             "Remove-Item file",
             "cmd /c echo unsafe",
             "powershell -NoProfile -Command \"Remove-Item file\"",
-            "pwsh -Command 'udf build-check --format json'",
+            "pwsh -Command 'udf build check --format json'",
         ] {
             let undeclared = inspect_provider_command(Some(command));
             assert!(!undeclared.allowed, "must block {command}");
@@ -879,9 +882,9 @@ mod tests {
         }
 
         for command in [
-            "udf build-check --format json",
-            "& $udf build my-workspace/my-task",
-            "\"C:\\Tools\\udf.exe\" build-project --format json",
+            "udf build check --format json",
+            "& $udf build task my-workspace/my-task",
+            "\"C:\\Tools\\udf.exe\" build project --format json",
         ] {
             let controlled = inspect_provider_command(Some(command));
             assert!(controlled.allowed, "must allow {command}");
@@ -892,9 +895,9 @@ mod tests {
     #[test]
     fn going_through_the_tool_does_not_licence_disabling_the_mutex() {
         for command in [
-            "udf build my-workspace/my-task --mutex no-mutex",
-            "udf build my-workspace/my-task --mutex=nomutex",
-            "& $udf build my-workspace/my-task --mutex 'no-mutex'",
+            "udf build task my-workspace/my-task --mutex no-mutex",
+            "udf build task my-workspace/my-task --mutex=nomutex",
+            "& $udf build task my-workspace/my-task --mutex 'no-mutex'",
         ] {
             let gate = inspect_provider_command(Some(command));
             assert!(!gate.allowed, "must block {command}");
@@ -903,8 +906,8 @@ mod tests {
 
         // The other two mutex modes stay allowed.
         for command in [
-            "udf build my-workspace/my-task --mutex wait",
-            "udf build my-workspace/my-task --mutex auto",
+            "udf build task my-workspace/my-task --mutex wait",
+            "udf build task my-workspace/my-task --mutex auto",
         ] {
             let gate = inspect_provider_command(Some(command));
             assert!(gate.allowed, "must allow {command}");

@@ -151,7 +151,7 @@ pub fn run(
             child.id()
         ));
         output::print_info(&format!("  Console: {:?}", console_log));
-        output::print_info(&format!("  Check status: udf build-status {}", task_id));
+        output::print_info(&format!("  Check status: udf build status {}", task_id));
     } else {
         let status = cmd.status()?;
 

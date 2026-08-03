@@ -57,8 +57,24 @@ pub enum Commands {
         action: TaskAction,
     },
 
-    /// Build a task's Host project
+    /// Compile a task Host or the main project, and decide when that is allowed.
     Build {
+        #[command(subcommand)]
+        action: BuildAction,
+    },
+
+    /// Install/inspect/remove the UnrealDevFlow skill for AI agent providers
+    /// (opencode / copilot / codex / claude code).
+    Skills {
+        #[command(subcommand)]
+        action: SkillsAction,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum BuildAction {
+    /// Build a task's Host project
+    Task {
         /// Task ref, e.g. workspace/task-id.
         task_ref: String,
 
@@ -93,16 +109,25 @@ pub enum Commands {
         build_log_dir: Option<PathBuf>,
     },
 
-    /// Check build status of a task
-    #[command(name = "build-status")]
-    BuildStatus {
-        /// Task ref, e.g. workspace/task-id.
-        task_ref: String,
+    /// Build the workspace's main UE project instead of a task Host
+    Project {
+        /// Workspace name. Required when more than one workspace exists.
+        #[arg(long)]
+        workspace: Option<String>,
+
+        /// Build strictness profile. Default: light.
+        #[arg(long, value_enum, default_value = "light")]
+        profile: crate::build_profile::BuildProfile,
+
+        /// Editor target override. Default: derived from the .uproject.
+        #[arg(long)]
+        target: Option<String>,
     },
 
     /// Report whether a controlled UE build may start right now (never builds)
-    #[command(name = "build-check")]
-    BuildCheck {
+    ///
+    /// Prints one of: ready / needsUserInput / blocked / deferred.
+    Check {
         /// Task ref, e.g. workspace/task-id. If omitted, checks the workspace's
         /// main project instead of a task Host.
         task_ref: Option<String>,
@@ -127,33 +152,15 @@ pub enum Commands {
     /// Check whether a proposed command bypasses the controlled build path
     ///
     /// Exits non-zero when the command is refused.
-    #[command(name = "build-gate")]
-    BuildGate {
+    Gate {
         /// The command a tool or agent proposes to run.
         command: String,
     },
 
-    /// Build the workspace's main UE project through the controlled path
-    #[command(name = "build-project")]
-    BuildProject {
-        /// Workspace name. Required when more than one workspace exists.
-        #[arg(long)]
-        workspace: Option<String>,
-
-        /// Build strictness profile. Default: light.
-        #[arg(long, value_enum, default_value = "light")]
-        profile: crate::build_profile::BuildProfile,
-
-        /// Editor target override. Default: derived from the .uproject.
-        #[arg(long)]
-        target: Option<String>,
-    },
-
-    /// Install/inspect/remove the UnrealDevFlow skill for AI agent providers
-    /// (opencode / copilot / codex / claude code).
-    Skills {
-        #[command(subcommand)]
-        action: SkillsAction,
+    /// Check build status of a task
+    Status {
+        /// Task ref, e.g. workspace/task-id.
+        task_ref: String,
     },
 }
 

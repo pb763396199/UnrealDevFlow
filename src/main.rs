@@ -46,10 +46,6 @@ fn command_name(command: &Commands) -> &'static str {
         Commands::Workspace { .. } => "workspace",
         Commands::Task { .. } => "task",
         Commands::Build { .. } => "build",
-        Commands::BuildStatus { .. } => "build-status",
-        Commands::BuildCheck { .. } => "build-check",
-        Commands::BuildGate { .. } => "build-gate",
-        Commands::BuildProject { .. } => "build-project",
         Commands::Skills { .. } => "skills",
     }
 }
@@ -68,10 +64,7 @@ fn run(cli: Cli) -> Result<()> {
 
     if !matches!(
         cli.command,
-        Commands::AwStatus
-            | Commands::BuildGate { .. }
-            | Commands::Workspace { .. }
-            | Commands::Skills { .. }
+        Commands::AwStatus | Commands::Workspace { .. } | Commands::Skills { .. }
     ) && !config::Config::exists()
     {
         return Err(error::UdfError::NotConfigured);
@@ -181,37 +174,41 @@ fn run(cli: Cli) -> Result<()> {
                 dry_run,
             } => commands::delete::run(&task_ref, force, yes, dry_run)?,
         },
-        Commands::Build {
-            task_ref,
-            background,
-            mutex,
-            validator,
-            primary_only,
-            profile,
-            build_log_dir,
-        } => commands::build::run(
-            &task_ref,
-            background,
-            mutex,
-            validator,
-            primary_only,
-            profile,
-            build_log_dir,
-        )?,
-        Commands::BuildStatus { task_ref } => commands::build_status::run(&task_ref)?,
-        Commands::BuildCheck {
-            task_ref,
-            workspace,
-            profile,
-            target,
-            build_command,
-        } => commands::build_policy::check(task_ref, workspace, profile, target, build_command)?,
-        Commands::BuildGate { command } => commands::build_policy::gate(command)?,
-        Commands::BuildProject {
-            workspace,
-            profile,
-            target,
-        } => commands::build_policy::project(workspace, profile, target)?,
+        Commands::Build { action } => match action {
+            cli::BuildAction::Task {
+                task_ref,
+                background,
+                mutex,
+                validator,
+                primary_only,
+                profile,
+                build_log_dir,
+            } => commands::build::run(
+                &task_ref,
+                background,
+                mutex,
+                validator,
+                primary_only,
+                profile,
+                build_log_dir,
+            )?,
+            cli::BuildAction::Project {
+                workspace,
+                profile,
+                target,
+            } => commands::build_policy::project(workspace, profile, target)?,
+            cli::BuildAction::Check {
+                task_ref,
+                workspace,
+                profile,
+                target,
+                build_command,
+            } => {
+                commands::build_policy::check(task_ref, workspace, profile, target, build_command)?
+            }
+            cli::BuildAction::Gate { command } => commands::build_policy::gate(command)?,
+            cli::BuildAction::Status { task_ref } => commands::build_status::run(&task_ref)?,
+        },
         Commands::Skills { action } => match action {
             cli::SkillsAction::Install { global, project } => {
                 commands::skills::install(global, project)?
