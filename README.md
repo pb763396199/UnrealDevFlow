@@ -11,7 +11,7 @@ UE 插件多任务并行开发工具。基于 Git Worktree + NTFS Junction，实
 - **状态追踪**：任务状态、编译状态、Junction 状态一目了然
 - **v2 多插件**：单任务跨多插件协同开发（主插件可写 + 依赖插件只读 + 智能扫描依赖）
 - **多 Workspace**：同一台机器可同时管理多个 UE 项目，任务创建后冻结项目/Engine/Hosts 上下文，避免不同 session 串项目
-- **小白命令**：`init/start/next/finish` 把首次配置、创建任务、下一步提示和合并向导压成最短流程
+- **四个名词组**：`workspace` / `task` / `build` / `skill`，顶层只有 4 个命令，不用记 20 个名字
 
 ## 安装
 
@@ -27,7 +27,7 @@ powershell -ExecutionPolicy Bypass -c "irm https://github.com/pb763396199/Unreal
 - 安装到 `%USERPROFILE%\.unrealdevflow\bin`
 - 写入 User PATH，并刷新当前 PowerShell 会话 PATH
 - 安装 Codex App native (`%USERPROFILE%\.codex\skills`) 以及 `.agents` / Claude Code / opencode 可用的 AI skill
-- 验证 `unrealdevflow --version`
+- 验证 `udf --version`
 
 开发者本地源码安装：
 
@@ -42,20 +42,20 @@ pwsh scripts/install.ps1 -FromSource
 ```powershell
 # 1) 初始化当前 UE 项目。workspace 名称表示 UE 项目环境，不是任务名；
 #    通常用自动建议或 neon-dev 这类项目名
-unrealdevflow init --project "F:\ShanghaiP4\neon\UGA\DEV"
+udf workspace init --project "F:\ShanghaiP4\neon\UGA\DEV"
 
 # 2) 开始一个任务。只有一个 workspace 时可省略 --workspace；多个 workspace 时必须显式指定
-unrealdevflow start "修复 EarthPrefabActor 保存后 Component 丢失" `
+udf task create "修复 EarthPrefabActor 保存后 Component 丢失" `
     --workspace neon-dev `
     --primary AesWorld `
     --id prefab-save-bug `
     --yes
 
 # 3) 不知道下一步做什么时
-unrealdevflow next neon-dev/prefab-save-bug
+udf task next neon-dev/prefab-save-bug
 
 # 4) 用户验收通过后进入合并向导
-unrealdevflow finish neon-dev/prefab-save-bug
+udf task finish neon-dev/prefab-save-bug
 ```
 
 `next` 会根据任务状态只提示一件事：该编译、该看编译状态、该切换验收，还是该进入 `finish`。
@@ -78,11 +78,11 @@ workspace 不是任务分组。不要把 `sublevel-tweak`、`prefab-save-bug` �
 同名任务可以同时存在：
 
 ```powershell
-unrealdevflow start "A需求" --workspace project-a --id nav-fix --primary APlugin --yes
-unrealdevflow start "B需求" --workspace project-b --id nav-fix --primary BPlugin --yes
+udf task create "A需求" --workspace project-a --id nav-fix --primary APlugin --yes
+udf task create "B需求" --workspace project-b --id nav-fix --primary BPlugin --yes
 
-unrealdevflow build project-a/nav-fix
-unrealdevflow build project-b/nav-fix
+udf build task project-a/nav-fix
+udf build task project-b/nav-fix
 ```
 
 如果短 id 在多个 workspace 中都存在，工具会要求你使用完整 `workspace/task-id`，不会隐式猜测。
@@ -92,27 +92,27 @@ unrealdevflow build project-b/nav-fix
 ### 1. 配置（v2 plugins_root 取代 v1 plugin_path）
 
 ```powershell
-unrealdevflow configure `
+udf workspace add `
     --hosts-root      "F:\ShanghaiP4\neon\Hosts" `
     --plugins-root    "F:\ShanghaiP4\neon\Plugins" `
     --default-project "F:\ShanghaiP4\neon\UGA\DEV"
 
 # 仍兼容 v1 旧字段
-# unrealdevflow configure --plugin-path "F:\ShanghaiP4\neon\Plugins\AesWorld" ...
+# udf workspace add --plugin-path "F:\ShanghaiP4\neon\Plugins\AesWorld" ...
 ```
 
 多项目并行时优先使用 workspace 注册：
 
 ```powershell
-unrealdevflow workspace add neon-dev `
+udf workspace add neon-dev `
     --project "F:\ShanghaiP4\neon\UGA\DEV" `
     --plugins-root "F:\ShanghaiP4\neon\Plugins" `
     --hosts-root "F:\ShanghaiP4\neon\Hosts" `
     --engine-path "D:\Unreal Engine\UE_5.5" `
     --yes
 
-unrealdevflow workspace list
-unrealdevflow workspace doctor neon-dev
+udf workspace list
+udf workspace doctor neon-dev
 ```
 
 ### 2. 创建任务（多主插件 + 智能依赖扫描）
@@ -125,7 +125,7 @@ unrealdevflow workspace doctor neon-dev
 
 ```powershell
 # 多主插件
-unrealdevflow create "修复 EarthPrefabActor 保存后 Component 丢失" `
+udf task create "修复 EarthPrefabActor 保存后 Component 丢失" `
     --workspace neon-dev `
     --id prefab-save-bug `
     --primary AesWorld,AesWorld_AI `
@@ -133,7 +133,7 @@ unrealdevflow create "修复 EarthPrefabActor 保存后 Component 丢失" `
     --yes
 
 # 引擎/项目同名依赖必须显式选边
-unrealdevflow create "..." --workspace neon-dev --id xxx `
+udf task create "..." --workspace neon-dev --id xxx `
     --primary AesWorld `
     --override-dep PCG=project `
     --override-dep GeometryProcessing=engine
@@ -145,30 +145,30 @@ unrealdevflow create "..." --workspace neon-dev --id xxx `
 
 ```powershell
 # 前台编译（编全 Host .uproject：主插件 + 项目依赖 + 引擎依赖）
-unrealdevflow build neon-dev/prefab-save-bug
+udf build task neon-dev/prefab-save-bug
 
 # 后台编译
-unrealdevflow build neon-dev/prefab-save-bug --background
+udf build task neon-dev/prefab-save-bug --background
 
 # 只编主插件模块（增量验证）
-unrealdevflow build neon-dev/prefab-save-bug --primary-only
+udf build task neon-dev/prefab-save-bug --primary-only
 
 # 查看编译状态
-unrealdevflow build-status neon-dev/prefab-save-bug
+udf build status neon-dev/prefab-save-bug
 ```
 
-### 3.5 受控构建（build-check / build-gate / build-project）
+### 3.5 受控构建（build check / build gate / build project）
 
 同一个引擎目录下只有一把 UnrealBuildTool 互斥锁。两个编译同时开工会互相破坏中间产物，
 所以不要自己拼 `Build.bat` 命令行，先问工具。
 
 ```powershell
 # 现在能不能编？不会启动任何编译，只给结论
-unrealdevflow build-check neon-dev/prefab-save-bug
-unrealdevflow build-check neon-dev/prefab-save-bug --format json
+udf build check neon-dev/prefab-save-bug
+udf build check neon-dev/prefab-save-bug --format json
 
 # 省略任务时检查 workspace 的主项目
-unrealdevflow build-check --workspace neon-dev
+udf build check --workspace neon-dev
 ```
 
 结论有四种：
@@ -184,12 +184,12 @@ unrealdevflow build-check --workspace neon-dev
 
 ```powershell
 # 检查一条命令有没有绕过受控入口。拦下时退出码为 1，适合放进 hook
-unrealdevflow build-gate "unrealdevflow build neon-dev/prefab-save-bug"   # 放行
-unrealdevflow build-gate "Build.bat DEVEditor Win64 Development -NoMutex" # 拦截
+udf build gate "udf build task neon-dev/prefab-save-bug"   # 放行
+udf build gate "Build.bat DEVEditor Win64 Development -NoMutex" # 拦截
 
 # 编 workspace 的主项目，而不是任务宿主
-unrealdevflow build-project --workspace neon-dev
-unrealdevflow build-project --workspace neon-dev --profile medium
+udf build project --workspace neon-dev
+udf build project --workspace neon-dev --profile medium
 ```
 
 引擎路径的解析顺序是：命令行 `--workspace` 对应的 `engine_path` →
@@ -198,7 +198,7 @@ unrealdevflow build-project --workspace neon-dev --profile medium
 ### 4. 切换验收
 
 ```powershell
-unrealdevflow switch neon-dev/prefab-save-bug
+udf task switch neon-dev/prefab-save-bug
 # 重启 UE Editor
 ```
 
@@ -206,46 +206,50 @@ unrealdevflow switch neon-dev/prefab-save-bug
 
 ```powershell
 # 单个主插件
-unrealdevflow merge neon-dev/prefab-save-bug --plugin AesWorld --strategy rebase
+udf task merge neon-dev/prefab-save-bug --plugin AesWorld --strategy rebase
 
 # 全部主插件按逆序逐个 merge
-unrealdevflow merge neon-dev/prefab-save-bug --all --strategy rebase
+udf task merge neon-dev/prefab-save-bug --all --strategy rebase
 
 # 检查 merge 结果
 git log --oneline -5
 
 # 确认无误后清理
-unrealdevflow cleanup neon-dev/prefab-save-bug
+udf task cleanup neon-dev/prefab-save-bug
 ```
 
 也可以使用小白合并向导：
 
 ```powershell
-unrealdevflow finish neon-dev/prefab-save-bug
+udf task finish neon-dev/prefab-save-bug
 ```
 
 ## 命令参考
 
-| 命令 | 说明 |
-|---|---|
-| `init` | 小白首次初始化：自动探测/保存 workspace，安装 AI skill，运行 doctor |
-| `start` | 小白创建任务：保存原始需求，包装 `create` |
-| `next` | 根据任务状态提示下一步 |
-| `finish` | 验收通过后的合并向导，必须选择合并策略 |
-| `workspace` | 管理多个 UE 项目环境（add/list/doctor/remove） |
-| `configure` | 首次配置（Hosts 路径、plugins_root、项目路径） |
-| `create` | 创建任务（多主插件 + 智能依赖扫描） |
-| `build` | 编译任务（全 Host .uproject，可 `--primary-only`） |
-| `build-status` | 查看编译状态 |
-| `build-check` | 只回答现在能不能编，永远不启动编译 |
-| `build-gate` | 检查一条命令有没有绕过受控构建；拦下时退出码为 1 |
-| `build-project` | 编译 workspace 的主项目，而不是任务宿主 |
-| `switch` | 切换 Junction 到指定任务（多 Junction 遍历） |
-| `list` | 列出所有任务 |
-| `status` | 查看当前 Junction 状态 |
-| `merge` | 合并任务到主仓库（`--plugin` / `--all` 选边） |
-| `cleanup` | 清理 worktree 和分支 |
-| `delete` | 删除任务（不合并） |
+顶层只有四个名词组。先想「我在操作什么」，再想「做什么」。
+
+| 组 | 命令 | 说明 |
+|---|---|---|
+| workspace | `workspace init` | 首次初始化：探测并登记 workspace，装 AI skill，跑 doctor |
+| | `workspace add` | 显式登记一个 UE 项目环境 |
+| | `workspace list` | 列出已登记的环境 |
+| | `workspace doctor` | 体检一个环境，`--deep` 递归查每个插件源 |
+| | `workspace remove` | 注销一个环境 |
+| | `workspace status` | 每个 UE 项目当前挂着哪个任务 |
+| task | `task create` | 创建任务（多主插件 + 智能依赖扫描） |
+| | `task list` | 列出所有任务，含损坏任务 |
+| | `task next` | 根据任务状态提示下一步 |
+| | `task switch` | 把 UE 项目的 Junction 指向这个任务 |
+| | `task merge` | 合并回主仓库（`--plugin` / `--all` 选边） |
+| | `task finish` | 验收通过后的合并向导，必须选择策略 |
+| | `task cleanup` | 合并确认后清理 worktree 和分支 |
+| | `task delete` | 删除任务（不合并） |
+| build | `build task` | 编译任务宿主（可 `--primary-only`） |
+| | `build project` | 编译 workspace 的主项目 |
+| | `build check` | 只回答现在能不能编，永远不启动编译 |
+| | `build gate` | 检查一条命令有没有绕过受控构建；拦下时退出码 1 |
+| | `build status` | 查看编译状态 |
+| skill | `skill install/list/remove` | 管理装到四个 AI provider 的 skill |
 
 ## 发布流程
 
@@ -263,7 +267,7 @@ GitHub Release 由 `v*.*.*` tag 触发，并自动生成 draft release、Windows
 
 | 参数 | 说明 |
 |---|---|
-| `--format <json\|human>` | 输出格式。目前只有 `list`、`status`、`build-check`、`build-gate`、`build-project` 会读它，其余命令始终输出人类可读文本 |
+| `--format <json\|human>` | 输出格式。目前只有 `list`、`status`、`build check`、`build gate`、`build project` 会读它，其余命令始终输出人类可读文本 |
 | `-v, --verbose` | 详细日志 |
 | `-h, --help` | 帮助信息 |
 | `-V, --version` | 版本信息 |
@@ -290,7 +294,7 @@ GitHub Release 由 `v*.*.*` tag 触发，并自动生成 draft release、Windows
 用户说："调查 EarthPrefabActor 保存后 Component 丢失的问题，EarthPCG 也得跟着改"
 
 1. 创建多插件任务
-   unrealdevflow start "EarthPrefabActor 保存丢失 + EarthPCG 联动修复" `
+   udf task create "EarthPrefabActor 保存丢失 + EarthPCG 联动修复" `
        --workspace neon-dev `
        --id prefab-save-bug `
        --primary AesWorld `
@@ -308,19 +312,19 @@ GitHub Release 由 `v*.*.*` tag 触发，并自动生成 draft release、Windows
    (EarthPCG 通过 Junction 直接看到 AesWorld 改动)
 
 3. 编译
-   unrealdevflow build neon-dev/prefab-save-bug
+   udf build task neon-dev/prefab-save-bug
    # UBT 看到 .uproject enable 了 AesWorld + EarthPCG
    # 两个插件的源码一起编译，跨插件 API 不一致立即暴露
 
 4. 切换验收
-   unrealdevflow switch neon-dev/prefab-save-bug
+   udf task switch neon-dev/prefab-save-bug
    # 重启 UE Editor
 
 5. 验收通过后合并
-   unrealdevflow merge neon-dev/prefab-save-bug --plugin AesWorld --strategy rebase
+   udf task merge neon-dev/prefab-save-bug --plugin AesWorld --strategy rebase
    git log --oneline -5
    # EarthPCG 的改动用户在主仓库自己 commit
-   unrealdevflow cleanup neon-dev/prefab-save-bug
+   udf task cleanup neon-dev/prefab-save-bug
 ```
 
 ## 常见问题
@@ -329,7 +333,7 @@ GitHub Release 由 `v*.*.*` tag 触发，并自动生成 draft release、Windows
 
 A: 关闭占用目录的程序（Rider、VSCode、文件资源管理器），然后重试：
 ```powershell
-unrealdevflow switch <workspace>/<task-id> --force
+udf task switch <workspace>/<task-id> --force
 ```
 
 ### Q: 合并后想回退怎么办？
@@ -340,7 +344,7 @@ A: 使用 `git reflog` 找到合并前的 commit，然后 `git reset --hard <com
 
 A: 用 `--override-dep <name>=engine` 强制使用引擎版，或 `=<name>=project` 强制使用项目版：
 ```powershell
-unrealdevflow create "..." --primary AesWorld --override-dep PCG=project
+udf task create "..." --primary AesWorld --override-dep PCG=project
 ```
 
 ### Q: 依赖插件的源码被改动了，会被工具发现吗？
@@ -351,9 +355,9 @@ A: 不会立刻拦截，但 build / switch / merge 前会 `git status --porcelai
 
 A:
 ```powershell
-unrealdevflow list          # 列出所有任务
-unrealdevflow status        # 查看当前 Junction 状态
-unrealdevflow build-status <id>  # 查看编译状态
+udf task list          # 列出所有任务
+udf workspace status        # 查看当前 Junction 状态
+udf build status <id>  # 查看编译状态
 ```
 
 ### Q: 日志文件在哪里？

@@ -8,15 +8,15 @@
 ## 小白优先入口
 
 ```powershell
-unrealdevflow init --project "<UE项目目录>" [--workspace <name>]
-unrealdevflow start "用户原始需求" --workspace <name> --primary <Plugin> --id <task-id> --yes
-unrealdevflow next <workspace>/<task-id>
-unrealdevflow finish <workspace>/<task-id>
+udf workspace init --project "<UE项目目录>" [--workspace <name>]
+udf task create "用户原始需求" --workspace <name> --primary <Plugin> --id <task-id> --yes
+udf task next <workspace>/<task-id>
+udf task finish <workspace>/<task-id>
 ```
 
 - `init` 自动探测 UE 项目、Plugins 根目录、Engine、Hosts，并安装 AI skill。
 - workspace 名称可自动建议，也可用户自定义；多个 workspace 时任务引用必须写成 `workspace/task-id`。
-- `start` 会保存用户原始需求，相当于小白版 `create --prompt ...`。
+- `task create` 不给 `--prompt` 时会把描述当原始需求存进元数据。
 - `next` 只告诉用户下一步。
 - `finish` 是合并向导，必须让用户选择策略，默认推荐 rebase。
 
@@ -24,10 +24,10 @@ unrealdevflow finish <workspace>/<task-id>
 
 ### 1. START/CREATE — 创建任务
 ```powershell
-unrealdevflow start "任务描述" --workspace workspace-name --id task-id --primary AesWorld --yes
+udf task create "任务描述" --workspace workspace-name --id task-id --primary AesWorld --yes
 
 # 专业模式
-unrealdevflow create "任务描述" --workspace workspace-name --id task-id --prompt "用户原始prompt" --primary AesWorld --yes
+udf task create "任务描述" --workspace workspace-name --id task-id --prompt "用户原始prompt" --primary AesWorld --yes
 ```
 - `--id` 短英文 kebab-case
 - `--prompt` **必须完整保存用户原始需求**
@@ -45,28 +45,28 @@ unrealdevflow create "任务描述" --workspace workspace-name --id task-id --pr
 
 ### 3. BUILD — 编译验证
 ```powershell
-unrealdevflow build <task-ref>                    # 严格模式默认
-unrealdevflow build <task-ref> --background
-unrealdevflow build <task-ref> --primary-only     # 只编主插件
-unrealdevflow build-status <task-ref>
+udf build task <task-ref>                    # 严格模式默认
+udf build task <task-ref> --background
+udf build task <task-ref> --primary-only     # 只编主插件
+udf build status <task-ref>
 ```
 - 严格模式自动启用：`-FailIfGeneratedCodeChanges -NoUBTMakefiles -DisableAdaptiveUnity`
 - 失败看 `Build_<time>.log`
 
 **编之前先问能不能编**（同一引擎只有一把 UBT 互斥锁）：
 ```powershell
-unrealdevflow build-check <task-ref>              # ready / deferred / blocked / needsUserInput
-unrealdevflow build-gate "<完整命令>"              # 这条命令绕过受控构建了吗，拦下时退出码 1
-unrealdevflow build-project [--workspace <name>]  # 编主项目而不是任务宿主
+udf build check <task-ref>              # ready / deferred / blocked / needsUserInput
+udf build gate "<完整命令>"              # 这条命令绕过受控构建了吗，拦下时退出码 1
+udf build project [--workspace <name>]  # 编主项目而不是任务宿主
 ```
 - `deferred` 表示别人正在编，等它结束；**不要**改用 `--mutex no-mutex` 绕过去。
-- `build-check` 本身永远返回 0，结论就是答案。
+- `build check` 本身永远返回 0，结论就是答案。
 
 ### 4. SWITCH — 让用户验收
 **不要自己执行 switch！** 告诉用户：
 ```
 ✅ 任务 <id> 已完成
-1. unrealdevflow switch <task-ref>
+1. udf task switch <task-ref>
 2. 重启 UE Editor
 3. 验证
 ```
@@ -78,16 +78,16 @@ unrealdevflow build-project [--workspace <name>]  # 编主项目而不是任务�
 ```
 然后：
 ```powershell
-unrealdevflow merge <task-ref> --strategy rebase
+udf task merge <task-ref> --strategy rebase
 git log --oneline -5
 # ⚠️ 等用户确认后再 cleanup
-unrealdevflow cleanup <task-ref>
+udf task cleanup <task-ref>
 ```
 
 **多主插件任务**：
 ```powershell
-unrealdevflow merge <task-ref> --plugin AesWorld --strategy rebase
-unrealdevflow merge <task-ref> --all --strategy rebase   # 逆序逐个
+udf task merge <task-ref> --plugin AesWorld --strategy rebase
+udf task merge <task-ref> --all --strategy rebase   # 逆序逐个
 ```
 
 ---
@@ -96,12 +96,12 @@ unrealdevflow merge <task-ref> --all --strategy rebase   # 逆序逐个
 
 | ❌ 禁止 | ✅ 改用 |
 |---|---|
-| `git merge` / `git rebase` / `git cherry-pick` | `unrealdevflow merge` |
-| `git branch -D` / `git worktree remove` / `git reset --hard` | `unrealdevflow cleanup` / `delete` |
+| `git merge` / `git rebase` / `git cherry-pick` | `udf task merge` |
+| `git branch -D` / `git worktree remove` / `git reset --hard` | `udf task cleanup` / `delete` |
 | 自动 cleanup（merge 后未确认） | 等用户确认才 cleanup |
 | 不询问就指定 `--strategy rebase` | 询问 4 选 1 |
 | 修改主仓库 `{plugins_root}/<plugin>/` | 只改 worktree |
-| 跑 `Build.bat` / `RunUBT.bat` | `unrealdevflow build` |
+| 跑 `Build.bat` / `RunUBT.bat` | `udf build task` |
 
 ---
 
@@ -109,22 +109,22 @@ unrealdevflow merge <task-ref> --all --strategy rebase   # 逆序逐个
 
 | 场景 | 命令 |
 |---|---|
-| 初始化 | `unrealdevflow init --project <UE项目> [--workspace <name>]` |
-| 创建任务 | `unrealdevflow start "..." --workspace <w> --primary <Plugin> --id xxx --yes` |
-| 下一步 | `unrealdevflow next <workspace/task>` |
-| 编译 | `unrealdevflow build <workspace/task> [--background] [--primary-only]` |
-| 编译状态 | `unrealdevflow build-status <workspace/task>` |
-| 能不能编 | `unrealdevflow build-check <workspace/task> [--format json]` |
-| 命令是否绕过受控构建 | `unrealdevflow build-gate "<完整命令>"` |
-| 编主项目 | `unrealdevflow build-project [--workspace <w>]` |
-| 通知用户验收 | 告诉用户 `unrealdevflow switch <workspace/task>` + 重启 Editor |
-| 合并向导 | `unrealdevflow finish <workspace/task>` |
-| 合并（必问策略） | `unrealdevflow merge <workspace/task> --strategy <s> [--plugin <name> \| --all]` |
-| 清理 | `unrealdevflow cleanup <workspace/task>`（用户确认后） |
-| 删除（不合并） | `unrealdevflow delete <workspace/task>` |
-| 列任务 | `unrealdevflow list` |
-| 列 workspace | `unrealdevflow workspace list` |
-| 看状态 | `unrealdevflow status` |
+| 初始化 | `udf workspace init --project <UE项目> [--workspace <name>]` |
+| 创建任务 | `udf task create "..." --workspace <w> --primary <Plugin> --id xxx --yes` |
+| 下一步 | `udf task next <workspace/task>` |
+| 编译 | `udf build task <workspace/task> [--background] [--primary-only]` |
+| 编译状态 | `udf build status <workspace/task>` |
+| 能不能编 | `udf build check <workspace/task> [--format json]` |
+| 命令是否绕过受控构建 | `udf build gate "<完整命令>"` |
+| 编主项目 | `udf build project [--workspace <w>]` |
+| 通知用户验收 | 告诉用户 `udf task switch <workspace/task>` + 重启 Editor |
+| 合并向导 | `udf task finish <workspace/task>` |
+| 合并（必问策略） | `udf task merge <workspace/task> --strategy <s> [--plugin <name> \| --all]` |
+| 清理 | `udf task cleanup <workspace/task>`（用户确认后） |
+| 删除（不合并） | `udf task delete <workspace/task>` |
+| 列任务 | `udf task list` |
+| 列 workspace | `udf workspace list` |
+| 看状态 | `udf workspace status` |
 
 ---
 

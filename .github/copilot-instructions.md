@@ -8,7 +8,7 @@
 
 UnrealDevFlow is a UE plugin parallel-development CLI: it creates isolated Git-worktree-based task hosts, switches NTFS Junctions into a UE project for verification, and merges per-plugin. Source repos under `F:\ShanghaiP4\neon\Plugins\` are NEVER modified — only worktrees under `Hosts/T-<id>_Host/Plugins/<plugin>/`.
 
-**Any code work happens inside a worktree. Do not run raw `git merge` / `rebase` / `branch -D` / `worktree remove` / `reset --hard`. Use `unrealdevflow` commands only.**
+**Any code work happens inside a worktree. Do not run raw `git merge` / `rebase` / `branch -D` / `worktree remove` / `reset --hard`. Use `udf` commands only.**
 
 ---
 
@@ -16,11 +16,11 @@ UnrealDevFlow is a UE plugin parallel-development CLI: it creates isolated Git-w
 
 | Step | Command | When |
 |---|---|---|
-| 1. CREATE | `unrealdevflow create "<desc>" --id <id> --prompt "<raw prompt>" --yes` | When user gives a dev task |
+| 1. CREATE | `udf task create "<desc>" --id <id> --prompt "<raw prompt>" --yes` | When user gives a dev task |
 | 2. WORK | Edit only `{hosts_root}/T-<id>_Host/Plugins/<plugin>/...` | During implementation |
-| 3. BUILD | `unrealdevflow build <id>` (or `--background` / `--primary-only`) | After code changes |
-| 4. SWITCH | Tell user to run `unrealdevflow switch <id>` + restart UE Editor | For manual verification |
-| 5. MERGE | Ask user for strategy, then `unrealdevflow merge <id> --strategy <s>` | After user confirms verification |
+| 3. BUILD | `udf build task <id>` (or `--background` / `--primary-only`) | After code changes |
+| 4. SWITCH | Tell user to run `udf task switch <id>` + restart UE Editor | For manual verification |
+| 5. MERGE | Ask user for strategy, then `udf task merge <id> --strategy <s>` | After user confirms verification |
 
 **Step 5 detail**: `merge` REQUIRES `--strategy`. The 4 options are `rebase | merge | squash | ff-only`. **Always ask the user first** before running.
 
@@ -31,10 +31,10 @@ UnrealDevFlow is a UE plugin parallel-development CLI: it creates isolated Git-w
 ## Hard rules
 
 - ❌ Never run raw `git merge` / `rebase` / `cherry-pick` / `branch -D` / `worktree remove` / `reset --hard`
-- ❌ Never auto-run `unrealdevflow cleanup` — wait for explicit user confirmation after merge
+- ❌ Never auto-run `udf task cleanup` — wait for explicit user confirmation after merge
 - ❌ Never pick a merge strategy without asking the user
 - ❌ Never modify files under `{plugins_root}/<plugin>/` (the main repo)
-- ❌ Never run `Build.bat` / `RunUBT.bat` directly — use `unrealdevflow build`
+- ❌ Never run `Build.bat` / `RunUBT.bat` directly — use `udf build task`
 - ✅ All code edits happen inside the task's worktree
 - ✅ Commit messages must be **Chinese** with the `Task#XXX` + 反思 format (see AGENTS.md)
 
@@ -58,17 +58,17 @@ Task#[number] [内容摘要]
 ## Quick command reference
 
 ```
-unrealdevflow configure --hosts-root X --plugins-root Y --default-project Z
-unrealdevflow create "desc" --id <id> --prompt "..." --yes
-unrealdevflow create "desc" --id <id> --primary AesWorld,AesWorld_AI --yes
-unrealdevflow build <id> [--background] [--primary-only]
-unrealdevflow build-status <id>
-unrealdevflow switch <id>           # user runs, not agent
-unrealdevflow merge <id> --strategy <rebase|merge|squash|ff-only> [--plugin <name>|--all]
-unrealdevflow cleanup <id>          # after user confirms
-unrealdevflow delete <id>           # if verification failed
-unrealdevflow list
-unrealdevflow status
+udf workspace add --hosts-root X --plugins-root Y --default-project Z
+udf task create "desc" --id <id> --prompt "..." --yes
+udf task create "desc" --id <id> --primary AesWorld,AesWorld_AI --yes
+udf build task <id> [--background] [--primary-only]
+udf build status <id>
+udf task switch <id>           # user runs, not agent
+udf task merge <id> --strategy <rebase|merge|squash|ff-only> [--plugin <name>|--all]
+udf task cleanup <id>          # after user confirms
+udf task delete <id>           # if verification failed
+udf task list
+udf workspace status
 ```
 
 ---

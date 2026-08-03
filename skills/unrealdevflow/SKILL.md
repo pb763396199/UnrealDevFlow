@@ -16,12 +16,12 @@ argument-hint: "<task description>"
 
 ## Binary location
 
-The `unrealdevflow` CLI should be in PATH. If `Get-Command unrealdevflow` fails, use the release installer location:
+The `udf` CLI should be in PATH. If `Get-Command udf` fails, use the release installer location:
 
 ```powershell
-$udf = Get-Command unrealdevflow -ErrorAction SilentlyContinue
+$udf = Get-Command udf -ErrorAction SilentlyContinue
 if (-not $udf) {
-    $udf = "$env:USERPROFILE\.unrealdevflow\bin\unrealdevflow.exe"
+    $udf = "$env:USERPROFILE\.unrealdevflow\bin\udf.exe"
 }
 ```
 
@@ -36,10 +36,10 @@ powershell -ExecutionPolicy Bypass -c "irm https://github.com/pb763396199/Unreal
 For first-time users, keep the flow to four commands:
 
 ```powershell
-unrealdevflow init --project "<UE project dir>" [--workspace <name>]
-unrealdevflow start "<user's original request>" --workspace <name> --primary <Plugin> --id <task-id> --yes
-unrealdevflow next <workspace>/<task-id>
-unrealdevflow finish <workspace>/<task-id>
+udf workspace init --project "<UE project dir>" [--workspace <name>]
+udf task create "<user's original request>" --workspace <name> --primary <Plugin> --id <task-id> --yes
+udf task next <workspace>/<task-id>
+udf task finish <workspace>/<task-id>
 ```
 
 - `init` detects project/plugins/engine/hosts, saves a named workspace, installs the AI skill, and runs doctor.
@@ -54,7 +54,7 @@ unrealdevflow finish <workspace>/<task-id>
 ### 1. START/CREATE — create isolated task workspace
 
 ```powershell
-unrealdevflow start "<task description>" `
+udf task create "<task description>" `
     --workspace <workspace-name> `
     --id <task-id> `
     --primary AesWorld,AesWorld_AI `
@@ -62,7 +62,7 @@ unrealdevflow start "<task description>" `
     --yes
 
 # Low-level equivalent:
-unrealdevflow create "<task description>" `
+udf task create "<task description>" `
     --workspace <workspace-name> `
     --id <task-id> `
     --prompt "<user's original prompt — preserve verbatim>" `
@@ -99,11 +99,11 @@ Task ref:      <workspace>/<id>
 ### 3. BUILD — compile with strict flags (default)
 
 ```powershell
-unrealdevflow build <task-ref>                    # default profile = light
-unrealdevflow build <task-ref> --primary-only     # only primary plugin modules (-Module=...)
-unrealdevflow build <task-ref> --profile medium   # + WarningsAsErrors
-unrealdevflow build <task-ref> --profile heavy    # -Rebuild -DisableUnity -NoSharedPCH (slow)
-unrealdevflow build-status <task-ref>
+udf build task <task-ref>                    # default profile = light
+udf build task <task-ref> --primary-only     # only primary plugin modules (-Module=...)
+udf build task <task-ref> --profile medium   # + WarningsAsErrors
+udf build task <task-ref> --profile heavy    # -Rebuild -DisableUnity -NoSharedPCH (slow)
+udf build status <task-ref>
 ```
 
 - Light profile: `-FailIfGeneratedCodeChanges -NoUBTMakefiles -DisableAdaptiveUnity`.
@@ -115,9 +115,9 @@ One engine directory has exactly one UnrealBuildTool mutex. Two builds at once
 corrupt each other's intermediates, so never hand-assemble a `Build.bat` line.
 
 ```powershell
-unrealdevflow build-check <task-ref>                 # may a build start right now?
-unrealdevflow build-check <task-ref> --format json   # same answer, machine readable
-unrealdevflow build-check --workspace <name>         # no task ref = the main project
+udf build check <task-ref>                 # may a build start right now?
+udf build check <task-ref> --format json   # same answer, machine readable
+udf build check --workspace <name>         # no task ref = the main project
 ```
 
 Four verdicts. The command itself always exits 0 — the verdict is the answer,
@@ -125,17 +125,17 @@ not a failure to answer.
 
 | Verdict | Meaning | What to do |
 |---|---|---|
-| `ready` | a build may start | run `unrealdevflow build <task-ref>` |
+| `ready` | a build may start | run `udf build task <task-ref>` |
 | `deferred` | another UBT holds the mutex | wait, do not bypass it |
 | `blocked` | refused by policy (e.g. `-NoMutex` present) | read the `reason` field |
 | `needsUserInput` | engine/project could not be resolved | pass `--workspace`, or fix the workspace config |
 
 ```powershell
 # Does a proposed command bypass the controlled path? Exit code 1 when refused.
-unrealdevflow build-gate "<the full command you were about to run>"
+udf build gate "<the full command you were about to run>"
 
 # Build the workspace's main project instead of a task Host
-unrealdevflow build-project [--workspace <name>] [--profile light|medium|heavy]
+udf build project [--workspace <name>] [--profile light|medium|heavy]
 ```
 
 Engine root resolution order: the workspace's `engine_path` → the
@@ -144,7 +144,7 @@ the `.uproject`.
 
 ### 4. SWITCH — NEVER run without explicit user authorization
 
-**⛔ HARD RULE: You MUST NOT run `unrealdevflow switch` unless the user explicitly says to do so.**
+**⛔ HARD RULE: You MUST NOT run `udf task switch` unless the user explicitly says to do so.**
 
 This is not a suggestion. This is a hard prohibition. Reasons:
 - `switch` rewrites NTFS Junctions that the running UE Editor depends on
@@ -158,22 +158,22 @@ When the build succeeds, **tell the user** and **wait for their explicit instruc
 
 To verify, please:
 1. Close UE Editor (if running)
-2. Tell me to run: unrealdevflow switch <task-ref>
+2. Tell me to run: udf task switch <task-ref>
 3. Then restart UE Editor and verify the feature
 
 After verification:
-  unrealdevflow finish <task-ref>
-  unrealdevflow cleanup <task-ref>
+  udf task finish <task-ref>
+  udf task cleanup <task-ref>
 
 If verification failed:
-  unrealdevflow delete <task-ref> --yes --force
+  udf task delete <task-ref> --yes --force
 ```
 
 Even if the user says "帮我切" or "switch it", you should confirm the exact command before executing, because switch is destructive to the running Editor session.
 
 ### 5. MERGE — only after user confirms
 
-**⚠️ IMPORTANT: `unrealdevflow merge` automatically fetches from origin before merging.**
+**⚠️ IMPORTANT: `udf task merge` automatically fetches from origin before merging.**
 
 This ensures you're merging against the latest remote state. If other tasks have been merged to dev while you were working, the merge will include those changes.
 
@@ -181,46 +181,46 @@ This ensures you're merging against the latest remote state. If other tasks have
 
 ```powershell
 # Single primary plugin
-unrealdevflow merge <task-ref> --plugin AesWorld --strategy rebase
+udf task merge <task-ref> --plugin AesWorld --strategy rebase
 
 # All primary plugins (v2, in reverse declaration order, independent confirmations)
-unrealdevflow merge <task-ref> --all --strategy rebase
+udf task merge <task-ref> --all --strategy rebase
 
 # Inspect result
 git log --oneline -5
 
 # ONLY after user confirms the merge looks right:
-unrealdevflow cleanup <task-ref>
+udf task cleanup <task-ref>
 ```
 
 ## 🚫 Hard rules
 
 | ❌ Forbidden | ✅ Use instead |
 |---|---|
-| **Running `unrealdevflow switch` without explicit user authorization** | **Tell user the command, wait for them to say "run it"** |
-| `git merge` / `git rebase` / `git cherry-pick` | `unrealdevflow merge` |
-| `git branch -D` / `git worktree remove` / `git reset --hard` | `unrealdevflow cleanup` / `delete` |
+| **Running `udf task switch` without explicit user authorization** | **Tell user the command, wait for them to say "run it"** |
+| `git merge` / `git rebase` / `git cherry-pick` | `udf task merge` |
+| `git branch -D` / `git worktree remove` / `git reset --hard` | `udf task cleanup` / `delete` |
 | Auto-`cleanup` right after merge | Wait for explicit user confirmation |
 | Picking `--strategy` without asking the user | Ask, then pass the user's choice |
 | Editing the main plugin repo `{plugins_root}/<plugin>/` | Edit only the task worktree |
-| Running `Build.bat` / `RunUBT.bat` directly | `unrealdevflow build`, after `unrealdevflow build-check` says `ready` |
+| Running `Build.bat` / `RunUBT.bat` directly | `udf build task`, after `udf build check` says `ready` |
 | Passing `-NoMutex` to work around a busy build | Wait out the `deferred` verdict |
 
 ## Failure recovery
 
 | Symptom | Fix |
 |---|---|
-| "目录被占用" on `switch` | Close Rider/VSCode/file explorer, retry with `unrealdevflow switch <task-ref> --force` |
-| "Build.bat 不存在" | Re-run `unrealdevflow configure --engine-path "正确路径"` |
-| `build` seems to hang behind another compile | `unrealdevflow build-check <task-ref>` — `deferred` means another UBT holds the mutex |
-| Wrong merge order | `git reflog`, then `git reset --hard <before-merge-commit>`, re-run `unrealdevflow merge` |
-| Engine+project dep conflict | `unrealdevflow create ... --override-dep <name>=engine\|project` |
+| "目录被占用" on `switch` | Close Rider/VSCode/file explorer, retry with `udf task switch <task-ref> --force` |
+| "Build.bat 不存在" | Re-run `udf workspace add --engine-path "正确路径"` |
+| `build` seems to hang behind another compile | `udf build check <task-ref>` — `deferred` means another UBT holds the mutex |
+| Wrong merge order | `git reflog`, then `git reset --hard <before-merge-commit>`, re-run `udf task merge` |
+| Engine+project dep conflict | `udf task create ... --override-dep <name>=engine\|project` |
 | Short task id is ambiguous | Use full ref `workspace/task-id` |
 | "Broken junction" warning on `switch` | **Auto-fixed**: `switch` detects broken junctions (target deleted) and removes them automatically. This happens when a task was deleted without cleanup. No manual action needed. |
 
 ## Junction lifecycle (important)
 
-When you run `unrealdevflow delete <task-ref>`, the tool **automatically cleans up junctions** in all known main projects that point to the deleted task's worktrees. This prevents "broken junctions" that would block future `switch` operations.
+When you run `udf task delete <task-ref>`, the tool **automatically cleans up junctions** in all known main projects that point to the deleted task's worktrees. This prevents "broken junctions" that would block future `switch` operations.
 
 **What happens during `delete`:**
 1. Scans all projects in `~/.unrealdevflow/state.json`
@@ -233,7 +233,7 @@ When you run `unrealdevflow delete <task-ref>`, the tool **automatically cleans 
 - You'll see a warning: "Found broken junction at ... (target no longer exists)"
 - This is safe and expected behavior
 
-**Best practice:** Always use `unrealdevflow delete` instead of manually removing worktree directories. This ensures junctions are properly cleaned up.
+**Best practice:** Always use `udf task delete` instead of manually removing worktree directories. This ensures junctions are properly cleaned up.
 
 ## Full docs (in the tool's source repo)
 

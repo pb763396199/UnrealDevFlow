@@ -29,17 +29,17 @@
 新用户不用先理解所有底层命令，优先走：
 
 ```powershell
-unrealdevflow init --project "<UE项目目录>" [--workspace <name>]
-unrealdevflow start "用户原始需求" --workspace <name> --primary <Plugin> --id <task-id> --yes
-unrealdevflow next <workspace>/<task-id>
-unrealdevflow finish <workspace>/<task-id>
+udf workspace init --project "<UE项目目录>" [--workspace <name>]
+udf task create "用户原始需求" --workspace <name> --primary <Plugin> --id <task-id> --yes
+udf task next <workspace>/<task-id>
+udf task finish <workspace>/<task-id>
 ```
 
 规则：
 - `init` 自动探测 UE 项目、Plugins 根目录、Engine 路径、Hosts 目录，保存为 workspace，并安装 AI skill。
 - workspace 名称可由工具建议，也可由用户用 `--workspace` 指定；内部会规范成 kebab-case。
 - 只有一个 workspace 时可省略 `--workspace`；多个 workspace 时必须显式指定，避免 session 串项目。
-- `start` 是 `create` 的小白封装，会把用户原始需求写入 `--prompt`。
+- `task create` 不给 `--prompt` 时会把描述当原始需求存进元数据。
 - `next` 只告诉用户下一步该执行什么，不输出长说明书。
 - `finish` 是验收通过后的合并向导，仍必须由用户选择合并策略，默认推荐 rebase。
 
@@ -52,10 +52,10 @@ unrealdevflow finish <workspace>/<task-id>
 ### 第 1 步：START/CREATE — 创建任务
 
 ```powershell
-unrealdevflow start "任务描述" --workspace workspace-name --id task-id --primary AesWorld --yes
+udf task create "任务描述" --workspace workspace-name --id task-id --primary AesWorld --yes
 
 # 专业模式：等价底层命令
-unrealdevflow create "任务描述" --workspace workspace-name --id task-id --prompt "用户原始prompt" --primary AesWorld --yes
+udf task create "任务描述" --workspace workspace-name --id task-id --prompt "用户原始prompt" --primary AesWorld --yes
 ```
 
 工具自动：
@@ -94,24 +94,24 @@ unrealdevflow create "任务描述" --workspace workspace-name --id task-id --pr
 ### 第 3 步：BUILD — 编译验证
 
 ```powershell
-unrealdevflow build <task-ref>                          # 前台编译（编全 Host .uproject）
-unrealdevflow build <task-ref> --background             # 后台编译
-unrealdevflow build <task-ref> --primary-only           # 只编主插件模块（增量）
-unrealdevflow build <task-ref> --profile medium|heavy   # 加严严格度（PR/merge 前）
-unrealdevflow build <task-ref> --mutex wait|no-mutex     # 强制 mutex 模式
-unrealdevflow build <task-ref> --validator              # 标记为 CI/Validator 调用
-unrealdevflow build-status <task-ref>                   # 查状态
+udf build task <task-ref>                          # 前台编译（编全 Host .uproject）
+udf build task <task-ref> --background             # 后台编译
+udf build task <task-ref> --primary-only           # 只编主插件模块（增量）
+udf build task <task-ref> --profile medium|heavy   # 加严严格度（PR/merge 前）
+udf build task <task-ref> --mutex wait|no-mutex     # 强制 mutex 模式
+udf build task <task-ref> --validator              # 标记为 CI/Validator 调用
+udf build status <task-ref>                   # 查状态
 ```
 
 **编之前先问一句。** 同一个引擎目录只有一把 UnrealBuildTool 互斥锁，两个编译同时开工会互相
-破坏中间产物。`build-check` 只回答能不能编，永远不启动编译，命令本身永远返回 0：
+破坏中间产物。`build check` 只回答能不能编，永远不启动编译，命令本身永远返回 0：
 
 ```powershell
-unrealdevflow build-check <task-ref>                    # 四种结论之一
-unrealdevflow build-check <task-ref> --format json      # 同样的结论，机器可读
-unrealdevflow build-check --workspace <name>            # 不给任务时检查主项目
-unrealdevflow build-gate "<完整命令>"                    # 这条命令绕过受控构建了吗，拦下时退出码 1
-unrealdevflow build-project [--workspace <name>]        # 编主项目而不是任务宿主
+udf build check <task-ref>                    # 四种结论之一
+udf build check <task-ref> --format json      # 同样的结论，机器可读
+udf build check --workspace <name>            # 不给任务时检查主项目
+udf build gate "<完整命令>"                    # 这条命令绕过受控构建了吗，拦下时退出码 1
+udf build project [--workspace <name>]        # 编主项目而不是任务宿主
 ```
 
 | 结论 | 意思 | 该怎么办 |
@@ -139,7 +139,7 @@ unrealdevflow build-project [--workspace <name>]        # 编主项目而不是�
 
 ```
 ✅ 任务 <id> 已完成，请验收：
-1. unrealdevflow switch <task-ref>     ← 用户运行
+1. udf task switch <task-ref>     ← 用户运行
 2. 重启 UE Editor
 3. 验证功能
 ```
@@ -151,7 +151,7 @@ switch 会：清 UBT 缓存 → 多 Junction 切到 Host 下所有主+依赖插�
 
 **⚠️ merge 命令的 `--strategy` 是必填参数，不询问用户就报错。**
 
-**⚠️ IMPORTANT: `unrealdevflow merge` automatically fetches from origin before merging.**
+**⚠️ IMPORTANT: `udf task merge` automatically fetches from origin before merging.**
 
 This ensures you're merging against the latest remote state. If other tasks have been merged to dev while you were working, the merge will include those changes.
 
@@ -159,17 +159,17 @@ This ensures you're merging against the latest remote state. If other tasks have
 # 1) 询问用户选择策略
 "请选择合并策略：1.rebase 2.merge 3.squash 4.ff-only"
 # 2) 执行 merge（仅合并，不删任何东西！）
-unrealdevflow merge <task-ref> --strategy rebase
+udf task merge <task-ref> --strategy rebase
 # 3) 展示 git log 供用户检查
 git log --oneline -5
 # 4) ⚠️ 等用户明确确认后，再 cleanup
-unrealdevflow cleanup <task-ref>
+udf task cleanup <task-ref>
 ```
 
 **多主插件任务**（v2）：
 ```powershell
-unrealdevflow merge <task-ref> --plugin AesWorld --strategy rebase    # 单插件
-unrealdevflow merge <task-ref> --all --strategy rebase               # 全部逆序
+udf task merge <task-ref> --plugin AesWorld --strategy rebase    # 单插件
+udf task merge <task-ref> --all --strategy rebase               # 全部逆序
 ```
 
 ---
@@ -178,38 +178,39 @@ unrealdevflow merge <task-ref> --all --strategy rebase               # 全部逆
 
 | ❌ 禁止 | ✅ 改用 |
 |---|---|
-| `git merge` / `git rebase` / `git cherry-pick` | `unrealdevflow merge <task-ref> --strategy <s>` |
-| `git branch -D` / `git worktree remove` / `git reset --hard` | `unrealdevflow cleanup <task-ref>` / `unrealdevflow delete <task-ref>` |
+| `git merge` / `git rebase` / `git cherry-pick` | `udf task merge <task-ref> --strategy <s>` |
+| `git branch -D` / `git worktree remove` / `git reset --hard` | `udf task cleanup <task-ref>` / `udf task delete <task-ref>` |
 | 自动调 cleanup（merge 后未确认就删） | merge 后等用户确认才 cleanup |
 | 不询问就指定 `--strategy rebase` | 询问 4 选 1，让用户选 |
 | 修改主仓库（`{plugins_root}/<plugin-name>/`） | 只在 worktree 路径下改 |
-| 自己跑 `Build.bat` / `RunUBT.bat` | `unrealdevflow build <task-ref>` |
+| 自己跑 `Build.bat` / `RunUBT.bat` | `udf build task <task-ref>` |
 
 ---
 
 ## 📜 命令速查
 
+顶层只有四个组：`workspace`、`task`、`build`、`skill`。
+
 | 命令 | 必须询问用户 | 用途 |
 |---|---|---|
-| `init` | — | 小白首次初始化 workspace + 安装 skill + doctor |
-| `start <desc>` | — | 小白创建任务（包装 create，自动保存 prompt） |
-| `next [task-ref]` | — | 根据状态告诉用户下一步 |
-| `finish [task-ref]` | **✅ 策略必问** | 验收通过后的合并向导 |
-| `workspace add/list/doctor/remove` | — | 管理多个 UE 项目环境 |
-| `configure` | — | 首次配置（`--plugins-root` 是 v2 关键） |
-| `create <desc> --workspace <w> --id <id> --prompt <p> --yes` | — | 创建任务 |
-| `build <task-ref>` | — | 编译（严格模式默认） |
-| `build <task-ref> --background` | — | 后台编译 |
-| `build <task-ref> --primary-only` | — | 只编主插件模块 |
-| `build-status <task-ref>` | — | 查编译状态 |
-| `build-check [task-ref]` | — | 只回答现在能不能编，不启动编译 |
-| `build-gate "<命令>"` | — | 检查某条命令有没有绕过受控构建 |
-| `build-project` | — | 编主项目而不是任务宿主 |
-| `switch <task-ref>` | — | 切 Junction（多 Junction 自动） |
-| `list` / `status` | — | 看任务/状态 |
-| `merge <task-ref> --strategy <s>` | **✅ 策略必问** | 合并（多主插件加 `--plugin` 或 `--all`） |
-| `cleanup <task-ref>` | — | 合并后用户确认才执行 |
-| `delete <task-ref>` | — | 验收不通过时删除 |
+| `workspace init` | — | 首次初始化 workspace + 安装 skill + doctor |
+| `workspace add` | — | 显式登记一个 UE 项目环境（`--plugins-root` 是关键） |
+| `workspace list` / `doctor` / `remove` | — | 管理多个 UE 项目环境 |
+| `workspace status` | — | 每个 UE 项目当前挂着哪个任务 |
+| `task create <desc> --workspace <w> --id <id> --primary <P> --yes` | — | 创建任务；不给 `--prompt` 时用描述当原始需求 |
+| `task list` | — | 列出所有任务，含损坏任务 |
+| `task next [task-ref]` | — | 根据状态告诉用户下一步 |
+| `task switch <task-ref>` | — | 切 Junction（多 Junction 自动） |
+| `task merge <task-ref> --strategy <s>` | **✅ 策略必问** | 合并（多主插件加 `--plugin` 或 `--all`） |
+| `task finish [task-ref]` | **✅ 策略必问** | 验收通过后的合并向导 |
+| `task cleanup <task-ref>` | — | 合并后用户确认才执行 |
+| `task delete <task-ref>` | — | 验收不通过时删除 |
+| `build task <task-ref>` | — | 编译（严格模式默认，可加 `--background` / `--primary-only`） |
+| `build project` | — | 编主项目而不是任务宿主 |
+| `build check [task-ref]` | — | 只回答现在能不能编，不启动编译 |
+| `build gate "<命令>"` | — | 检查某条命令有没有绕过受控构建 |
+| `build status <task-ref>` | — | 查编译状态 |
+| `skill install` / `list` / `remove` | — | 管理装到四个 AI provider 的 skill |
 
 完整版（参数、返回值、错误码）见后文「命令速查」章节。
 
@@ -231,7 +232,7 @@ unrealdevflow merge <task-ref> --all --strategy rebase               # 全部逆
    ├─ AesWorld/      (worktree + branch task-{id}, 可写)    ← primary
    ├─ AesWorld_AI/   (worktree + branch task-{id}, 可写)    ← primary
    └─ EarthPCG/      (Junction → 主仓库, 只读)             ← dependency
-       ↓ unrealdevflow switch
+       ↓ udf task switch
 {default_project}/Plugins/        ← UE DEV 项目
 └─ AesWorld/        (Junction → W-{workspace}/T-{id}_Host/Plugins/AesWorld)
 ```
@@ -261,9 +262,9 @@ unrealdevflow merge <task-ref> --all --strategy rebase               # 全部逆
 
 作为 AI agent，你的职责是：
 1. **理解用户意图**：从用户描述中提取任务需求
-2. **创建隔离环境**：使用 `unrealdevflow create` 创建独立 worktree
+2. **创建隔离环境**：使用 `udf task create` 创建独立 worktree
 3. **在 worktree 中工作**：所有代码修改必须在 worktree 路径下
-4. **编译验证**：使用 `unrealdevflow build` 编译
+4. **编译验证**：使用 `udf build task` 编译
 5. **通知用户验收**：告诉用户如何切换和验收
 6. **合并清理**：用户确认后执行 merge 和 cleanup
 
@@ -283,9 +284,9 @@ unrealdevflow merge <task-ref> --all --strategy rebase               # 全部逆
 - ❌ `git commit`（除非在 worktree 中提交代码修改）
 
 **必须使用**：
-- ✅ `unrealdevflow merge <task-id> --strategy <策略>`
-- ✅ `unrealdevflow cleanup <task-id>`
-- ✅ `unrealdevflow delete <task-id>`
+- ✅ `udf task merge <task-id> --strategy <策略>`
+- ✅ `udf task cleanup <task-id>`
+- ✅ `udf task delete <task-id>`
 
 ### ❌ 禁止 merge 后自动删除分支
 
@@ -300,9 +301,9 @@ git worktree remove ...
 **正确流程**：
 ```powershell
 # ✅ 必须使用工具
-unrealdevflow merge <task-id> --strategy rebase  # 合并（保留分支）
+udf task merge <task-id> --strategy rebase  # 合并（保留分支）
 git log --oneline -5                              # 用户检查
-unrealdevflow cleanup <task-id>                   # 用户确认后清理
+udf task cleanup <task-id>                   # 用户确认后清理
 ```
 
 ### ❌ 禁止跳过策略询问
@@ -310,7 +311,7 @@ unrealdevflow cleanup <task-id>                   # 用户确认后清理
 **错误**：
 ```powershell
 # ❌ 直接指定策略，不询问用户
-unrealdevflow merge task-xxx --strategy rebase
+udf task merge task-xxx --strategy rebase
 ```
 
 **正确**：
@@ -340,9 +341,9 @@ unrealdevflow merge task-xxx --strategy rebase
 - ❌ `git commit`（除非在 worktree 中提交代码修改）
 
 **必须使用**：
-- ✅ `unrealdevflow merge <task-id> --strategy <策略>`
-- ✅ `unrealdevflow cleanup <task-id>`
-- ✅ `unrealdevflow delete <task-id>`
+- ✅ `udf task merge <task-id> --strategy <策略>`
+- ✅ `udf task cleanup <task-id>`
+- ✅ `udf task delete <task-id>`
 
 ### ❌ 禁止 merge 后自动删除分支
 
@@ -357,9 +358,9 @@ git worktree remove ...
 **正确流程**：
 ```powershell
 # ✅ 必须使用工具
-unrealdevflow merge <task-id> --strategy rebase  # 合并（保留分支）
+udf task merge <task-id> --strategy rebase  # 合并（保留分支）
 git log --oneline -5                              # 用户检查
-unrealdevflow cleanup <task-id>                   # 用户确认后清理
+udf task cleanup <task-id>                   # 用户确认后清理
 ```
 
 ### ❌ 禁止跳过策略询问
@@ -367,7 +368,7 @@ unrealdevflow cleanup <task-id>                   # 用户确认后清理
 **错误**：
 ```powershell
 # ❌ 直接指定策略，不询问用户
-unrealdevflow merge task-xxx --strategy rebase
+udf task merge task-xxx --strategy rebase
 ```
 
 **正确**：
@@ -390,7 +391,7 @@ unrealdevflow merge task-xxx --strategy rebase
 **你的行动**：
 ```powershell
 # 创建任务，保存用户原始意图
-unrealdevflow start "EarthPrefabActor 保存后 Component 丢失问题调查" `
+udf task create "EarthPrefabActor 保存后 Component 丢失问题调查" `
     --workspace neon-dev `
     --id prefab-save-bug `
     --primary AesWorld `
@@ -443,13 +444,13 @@ F:\ShanghaiP4\neon\Hosts\W-neon-dev\T-prefab-save-bug_Host\Plugins\AesWorld\Sour
 
 ```powershell
 # 前台编译
-unrealdevflow build neon-dev/prefab-save-bug
+udf build task neon-dev/prefab-save-bug
 
 # 后台编译（不阻塞）
-unrealdevflow build neon-dev/prefab-save-bug --background
+udf build task neon-dev/prefab-save-bug --background
 
 # 查看编译状态
-unrealdevflow build-status neon-dev/prefab-save-bug
+udf build status neon-dev/prefab-save-bug
 ```
 
 **编译产物位置**：
@@ -465,16 +466,16 @@ F:\ShanghaiP4\neon\Hosts\W-neon-dev\T-prefab-save-bug_Host\Plugins\AesWorld\Bina
 ✅ 任务 prefab-save-bug 已完成
 
 验收步骤：
-1. 运行：unrealdevflow switch neon-dev/prefab-save-bug
+1. 运行：udf task switch neon-dev/prefab-save-bug
 2. 重启 UE Editor
 3. 验证功能是否正常
 
 验收通过后：
-  unrealdevflow merge neon-dev/prefab-save-bug --strategy rebase
-  unrealdevflow cleanup neon-dev/prefab-save-bug
+  udf task merge neon-dev/prefab-save-bug --strategy rebase
+  udf task cleanup neon-dev/prefab-save-bug
 
 验收不通过：
-  unrealdevflow delete neon-dev/prefab-save-bug --yes --force
+  udf task delete neon-dev/prefab-save-bug --yes --force
 ```
 
 ### 6. 合并清理
@@ -486,13 +487,13 @@ F:\ShanghaiP4\neon\Hosts\W-neon-dev\T-prefab-save-bug_Host\Plugins\AesWorld\Bina
 ```powershell
 # 第一步：向用户展示策略选项，等待用户选择
 # 第二步：使用用户选择的策略执行 merge（只合并，不删除）
-unrealdevflow merge <task-ref> --strategy <用户选择的策略>
+udf task merge <task-ref> --strategy <用户选择的策略>
 
 # 第三步：检查 merge 结果
 git log --oneline -5
 
 # 第四步：⚠️ 必须等待用户明确确认后，才能执行 cleanup
-unrealdevflow cleanup <task-ref>
+udf task cleanup <task-ref>
 ```
 
 **禁止行为**：
@@ -505,11 +506,11 @@ unrealdevflow cleanup <task-ref>
 1. 用户确认验收通过
 2. **Agent 询问用户选择合并策略**
 3. 用户选择策略
-4. Agent 执行 `unrealdevflow merge <task-ref> --strategy <用户选择>`
+4. Agent 执行 `udf task merge <task-ref> --strategy <用户选择>`
 5. 展示 merge 结果
 6. **Agent 询问用户是否清理 worktree 和分支**
 7. 用户确认清理
-8. Agent 执行 `unrealdevflow cleanup <task-ref>`
+8. Agent 执行 `udf task cleanup <task-ref>`
 
 **merge 命令保证**：
 - ✅ 只执行合并操作
@@ -528,14 +529,14 @@ unrealdevflow cleanup <task-ref>
 | 命令 | 说明 | Agent 使用场景 | **必须询问用户** |
 |---|---|---|---|
 | `init` | 小白首次初始化 workspace | 用户首次使用时引导 | ❌ |
-| `start` | 小白创建任务 | 接收用户任务时 | ❌ |
+| `task create` | 创建任务 | 接收用户任务时 | ❌ |
 | `next` | 提示下一步 | 用户不知道下一步时 | ❌ |
 | `finish` | 合并向导 | 用户确认验收通过后 | **✅ 必须询问策略** |
 | `workspace` | 管理多个 UE 项目环境 | 多项目并行/doctor | ❌ |
-| `configure` | 兼容配置 | 老流程/脚本配置 | ❌ |
+| `workspace add` | 显式登记环境 | 脚本化配置 | ❌ |
 | `create` | 专业创建任务 | agent 需要显式 prompt/override 时 | ❌ |
 | `build` | 编译任务 | 代码修改完成后 | ❌ |
-| `build-status` | 查看编译状态 | 后台编译后检查 | ❌ |
+| `build status` | 查看编译状态 | 后台编译后检查 | ❌ |
 | `switch` | 切换 Junction | 通知用户验收时 | **✅ 必须用户授权** |
 | `list` | 列出任务 | 用户询问有哪些任务时 | ❌ |
 | `status` | 查看状态 | 用户询问当前状态时 | ❌ |
@@ -554,14 +555,14 @@ UnrealDevFlow 已支持一个任务跨多个插件协同开发：
 
 ```powershell
 # 多个主插件
-unrealdevflow create "调查 EarthPrefab 保存丢失" `
+udf task create "调查 EarthPrefab 保存丢失" `
     --workspace neon-dev `
     --id prefab-bug `
     --primary AesWorld,AesWorld_AI `
     --yes
 
 # 当依赖在引擎和项目同时存在时，必须用 --override-dep 解决冲突
-unrealdevflow create "..." --workspace neon-dev --id xxx `
+udf task create "..." --workspace neon-dev --id xxx `
     --primary AesWorld `
     --override-dep PCG=project `
     --override-dep GeometryProcessing=engine
@@ -581,8 +582,8 @@ unrealdevflow create "..." --workspace neon-dev --id xxx `
 依赖插件 dirty 时只警告不阻塞（依赖按 v2 设计是只读的）。
 
 ```powershell
-unrealdevflow build neon-dev/prefab-bug                # 全编（默认，跨插件依赖能 100% 暴露）
-unrealdevflow build neon-dev/prefab-bug --primary-only # 只编主插件模块（增量验证）
+udf build task neon-dev/prefab-bug                # 全编（默认，跨插件依赖能 100% 暴露）
+udf build task neon-dev/prefab-bug --primary-only # 只编主插件模块（增量验证）
 ```
 
 ### 多插件 merge
@@ -591,10 +592,10 @@ unrealdevflow build neon-dev/prefab-bug --primary-only # 只编主插件模块�
 
 ```powershell
 # 指定单个主插件
-unrealdevflow merge neon-dev/prefab-bug --plugin AesWorld --strategy rebase
+udf task merge neon-dev/prefab-bug --plugin AesWorld --strategy rebase
 
 # 全部主插件按逆序逐个 merge（每个独立确认）
-unrealdevflow merge neon-dev/prefab-bug --all --strategy rebase
+udf task merge neon-dev/prefab-bug --all --strategy rebase
 ```
 
 **依赖插件永远不参与 merge**。如果依赖代码确实改了，用户应该单独提交到主仓库。
@@ -673,7 +674,7 @@ git reflog
 git reset --hard <merge-before-commit>
 
 # 3. 重新执行 merge
-unrealdevflow merge <task-id> --strategy rebase
+udf task merge <task-id> --strategy rebase
 ```
 
 ## 最佳实践
@@ -767,7 +768,7 @@ F:\ShanghaiP4\neon\
 
 **解决**：
 1. 关闭占用目录的程序
-2. 运行：`unrealdevflow switch <task-id> --force`
+2. 运行：`udf task switch <task-id> --force`
 
 ### 问题：编译失败，提示"Build.bat 不存在"
 
@@ -775,7 +776,7 @@ F:\ShanghaiP4\neon\
 
 **解决**：
 1. 检查配置：`Get-Content ~/.unrealdevflow/config.toml`
-2. 重新配置：`unrealdevflow configure --engine-path "正确路径"`
+2. 重新配置：`udf workspace add --engine-path "正确路径"`
 
 ### 问题：merge 后想回退
 
@@ -797,14 +798,14 @@ Removing broken junction...
 
 **解决**：
 - **自动修复**：`switch` 命令会自动检测并删除断开的 Junction，然后创建新的 Junction。无需手动操作。
-- **预防措施**：始终使用 `unrealdevflow delete <task-id>` 删除任务，而不是手动删除 worktree 目录。`delete` 命令会自动清理所有指向该任务 worktree 的 Junction。
+- **预防措施**：始终使用 `udf task delete <task-id>` 删除任务，而不是手动删除 worktree 目录。`delete` 命令会自动清理所有指向该任务 worktree 的 Junction。
 
 **Junction 生命周期说明**：
 1. **创建时**：`switch <task-id>` 在主项目的 `Plugins/` 目录下创建 Junction，指向任务的 worktree
 2. **删除时**：`delete <task-id>` 会扫描 `~/.unrealdevflow/state.json` 中所有已知项目，找到并删除指向该任务 worktree 的 Junction
 3. **切换时**：`switch` 如果遇到断开的 Junction（目标已删除），会自动清理并重新创建
 
-**最佳实践**：永远使用 `unrealdevflow delete` 而不是手动删除目录，这样可以确保 Junction 被正确清理。
+**最佳实践**：永远使用 `udf task delete` 而不是手动删除目录，这样可以确保 Junction 被正确清理。
 
 ## 版本信息
 

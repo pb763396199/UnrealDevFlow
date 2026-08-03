@@ -22,7 +22,7 @@ powershell -ExecutionPolicy Bypass -c "irm https://github.com/pb763396199/Unreal
 - 安装到 `%USERPROFILE%\.unrealdevflow\bin`。
 - 写入 User PATH，并刷新当前 PowerShell 会话 PATH。
 - 安装全局 AI skill，包括 Codex App native (`%USERPROFILE%\.codex\skills`)。
-- 验证 `unrealdevflow --version` 和 `Get-Command unrealdevflow`。
+- 验证 `udf --version` 和 `Get-Command udf`。
 
 ## 发布前检查
 
