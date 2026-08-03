@@ -4,7 +4,7 @@
 Install or upgrade UnrealDevFlow from GitHub Releases.
 
 .DESCRIPTION
-Default mode downloads the latest release zip, extracts unrealdevflow.exe and
+Default mode downloads the latest release zip, extracts udf.exe and
 bundled skills/, installs them to ~/.unrealdevflow/bin, updates User PATH and
 the current PowerShell session PATH, then installs the global AI skill.
 
@@ -111,12 +111,12 @@ function Install-FromRelease {
         Invoke-WebRequest -Uri $assetUrl -OutFile $zipPath -UseBasicParsing
         Expand-Archive -LiteralPath $zipPath -DestinationPath $extractPath -Force
 
-        $exe = Get-ChildItem -LiteralPath $extractPath -Recurse -Filter "unrealdevflow.exe" | Select-Object -First 1
+        $exe = Get-ChildItem -LiteralPath $extractPath -Recurse -Filter "udf.exe" | Select-Object -First 1
         if (-not $exe) {
-            throw "Release zip did not contain unrealdevflow.exe"
+            throw "Release zip did not contain udf.exe"
         }
 
-        Copy-Item -LiteralPath $exe.FullName -Destination (Join-Path $Destination "unrealdevflow.exe") -Force
+        Copy-Item -LiteralPath $exe.FullName -Destination (Join-Path $Destination "udf.exe") -Force
 
         $skillsSource = Get-ChildItem -LiteralPath $extractPath -Recurse -Directory |
             Where-Object { $_.FullName -match "\\skills\\unrealdevflow$" } |
@@ -160,7 +160,7 @@ function Install-FromSource {
         Pop-Location
     }
 
-    Copy-Item -LiteralPath (Join-Path $Root "target\release\unrealdevflow.exe") -Destination (Join-Path $Destination "unrealdevflow.exe") -Force
+    Copy-Item -LiteralPath (Join-Path $Root "target\release\udf.exe") -Destination (Join-Path $Destination "udf.exe") -Force
 
     $skillsTarget = Join-Path $Destination "skills\unrealdevflow"
     if (Test-Path $skillsTarget) {
@@ -194,14 +194,19 @@ if ($NoPath) {
 }
 
 Write-Step "[4/5] Verifying command"
-$exeTarget = Join-Path $InstallPath "unrealdevflow.exe"
+$legacyExe = Join-Path $InstallPath "unrealdevflow.exe"
+if (Test-Path -LiteralPath $legacyExe) {
+    Remove-Item -LiteralPath $legacyExe -Force
+    Write-Ok "removed the superseded unrealdevflow.exe from $InstallPath"
+}
+$exeTarget = Join-Path $InstallPath "udf.exe"
 & $exeTarget --version
 if ($NoPath) {
     Write-Host "  Skipped PATH command lookup because -NoPath was set" -ForegroundColor Yellow
 } else {
-    $cmd = Get-Command unrealdevflow -ErrorAction SilentlyContinue
+    $cmd = Get-Command udf -ErrorAction SilentlyContinue
     if (-not $cmd) {
-        throw "unrealdevflow.exe was installed but is still not visible via PATH in this session"
+        throw "udf.exe was installed but is still not visible via PATH in this session"
     }
     if (-not [string]::Equals([System.IO.Path]::GetFullPath($cmd.Source), [System.IO.Path]::GetFullPath($exeTarget), [StringComparison]::OrdinalIgnoreCase)) {
         throw "PATH resolves to '$($cmd.Source)' instead of installed binary '$exeTarget'"
@@ -226,4 +231,4 @@ Write-Host ""
 Write-Host "Installed successfully." -ForegroundColor Green
 Write-Host ""
 Write-Host "Next step:" -ForegroundColor Cyan
-Write-Host "  unrealdevflow configure" -ForegroundColor White
+Write-Host "  udf configure" -ForegroundColor White

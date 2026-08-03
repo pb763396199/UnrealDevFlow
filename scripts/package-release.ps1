@@ -65,7 +65,7 @@ $OutputDir = if ([System.IO.Path]::IsPathRooted($OutputDir)) {
 }
 $staging = Join-Path $OutputDir "package-root"
 $zipPath = Join-Path $OutputDir "unrealdevflow-$Target.zip"
-$rawExePath = Join-Path $OutputDir "unrealdevflow.exe"
+$rawExePath = Join-Path $OutputDir "udf.exe"
 $installerPath = Join-Path $OutputDir "unrealdevflow-installer.ps1"
 $notesPath = Join-Path $OutputDir "RELEASE_NOTES.md"
 $checksumPath = Join-Path $OutputDir "SHA256SUMS.txt"
@@ -78,12 +78,12 @@ if (Test-Path -LiteralPath $checksumPath) { Remove-Item -LiteralPath $checksumPa
 New-Item -ItemType Directory -Force -Path $staging | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $staging "skills") | Out-Null
 
-Copy-Item -LiteralPath "target\release\unrealdevflow.exe" -Destination (Join-Path $staging "unrealdevflow.exe") -Force
+Copy-Item -LiteralPath "target\release\udf.exe" -Destination (Join-Path $staging "udf.exe") -Force
 Copy-Item -LiteralPath "skills\unrealdevflow" -Destination (Join-Path $staging "skills\unrealdevflow") -Recurse -Force
 Copy-Item -LiteralPath "README.md" -Destination (Join-Path $staging "README.md") -Force
 Copy-Item -LiteralPath "docs\RELEASE.md" -Destination (Join-Path $staging "RELEASE.md") -Force
 
-Copy-Item -LiteralPath "target\release\unrealdevflow.exe" -Destination $rawExePath -Force
+Copy-Item -LiteralPath "target\release\udf.exe" -Destination $rawExePath -Force
 Copy-Item -LiteralPath "scripts\install.ps1" -Destination $installerPath -Force
 
 if (-not (Test-Path -LiteralPath $notesPath)) {

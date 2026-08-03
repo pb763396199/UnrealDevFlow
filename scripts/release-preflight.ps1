@@ -121,7 +121,7 @@ Invoke-CheckedStep "cargo release build" {
 }
 
 Invoke-CheckedStep "binary smoke test" {
-    $exe = Join-Path $RepoRoot "target\release\unrealdevflow.exe"
+    $exe = Join-Path $RepoRoot "target\release\udf.exe"
     if (-not (Test-Path -LiteralPath $exe)) {
         throw "Release binary not found: $exe"
     }

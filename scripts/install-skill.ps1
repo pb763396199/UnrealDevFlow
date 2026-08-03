@@ -18,10 +18,10 @@ param(
 $ErrorActionPreference = "Stop"
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
-$Exe = Join-Path $RepoRoot "target\release\unrealdevflow.exe"
+$Exe = Join-Path $RepoRoot "target\release\udf.exe"
 
 if (-not (Test-Path -LiteralPath $Exe)) {
-    Write-Host "Building unrealdevflow.exe for skill installation..." -ForegroundColor Cyan
+    Write-Host "Building udf.exe for skill installation..." -ForegroundColor Cyan
     Push-Location $RepoRoot
     try {
         cargo build --release --locked

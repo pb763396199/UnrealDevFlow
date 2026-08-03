@@ -53,7 +53,7 @@ jobs:
           name: UnrealDevFlow ${{ github.ref_name }}
           body_path: dist/RELEASE_NOTES.md
           files: |
-            dist/unrealdevflow.exe
+            dist/udf.exe
             dist/unrealdevflow-x86_64-pc-windows-msvc.zip
             dist/unrealdevflow-installer.ps1
             dist/SHA256SUMS.txt
