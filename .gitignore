@@ -3,7 +3,7 @@ dist/
 *.swp
 .DS_Store
 
-# Test artifacts from `unrealdevflow skills install` (self-installation is not
+# Test artifacts from `udf skill install` (self-installation is not
 # checked in; the source SKILL.md under skills/ is the truth).
 .agents/
 .claude/

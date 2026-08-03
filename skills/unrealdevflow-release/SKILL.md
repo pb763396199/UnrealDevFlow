@@ -26,7 +26,7 @@ Use this skill when the user asks to release, package, publish, ship, tag, or pr
 Every GitHub Release must contain:
 
 ```text
-unrealdevflow.exe
+udf.exe
 unrealdevflow-x86_64-pc-windows-msvc.zip
 unrealdevflow-installer.ps1
 SHA256SUMS.txt
