@@ -183,14 +183,25 @@ pub fn run(task_id: &str, force: bool, skip_confirm: bool, dry_run: bool) -> Res
     }
 
     if dry_run {
-        output::print_info(&format!("Dry run: would delete task '{}'", task_id));
-        output::print_info(&format!("  Host directory: {:?}", host_dir));
-        for (p, r) in &reports {
-            output::print_info(&format!(
-                "  Plugin '{}' branch='{}' merged={} unmerged={} dirty={}",
-                p.name, p.branch, r.is_merged, r.unmerged_count, r.has_uncommitted
-            ));
-        }
+        output::emit(
+            "task delete",
+            DeletePreview {
+                task_ref: task_id.to_string(),
+                dry_run: true,
+                host_dir: host_dir.to_string_lossy().to_string(),
+                plugins: reports
+                    .iter()
+                    .map(|(plugin, report)| PluginPreview {
+                        plugin: plugin.name.clone(),
+                        branch: plugin.branch.clone(),
+                        merged: report.is_merged,
+                        unmerged_commits: report.unmerged_count,
+                        dirty: report.has_uncommitted,
+                    })
+                    .collect(),
+            },
+            render_preview,
+        );
         return Ok(());
     }
 
@@ -230,7 +241,7 @@ pub fn run(task_id: &str, force: bool, skip_confirm: bool, dry_run: bool) -> Res
             .interact()
             .map_err(|e| UdfError::Other(format!("Dialog error: {}", e)))?;
         if !confirmed {
-            output::print_info("Delete cancelled.");
+            output::emit("task delete", cancelled(task_id), render_delete);
             return Ok(());
         }
         if any_unmerged || any_dirty {
@@ -437,6 +448,7 @@ pub fn run(task_id: &str, force: bool, skip_confirm: bool, dry_run: bool) -> Res
         "task delete",
         DeleteOutcome {
             task_ref: task_id.to_string(),
+            cancelled: false,
             worktrees_removed: all_worktrees_removed,
             branches_deleted: all_branches_deleted,
             host_deleted,
@@ -452,13 +464,63 @@ pub fn run(task_id: &str, force: bool, skip_confirm: bool, dry_run: bool) -> Res
 #[serde(rename_all = "camelCase")]
 struct DeleteOutcome {
     task_ref: String,
+    cancelled: bool,
     worktrees_removed: bool,
     branches_deleted: bool,
     host_deleted: bool,
     complete: bool,
 }
 
+/// The user said no. Nothing was touched, and the JSON has to say so.
+fn cancelled(task_ref: &str) -> DeleteOutcome {
+    DeleteOutcome {
+        task_ref: task_ref.to_string(),
+        cancelled: true,
+        worktrees_removed: false,
+        branches_deleted: false,
+        host_deleted: false,
+        complete: false,
+    }
+}
+
+/// What `--dry-run` would do, in a form a caller can act on.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DeletePreview {
+    task_ref: String,
+    dry_run: bool,
+    host_dir: String,
+    plugins: Vec<PluginPreview>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PluginPreview {
+    plugin: String,
+    branch: String,
+    merged: bool,
+    unmerged_commits: usize,
+    dirty: bool,
+}
+
+fn render_preview(data: &DeletePreview) -> String {
+    let mut lines = vec![
+        format!("Dry run: would delete task '{}'", data.task_ref),
+        format!("  Host directory: {}", data.host_dir),
+    ];
+    for plugin in &data.plugins {
+        lines.push(format!(
+            "  Plugin '{}' branch='{}' merged={} unmerged={} dirty={}",
+            plugin.plugin, plugin.branch, plugin.merged, plugin.unmerged_commits, plugin.dirty
+        ));
+    }
+    lines.join("\n")
+}
+
 fn render_delete(data: &DeleteOutcome) -> String {
+    if data.cancelled {
+        return format!("Task '{}' kept (cancelled).", data.task_ref);
+    }
     if data.complete {
         return format!("\n✓ Task '{}' deleted successfully!", data.task_ref);
     }

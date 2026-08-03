@@ -34,7 +34,17 @@ pub fn run(
             .map_err(|e| UdfError::Other(format!("Dialog error: {}", e)))?;
 
         if !should_continue {
-            output::print_info("Switch cancelled.");
+            output::emit(
+                "task switch",
+                SwitchOutcome {
+                    task_ref: task_id.to_string(),
+                    cancelled: true,
+                    projects: Vec::new(),
+                    junctions: Vec::new(),
+                    project_files_regenerated: false,
+                },
+                render_switch,
+            );
             return Ok(());
         }
     }
@@ -238,6 +248,7 @@ pub fn run(
         "task switch",
         SwitchOutcome {
             task_ref: task_id.to_string(),
+            cancelled: false,
             projects: target_projects
                 .iter()
                 .map(|path| path.to_string_lossy().to_string())
@@ -262,6 +273,7 @@ pub fn run(
 #[serde(rename_all = "camelCase")]
 struct SwitchOutcome {
     task_ref: String,
+    cancelled: bool,
     projects: Vec<String>,
     junctions: Vec<SwitchedJunction>,
     project_files_regenerated: bool,
@@ -275,6 +287,9 @@ struct SwitchedJunction {
 }
 
 fn render_switch(data: &SwitchOutcome) -> String {
+    if data.cancelled {
+        return format!("Switch to '{}' cancelled. Nothing moved.", data.task_ref);
+    }
     let mut lines = vec![format!(
         "✓ Switched to '{}' ({} junction(s))",
         data.task_ref,

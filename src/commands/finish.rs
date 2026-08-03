@@ -20,7 +20,7 @@ pub fn run(
         Some(value) => value,
         None => ask_strategy()?,
     };
-    crate::commands::merge::run(
+    let outcome = crate::commands::merge::run_inner(
         &task_ref,
         &strategy,
         plugin,
@@ -28,7 +28,10 @@ pub fn run(
         false,
         skip_confirm,
         false,
-    )
+    )?;
+    // The caller typed `task finish`; the envelope has to say so.
+    crate::output::emit("task finish", outcome, crate::commands::merge::render_merge);
+    Ok(())
 }
 
 fn ask_strategy() -> Result<MergeStrategy> {

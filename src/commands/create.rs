@@ -226,7 +226,21 @@ pub fn run(
             .interact()
             .map_err(|e| UdfError::Other(format!("Dialog error: {}", e)))?;
         if !confirmed {
-            output::print_info("Task creation cancelled.");
+            output::emit(
+                "task create",
+                TaskCreated {
+                    task_ref: format!("{}/{}", workspace_name, task_id),
+                    created: false,
+                    workspace: workspace_name,
+                    task_id,
+                    host_dir: String::new(),
+                    branch: branch_name,
+                    primary_plugins: primary_names,
+                    project_dependencies: Vec::new(),
+                    engine_dependencies: Vec::new(),
+                },
+                render_created,
+            );
             return Ok(());
         }
     }
@@ -361,6 +375,7 @@ pub fn run(
         "task create",
         TaskCreated {
             task_ref: format!("{}/{}", workspace_name, task_id),
+            created: true,
             workspace: workspace_name,
             task_id,
             host_dir: host_dir.to_string_lossy().to_string(),
@@ -379,6 +394,7 @@ pub fn run(
 #[serde(rename_all = "camelCase")]
 struct TaskCreated {
     task_ref: String,
+    created: bool,
     workspace: String,
     task_id: String,
     host_dir: String,
@@ -389,6 +405,9 @@ struct TaskCreated {
 }
 
 fn render_created(data: &TaskCreated) -> String {
+    if !data.created {
+        return format!("Task '{}' not created (cancelled).", data.task_id);
+    }
     let mut lines = vec![
         format!("✓ Task '{}' created successfully!", data.task_id),
         format!("  Workspace: {}", data.workspace),

@@ -40,13 +40,42 @@ fn main() {
 }
 
 /// Name reported in the JSON envelope, so callers can tell which command spoke.
+///
+/// Resolves down to the leaf: a failure in `task switch` must not come back
+/// labelled `task`, or the caller cannot tell which step of a group broke.
 fn command_name(command: &Commands) -> &'static str {
     match command {
         Commands::AwStatus => "aw-status",
-        Commands::Workspace { .. } => "workspace",
-        Commands::Task { .. } => "task",
-        Commands::Build { .. } => "build",
-        Commands::Skill { .. } => "skill",
+        Commands::Workspace { action } => match action {
+            cli::WorkspaceAction::Init { .. } => "workspace init",
+            cli::WorkspaceAction::Add { .. } => "workspace add",
+            cli::WorkspaceAction::List => "workspace list",
+            cli::WorkspaceAction::Doctor { .. } => "workspace doctor",
+            cli::WorkspaceAction::Remove { .. } => "workspace remove",
+            cli::WorkspaceAction::Status => "workspace status",
+        },
+        Commands::Task { action } => match action {
+            cli::TaskAction::Create { .. } => "task create",
+            cli::TaskAction::List { .. } => "task list",
+            cli::TaskAction::Next { .. } => "task next",
+            cli::TaskAction::Switch { .. } => "task switch",
+            cli::TaskAction::Merge { .. } => "task merge",
+            cli::TaskAction::Finish { .. } => "task finish",
+            cli::TaskAction::Cleanup { .. } => "task cleanup",
+            cli::TaskAction::Delete { .. } => "task delete",
+        },
+        Commands::Build { action } => match action {
+            cli::BuildAction::Task { .. } => "build task",
+            cli::BuildAction::Project { .. } => "build project",
+            cli::BuildAction::Check { .. } => "build check",
+            cli::BuildAction::Gate { .. } => "build gate",
+            cli::BuildAction::Status { .. } => "build status",
+        },
+        Commands::Skill { action } => match action {
+            cli::SkillAction::Install { .. } => "skill install",
+            cli::SkillAction::List { .. } => "skill list",
+            cli::SkillAction::Remove { .. } => "skill remove",
+        },
     }
 }
 
@@ -62,11 +91,19 @@ fn run(cli: Cli) -> Result<()> {
         .with_target(false)
         .init();
 
-    if !matches!(
+    // `build gate` only inspects a command string, so it has to keep working on
+    // a machine that has never been configured — that is where hooks run it.
+    // The rest of the build group genuinely needs a workspace.
+    let needs_config = !matches!(
         cli.command,
-        Commands::AwStatus | Commands::Workspace { .. } | Commands::Skill { .. }
-    ) && !config::Config::exists()
-    {
+        Commands::AwStatus
+            | Commands::Workspace { .. }
+            | Commands::Skill { .. }
+            | Commands::Build {
+                action: cli::BuildAction::Gate { .. }
+            }
+    );
+    if needs_config && !config::Config::exists() {
         return Err(error::UdfError::NotConfigured);
     }
 

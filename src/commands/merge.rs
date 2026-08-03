@@ -53,6 +53,8 @@ fn count_commits_to_merge(repo_path: &Path, branch_name: &str) -> Result<usize> 
     Ok(stdout.lines().count())
 }
 
+/// `task finish` delegates the whole merge here, so it can label the envelope
+/// with the command the caller actually typed. One command, one document.
 pub fn run(
     task_id: &str,
     strategy: &crate::cli::MergeStrategy,
@@ -62,6 +64,20 @@ pub fn run(
     skip_confirm: bool,
     dry_run: bool,
 ) -> Result<()> {
+    let outcome = run_inner(task_id, strategy, plugin, all, force, skip_confirm, dry_run)?;
+    output::emit("task merge", outcome, render_merge);
+    Ok(())
+}
+
+pub(crate) fn run_inner(
+    task_id: &str,
+    strategy: &crate::cli::MergeStrategy,
+    plugin: Option<String>,
+    all: bool,
+    force: bool,
+    skip_confirm: bool,
+    dry_run: bool,
+) -> Result<MergeOutcome> {
     let config = Config::load()?;
 
     let (host_dir, mut meta, _task_context) = host::resolve_task(&config, task_id)?;
@@ -107,6 +123,7 @@ pub fn run(
     };
 
     let mut all_ok = true;
+    let mut reports: Vec<PluginMergeReport> = Vec::new();
     let total = targets.len();
     for (idx, primary) in targets.iter().enumerate() {
         println!();
@@ -116,7 +133,7 @@ pub fn run(
             total,
             primary.name
         ));
-        let ok = merge_single_plugin(
+        let report = merge_single_plugin(
             task_id,
             &host_dir,
             primary,
@@ -126,6 +143,8 @@ pub fn run(
             skip_confirm,
             dry_run,
         )?;
+        let ok = report.ok;
+        reports.push(report);
         if !ok {
             all_ok = false;
             output::print_warning(&format!(
@@ -142,28 +161,34 @@ pub fn run(
     }
 
     println!();
-    output::emit(
-        "task merge",
-        MergeOutcome {
-            task_ref: task_id.to_string(),
-            all_ok,
-            cleanup_command: format!("udf task cleanup {}", task_id),
-        },
-        render_merge,
-    );
-    Ok(())
+    Ok(MergeOutcome {
+        task_ref: task_id.to_string(),
+        dry_run,
+        all_ok,
+        plugins: reports,
+        cleanup_command: format!("udf task cleanup {}", task_id),
+    })
 }
 
 /// Merge never deletes anything, so the result always carries the cleanup step.
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-struct MergeOutcome {
+pub(crate) struct MergeOutcome {
     task_ref: String,
+    dry_run: bool,
     all_ok: bool,
+    plugins: Vec<PluginMergeReport>,
     cleanup_command: String,
 }
 
-fn render_merge(data: &MergeOutcome) -> String {
+pub(crate) fn render_merge(data: &MergeOutcome) -> String {
+    if data.dry_run {
+        return format!(
+            "Dry run: task '{}' would merge {} plugin(s). Nothing was changed.",
+            data.task_ref,
+            data.plugins.len()
+        );
+    }
     let headline = if data.all_ok {
         format!("✓ Task '{}' merge sequence completed.", data.task_ref)
     } else {
@@ -178,6 +203,23 @@ fn render_merge(data: &MergeOutcome) -> String {
     )
 }
 
+/// What one plugin's merge step looked at and what came of it. Under
+/// `--dry-run` this is the whole answer, so it has to carry the numbers the
+/// human preview prints, not just a success flag.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PluginMergeReport {
+    plugin: String,
+    branch: String,
+    source_repo: String,
+    worktree: String,
+    commits_to_merge: usize,
+    current_ahead: usize,
+    task_ahead: usize,
+    uncommitted: usize,
+    ok: bool,
+}
+
 #[allow(clippy::too_many_arguments)]
 fn merge_single_plugin(
     task_id: &str,
@@ -188,7 +230,7 @@ fn merge_single_plugin(
     force: bool,
     skip_confirm: bool,
     dry_run: bool,
-) -> Result<bool> {
+) -> Result<PluginMergeReport> {
     let (_, task_id_only) = host::parse_task_ref(task_id);
     let legacy_expected = format!("task-{}", task_id_only);
     let namespaced_suffix = format!("/{}", task_id_only);
@@ -227,6 +269,18 @@ fn merge_single_plugin(
     let commits_ahead = git::get_commits_ahead(&source_repo, &primary.branch).unwrap_or_default();
     let commits_behind = git::get_commits_behind(&source_repo, &primary.branch).unwrap_or_default();
 
+    let report = |ok: bool| PluginMergeReport {
+        plugin: primary.name.clone(),
+        branch: primary.branch.clone(),
+        source_repo: source_repo.display().to_string(),
+        worktree: worktree_path.display().to_string(),
+        commits_to_merge: commit_count,
+        current_ahead: commits_ahead.len(),
+        task_ahead: commits_behind.len(),
+        uncommitted: uncommitted_files.len(),
+        ok,
+    };
+
     if dry_run {
         output::print_info(&format!("Dry run: would merge plugin '{}'", primary.name));
         output::print_info(&format!("  Strategy: {:?}", strategy));
@@ -254,7 +308,7 @@ fn merge_single_plugin(
                 uncommitted_files.len()
             ));
         }
-        return Ok(true);
+        return Ok(report(true));
     }
 
     println!();
@@ -313,7 +367,7 @@ fn merge_single_plugin(
             .map_err(|e| UdfError::Other(format!("Dialog error: {}", e)))?;
         if !confirmed {
             output::print_info("Merge cancelled for this plugin.");
-            return Ok(false);
+            return Ok(report(false));
         }
         if has_uncommitted {
             let double_confirmed = dialoguer::Confirm::new()
@@ -323,7 +377,7 @@ fn merge_single_plugin(
                 .map_err(|e| UdfError::Other(format!("Dialog error: {}", e)))?;
             if !double_confirmed {
                 output::print_info("Merge cancelled for this plugin.");
-                return Ok(false);
+                return Ok(report(false));
             }
         }
     }
@@ -420,7 +474,7 @@ fn merge_single_plugin(
         }
     };
 
-    Ok(success)
+    Ok(report(success))
 }
 
 #[allow(dead_code)]

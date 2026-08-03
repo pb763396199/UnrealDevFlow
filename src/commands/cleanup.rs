@@ -164,7 +164,7 @@ fn cleanup_orphaned_branches(
         task_ref
     ));
     if matches.is_empty() {
-        output::print_info("No matching local task branches found.");
+        output::emit("task cleanup", untouched(task_ref, true), render_cleanup);
         return Ok(());
     }
 
@@ -186,7 +186,7 @@ fn cleanup_orphaned_branches(
             .interact()
             .map_err(|e| UdfError::Other(format!("Dialog error: {}", e)))?;
         if !confirmed {
-            output::print_info("Orphan cleanup cancelled.");
+            output::emit("task cleanup", untouched(task_ref, false), render_cleanup);
             return Ok(());
         }
     }
@@ -206,14 +206,18 @@ fn cleanup_orphaned_branches(
         }
     }
 
-    if all_deleted {
-        output::print_success(&format!("Task '{}' orphan branches cleaned up.", task_ref));
-    } else {
-        output::print_warning(&format!(
-            "Task '{}' orphan cleanup incomplete. Some branches may remain.",
-            task_ref
-        ));
-    }
+    output::emit(
+        "task cleanup",
+        CleanupOutcome {
+            task_ref: task_ref.to_string(),
+            cancelled: false,
+            worktrees_removed: true,
+            branches_deleted: all_deleted,
+            host_deleted: true,
+            complete: all_deleted,
+        },
+        render_cleanup,
+    );
     Ok(())
 }
 
@@ -293,7 +297,7 @@ pub fn run(task_id: &str, force: bool, skip_confirm: bool) -> Result<()> {
             .interact()
             .map_err(|e| UdfError::Other(format!("Dialog error: {}", e)))?;
         if !confirmed {
-            output::print_info("Cleanup cancelled.");
+            output::emit("task cleanup", untouched(task_id, false), render_cleanup);
             return Ok(());
         }
     }
@@ -347,6 +351,7 @@ pub fn run(task_id: &str, force: bool, skip_confirm: bool) -> Result<()> {
         "task cleanup",
         CleanupOutcome {
             task_ref: task_id.to_string(),
+            cancelled: false,
             worktrees_removed: all_worktrees_removed,
             branches_deleted: all_branches_deleted,
             host_deleted,
@@ -362,13 +367,29 @@ pub fn run(task_id: &str, force: bool, skip_confirm: bool) -> Result<()> {
 #[serde(rename_all = "camelCase")]
 struct CleanupOutcome {
     task_ref: String,
+    cancelled: bool,
     worktrees_removed: bool,
     branches_deleted: bool,
     host_deleted: bool,
     complete: bool,
 }
 
+/// The user said no, or there was nothing to clean. Either way nothing moved.
+fn untouched(task_ref: &str, complete: bool) -> CleanupOutcome {
+    CleanupOutcome {
+        task_ref: task_ref.to_string(),
+        cancelled: !complete,
+        worktrees_removed: false,
+        branches_deleted: false,
+        host_deleted: false,
+        complete,
+    }
+}
+
 fn render_cleanup(data: &CleanupOutcome) -> String {
+    if data.cancelled {
+        return format!("Task '{}' left alone (cancelled).", data.task_ref);
+    }
     if data.complete {
         return format!("\n✓ Task '{}' cleaned up successfully!", data.task_ref);
     }
