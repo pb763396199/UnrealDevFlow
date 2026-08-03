@@ -65,9 +65,9 @@ pub enum Commands {
 
     /// Install/inspect/remove the UnrealDevFlow skill for AI agent providers
     /// (opencode / copilot / codex / claude code).
-    Skills {
+    Skill {
         #[command(subcommand)]
-        action: SkillsAction,
+        action: SkillAction,
     },
 }
 
@@ -413,7 +413,7 @@ pub enum WorkspaceAction {
 }
 
 #[derive(Subcommand)]
-pub enum SkillsAction {
+pub enum SkillAction {
     /// Copy skills/<name>/SKILL.md into .codex/ + .agents/ + .claude/ + opencode skill dirs
     Install {
         /// Install to user home (~/.codex/ + ~/.agents/ + ~/.claude/ + opencode) instead of project

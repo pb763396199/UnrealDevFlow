@@ -46,7 +46,7 @@ fn command_name(command: &Commands) -> &'static str {
         Commands::Workspace { .. } => "workspace",
         Commands::Task { .. } => "task",
         Commands::Build { .. } => "build",
-        Commands::Skills { .. } => "skills",
+        Commands::Skill { .. } => "skill",
     }
 }
 
@@ -64,7 +64,7 @@ fn run(cli: Cli) -> Result<()> {
 
     if !matches!(
         cli.command,
-        Commands::AwStatus | Commands::Workspace { .. } | Commands::Skills { .. }
+        Commands::AwStatus | Commands::Workspace { .. } | Commands::Skill { .. }
     ) && !config::Config::exists()
     {
         return Err(error::UdfError::NotConfigured);
@@ -209,12 +209,12 @@ fn run(cli: Cli) -> Result<()> {
             cli::BuildAction::Gate { command } => commands::build_policy::gate(command)?,
             cli::BuildAction::Status { task_ref } => commands::build_status::run(&task_ref)?,
         },
-        Commands::Skills { action } => match action {
-            cli::SkillsAction::Install { global, project } => {
+        Commands::Skill { action } => match action {
+            cli::SkillAction::Install { global, project } => {
                 commands::skills::install(global, project)?
             }
-            cli::SkillsAction::List { project } => commands::skills::list(project)?,
-            cli::SkillsAction::Remove { global, project } => {
+            cli::SkillAction::List { project } => commands::skills::list(project)?,
+            cli::SkillAction::Remove { global, project } => {
                 commands::skills::remove(global, project)?
             }
         },

@@ -139,7 +139,23 @@ fn target_paths_for_global(base: &Path) -> [(PathBuf, &'static str); 4] {
     ]
 }
 
-fn install_to_base(base: &Path, source: &Path, scope: &str) -> Result<()> {
+/// One provider directory the skill was written to.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct InstalledLocation {
+    provider: String,
+    path: String,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SkillInstalled {
+    scope: String,
+    source: String,
+    locations: Vec<InstalledLocation>,
+}
+
+fn install_to_base(base: &Path, source: &Path, scope: &str) -> Result<Vec<InstalledLocation>> {
     let content = fs::read_to_string(source)
         .map_err(|e| UdfError::Other(format!("读取源 SKILL.md 失败：{}", e)))?;
 
@@ -149,37 +165,64 @@ fn install_to_base(base: &Path, source: &Path, scope: &str) -> Result<()> {
         _ => return Err(UdfError::Other(format!("内部错误：未知 scope '{}'", scope))),
     };
 
-    let mut installed = 0usize;
+    let mut installed = Vec::new();
     for (dir, label) in &targets {
         fs::create_dir_all(dir)?;
         let dest = dir.join(SKILL_FILE);
         fs::write(&dest, &content)?;
-        output::print_success(&format!("  [{}] {} → {:?}", scope, label, dest));
-        installed += 1;
+        installed.push(InstalledLocation {
+            provider: (*label).to_string(),
+            path: dest.to_string_lossy().to_string(),
+        });
     }
-    output::print_info(&format!(
-        "Installed {} location(s) for scope '{}'.",
-        installed, scope
-    ));
-    Ok(())
+    Ok(installed)
 }
 
 pub fn install(global: bool, project: Option<PathBuf>) -> Result<()> {
-    let source = source_skill_file()?;
-    output::print_info(&format!("Source SKILL.md: {:?}", source));
+    let installed = install_inner(global, project)?;
+    output::emit("skill install", installed, render_installed);
+    Ok(())
+}
 
-    if global {
+/// The copy itself, without emitting. `workspace init` runs it as one stage of
+/// a larger command, so only the outermost command answers.
+pub(crate) fn install_inner(global: bool, project: Option<PathBuf>) -> Result<SkillInstalled> {
+    let source = source_skill_file()?;
+
+    let (scope, base) = if global {
         let home =
             dirs::home_dir().ok_or_else(|| UdfError::Other("无法确定用户主目录".to_string()))?;
-        install_to_base(&home, &source, "global")?;
+        ("global", home)
     } else {
         let cwd = match project {
             Some(p) => p,
             None => std::env::current_dir()?,
         };
-        install_to_base(&cwd, &source, "project")?;
+        ("project", cwd)
+    };
+    let locations = install_to_base(&base, &source, scope)?;
+
+    Ok(SkillInstalled {
+        scope: scope.to_string(),
+        source: source.to_string_lossy().to_string(),
+        locations,
+    })
+}
+
+fn render_installed(data: &SkillInstalled) -> String {
+    let mut lines = vec![format!("Source SKILL.md: {}", data.source)];
+    for location in &data.locations {
+        lines.push(format!(
+            "  [{}] {} → {}",
+            data.scope, location.provider, location.path
+        ));
     }
-    Ok(())
+    lines.push(format!(
+        "✓ Installed {} location(s) for scope '{}'.",
+        data.locations.len(),
+        data.scope
+    ));
+    lines.join("\n")
 }
 
 pub fn list(project: Option<PathBuf>) -> Result<()> {
@@ -191,49 +234,101 @@ pub fn list(project: Option<PathBuf>) -> Result<()> {
 
     let scopes = [("project", cwd), ("global", home)];
 
-    println!();
-    output::print_info("UnrealDevFlow skill installation status");
-    println!("─────────────────────────────────────────────────────────────");
-
-    let mut total_present = 0;
-    let mut total = 0;
+    let mut entries = Vec::new();
     for (scope, base) in &scopes {
-        println!();
-        output::print_info(&format!("Scope: {} (base: {:?})", scope, base));
         let targets = match *scope {
             "project" => target_paths_for_project(base).to_vec(),
             "global" => target_paths_for_global(base).to_vec(),
             _ => Vec::new(),
         };
         for (dir, label) in &targets {
-            total += 1;
             let skill_file = dir.join(SKILL_FILE);
-            if skill_file.exists() {
-                total_present += 1;
-                let meta = fs::metadata(&skill_file).ok();
-                let size = meta.map(|m| m.len()).unwrap_or(0);
-                output::print_success(&format!(
-                    "  ✓ {:<38} {:?}  ({} bytes)",
-                    label, skill_file, size
-                ));
-            } else {
-                output::print_warning(&format!("  ✗ {:<38} not found: {:?}", label, dir));
-            }
+            let present = skill_file.exists();
+            entries.push(SkillLocation {
+                scope: (*scope).to_string(),
+                provider: (*label).to_string(),
+                path: skill_file.to_string_lossy().to_string(),
+                installed: present,
+                size_bytes: if present {
+                    fs::metadata(&skill_file).ok().map(|meta| meta.len())
+                } else {
+                    None
+                },
+            });
         }
     }
 
-    println!();
-    println!("─────────────────────────────────────────────────────────────");
-    output::print_info(&format!(
-        "Coverage: {}/{} location(s) installed",
-        total_present, total
-    ));
-
-    if total_present < total {
-        output::print_info("To install: udf skills install [--global]");
-    }
-
+    let installed = entries.iter().filter(|entry| entry.installed).count();
+    let total = entries.len();
+    output::emit(
+        "skill list",
+        SkillStatus {
+            installed,
+            total,
+            locations: entries,
+        },
+        render_status,
+    );
     Ok(())
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SkillLocation {
+    scope: String,
+    provider: String,
+    path: String,
+    installed: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    size_bytes: Option<u64>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SkillStatus {
+    installed: usize,
+    total: usize,
+    locations: Vec<SkillLocation>,
+}
+
+fn render_status(data: &SkillStatus) -> String {
+    let rule = "─".repeat(61);
+    let mut lines = vec![
+        String::new(),
+        "ℹ UnrealDevFlow skill installation status".to_string(),
+        rule.clone(),
+    ];
+    let mut scope = "";
+    for location in &data.locations {
+        if location.scope != scope {
+            scope = &location.scope;
+            lines.push(String::new());
+            lines.push(format!("ℹ Scope: {}", scope));
+        }
+        if location.installed {
+            lines.push(format!(
+                "✓   {:<38} {}  ({} bytes)",
+                location.provider,
+                location.path,
+                location.size_bytes.unwrap_or(0)
+            ));
+        } else {
+            lines.push(format!(
+                "⚠   ✗ {:<38} not found: {}",
+                location.provider, location.path
+            ));
+        }
+    }
+    lines.push(String::new());
+    lines.push(rule);
+    lines.push(format!(
+        "ℹ Coverage: {}/{} location(s) installed",
+        data.installed, data.total
+    ));
+    if data.installed < data.total {
+        lines.push("ℹ To install: udf skill install [--global]".to_string());
+    }
+    lines.join("\n")
 }
 
 pub fn remove(global: bool, project: Option<PathBuf>) -> Result<()> {
@@ -249,7 +344,8 @@ pub fn remove(global: bool, project: Option<PathBuf>) -> Result<()> {
         vec![("project", cwd)]
     };
 
-    let mut removed = 0usize;
+    let mut removed = Vec::new();
+    let mut skipped = Vec::new();
     for (scope, base) in &scopes {
         let targets = match *scope {
             "project" => target_paths_for_project(base).to_vec(),
@@ -257,20 +353,50 @@ pub fn remove(global: bool, project: Option<PathBuf>) -> Result<()> {
             _ => Vec::new(),
         };
         for (dir, label) in &targets {
+            let location = InstalledLocation {
+                provider: (*label).to_string(),
+                path: dir.to_string_lossy().to_string(),
+            };
             if dir.exists() {
                 fs::remove_dir_all(dir)?;
-                output::print_success(&format!("  [{}] removed {} ({:?})", scope, label, dir));
-                removed += 1;
+                removed.push(location);
             } else {
-                output::print_info(&format!(
-                    "  [{}] {} not installed (skip): {:?}",
-                    scope, label, dir
-                ));
+                skipped.push(location);
             }
         }
     }
-    output::print_info(&format!("Removed {} location(s).", removed));
+
+    output::emit(
+        "skill remove",
+        SkillRemoved { removed, skipped },
+        render_removed,
+    );
     Ok(())
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SkillRemoved {
+    removed: Vec<InstalledLocation>,
+    skipped: Vec<InstalledLocation>,
+}
+
+fn render_removed(data: &SkillRemoved) -> String {
+    let mut lines = Vec::new();
+    for location in &data.removed {
+        lines.push(format!(
+            "✓   removed {} ({})",
+            location.provider, location.path
+        ));
+    }
+    for location in &data.skipped {
+        lines.push(format!(
+            "ℹ   {} not installed (skip): {}",
+            location.provider, location.path
+        ));
+    }
+    lines.push(format!("ℹ Removed {} location(s).", data.removed.len()));
+    lines.join("\n")
 }
 
 #[cfg(test)]

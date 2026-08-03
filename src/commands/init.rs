@@ -80,7 +80,7 @@ pub fn run(
     if skip_skill_install {
         output::print_warning("AI skill install skipped by --skip-skill-install.");
     } else {
-        crate::commands::skills::install(true, None)?;
+        crate::commands::skills::install_inner(true, None)?;
     }
 
     output::emit(
