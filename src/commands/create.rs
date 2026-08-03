@@ -65,7 +65,7 @@ pub fn run(
     // === Resolve primary plugins ===
     let plugins_root = workspace_config.effective_plugins_root().ok_or_else(|| {
         UdfError::Other(
-            "未配置 plugins_root（或 v1 plugin_path），请先运行 udf configure".to_string(),
+            "未配置 plugins_root（或 v1 plugin_path），请先运行 udf workspace add".to_string(),
         )
     })?;
     let project_plugin_locations = scanner::enumerate_plugin_locations(&plugins_root);
@@ -408,7 +408,7 @@ fn render_created(data: &TaskCreated) -> String {
             data.engine_dependencies.join(", ")
         ));
     }
-    lines.push(format!("  Build:  udf build {}", data.task_ref));
+    lines.push(format!("  Build:  udf build task {}", data.task_ref));
     lines.push(format!("  Switch: udf task switch {}", data.task_ref));
     lines.join("\n")
 }

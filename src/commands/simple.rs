@@ -34,15 +34,15 @@ pub fn next(task_ref: Option<String>) -> Result<()> {
     let (summary, commands) = match state.as_str() {
         "created" => (
             "已创建，还没有编译".to_string(),
-            vec![format!("udf build {}", display_ref)],
+            vec![format!("udf build task {}", display_ref)],
         ),
         "building" => (
             "正在编译".to_string(),
-            vec![format!("udf build-status {}", display_ref)],
+            vec![format!("udf build status {}", display_ref)],
         ),
         "failed" => (
             "上次编译失败，看日志修复后重新编译".to_string(),
-            vec![format!("udf build-status {}", display_ref)],
+            vec![format!("udf build status {}", display_ref)],
         ),
         "success" => (
             "编译通过，等待 UE 验收".to_string(),
@@ -53,7 +53,7 @@ pub fn next(task_ref: Option<String>) -> Result<()> {
         ),
         other => (
             other.to_string(),
-            vec![format!("udf build {}", display_ref)],
+            vec![format!("udf build task {}", display_ref)],
         ),
     };
 

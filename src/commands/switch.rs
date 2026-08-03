@@ -157,7 +157,12 @@ pub fn run(
                 )));
             }
             let junction_path = junction_path_for(project_path, plugin_name);
-            if junction_path.exists() {
+            // `exists()` follows the reparse point, so a junction whose target
+            // was deleted reports false while the directory entry is still
+            // there. Ask about the entry itself, or `junction::create` walks
+            // into "file already exists" and the broken-junction recovery below
+            // never runs.
+            if entry_exists(&junction_path) {
                 handle_existing_path(&junction_path, &project_name)?;
             }
             junction::create(target_path, &junction_path)?;
@@ -171,7 +176,7 @@ pub fn run(
                 return Err(UdfError::Other(format!(
                     "Junction 创建后校验失败：'{}' 实际指向 '{}'，期望 '{}'。\n\
                      项目 '{}' 已经有 {} 个 Junction 被切到本任务（{}），但 state 没有写入，账本仍指向上一个任务。\n\
-                     恢复动作：移除该异常 Junction 后重新执行同一条 switch；或者 `udf switch main` 全部复位。",
+                     恢复动作：移除该异常 Junction 后重新执行同一条 switch；或者 `udf task switch main` 全部复位。",
                     junction_path.display(),
                     actual_target.display(),
                     target_path.display(),
@@ -529,6 +534,14 @@ fn paths_equal(left: &Path, right: &Path) -> bool {
     canonical_project_key(left) == canonical_project_key(right)
 }
 
+/// Is there a directory entry at this path, whatever it points at?
+///
+/// `Path::exists` resolves the reparse point, so a junction left dangling by a
+/// previous `task cleanup` answers "no" while still occupying the name.
+fn entry_exists(path: &Path) -> bool {
+    std::fs::symlink_metadata(path).is_ok()
+}
+
 fn clear_ubt_cache(project_path: &Path) {
     let ubt_cache = project_path
         .join("Intermediate")
@@ -619,7 +632,7 @@ fn handle_existing_path(junction_path: &Path, project_name: &str) -> Result<()> 
 }
 
 fn preflight_existing_path(junction_path: &Path, project_name: &str) -> Result<()> {
-    if !junction_path.exists()
+    if !entry_exists(junction_path)
         || junction::is_broken(junction_path)
         || junction::exists(junction_path).unwrap_or(false)
     {
@@ -1027,5 +1040,24 @@ mod tests {
         assert!(project_b.join("Plugins").exists());
         junction::delete(&bound_junction).expect("plugin junction cleanup");
         junction::delete(&project_b.join("Plugins")).expect("shared Plugins cleanup");
+    }
+
+    #[test]
+    fn a_dangling_junction_still_counts_as_an_existing_entry() {
+        let root = tempdir().expect("temp dir");
+        let target = root.path().join("Target");
+        let link = root.path().join("Link");
+        fs::create_dir_all(&target).expect("target");
+        junction::create(&target, &link).expect("junction");
+        assert!(entry_exists(&link));
+
+        // Delete what it points at: the entry survives, `exists()` does not.
+        fs::remove_dir_all(&target).expect("remove target");
+        assert!(!link.exists(), "Path::exists follows the reparse point");
+        assert!(
+            entry_exists(&link),
+            "the directory entry is still there, so switch must clean it up"
+        );
+        junction::delete(&link).expect("a dangling junction must be removable");
     }
 }

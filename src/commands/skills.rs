@@ -1,4 +1,4 @@
-//! `udf skills {install,list,remove}` — minimal cross-provider skill
+//! `udf skill {install,list,remove}` — minimal cross-provider skill
 //! distribution for the 4 providers we target. **Each install location is
 //! verified against the provider's official docs** (sources below):
 //!
@@ -18,7 +18,7 @@
 //! - `remove` deletes the 4 dirs (project or global).
 //!
 //! No junctions, no hash tracking, no auto-sync. The user is the version source:
-//! `git pull` the UnrealDevFlow repo → re-run `udf skills install`.
+//! `git pull` the UnrealDevFlow repo → re-run `udf skill install`.
 
 use crate::error::{Result, UdfError};
 use crate::output;
