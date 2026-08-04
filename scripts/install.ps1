@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env pwsh
+#!/usr/bin/env pwsh
 <#
 .SYNOPSIS
 Install or upgrade UnrealDevFlow from GitHub Releases.
@@ -161,7 +161,7 @@ function Install-FromSource {
         Pop-Location
     }
     # Without this the installer copies whatever udf.exe the last successful
-    # build left behind and calls it a success — you end up running a stale
+    # build left behind and calls it a success, so you end up running a stale
     # binary that reports a version you never built.
     if ($buildExit -ne 0) {
         throw "cargo build --release --locked failed with exit code $buildExit"

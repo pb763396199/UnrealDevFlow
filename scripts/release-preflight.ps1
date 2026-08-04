@@ -112,13 +112,44 @@ Invoke-CheckedStep "Check PowerShell script encoding" {
     foreach ($script in Get-ChildItem -Path "scripts" -Filter "*.ps1" -File) {
         $bytes = [System.IO.File]::ReadAllBytes($script.FullName)
         $hasBom = $bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF
-        if ($hasBom) { continue }
         $text = [System.Text.Encoding]::UTF8.GetString($bytes)
-        if ($text.ToCharArray() | Where-Object { [int]$_ -gt 127 }) {
+        $hasNonAscii = [bool]($text.ToCharArray() | Where-Object { [int]$_ -gt 127 })
+
+        # install.ps1 is fetched and piped straight into `iex`. A BOM survives
+        # that trip as a real character, so `param()` is no longer the first
+        # statement and the whole script fails to parse. It therefore has to
+        # stay pure ASCII with no BOM -- adding one broke the documented
+        # one-line install in 0.2.0.
+        if ($script.Name -eq "install.ps1") {
+            if ($hasBom) {
+                throw "scripts/install.ps1 must not have a BOM; it is piped into iex and a BOM breaks its param() block"
+            }
+            if ($hasNonAscii) {
+                throw "scripts/install.ps1 must stay pure ASCII; it cannot carry a BOM, so non-ASCII would be misread under Windows PowerShell 5.1"
+            }
+            continue
+        }
+
+        if ($hasBom) { continue }
+        if ($hasNonAscii) {
             throw "scripts/$($script.Name) has non-ASCII characters but no UTF-8 BOM; Windows PowerShell 5.1 will misread it"
         }
     }
     Write-Host "All scripts/*.ps1 are safe to parse under Windows PowerShell 5.1"
+}
+
+Invoke-CheckedStep "Installer parses the way iex would see it" {
+    # README tells people to run `irm <url> | iex`. That path never executes the
+    # file from disk, it parses a downloaded string, so a byte-level problem at
+    # the top of the file is invisible to every other check here.
+    $bytes = [System.IO.File]::ReadAllBytes((Join-Path $RepoRoot "scripts\install.ps1"))
+    $asDownloaded = [System.Text.Encoding]::UTF8.GetString($bytes)
+    $errors = $null
+    $null = [System.Management.Automation.Language.Parser]::ParseInput($asDownloaded, [ref]$null, [ref]$errors)
+    if ($errors -and $errors.Count -gt 0) {
+        throw "scripts/install.ps1 does not parse as a downloaded string: $($errors[0].Message)"
+    }
+    Write-Host "install.ps1 parses cleanly as a piped string"
 }
 
 Invoke-CheckedStep "Generate release notes (dry run)" {

@@ -1,0 +1,13 @@
+# Pin the compiler so a developer's machine and CI agree.
+#
+# Releasing 0.2.0 cost three CI rounds; the first was a clippy lint that only
+# exists in a newer stable than the one installed locally. Floating `stable`
+# means every six weeks the lint set can move under you, and you only find out
+# after pushing a tag.
+#
+# Bumping is deliberate: raise the version here, run the release preflight, fix
+# whatever the newer lints flag, then commit. The GitHub workflows install this
+# same version, so there is one number to change, not three.
+[toolchain]
+channel = "1.97.1"
+components = ["clippy", "rustfmt"]
