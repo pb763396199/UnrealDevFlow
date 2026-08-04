@@ -1,9 +1,9 @@
 ---
 schema_version: 1
+protocol: 1.3.0
 artifact: manual-test
 artifact_id: ar_01KZ5G5351KXET1YXPYJ23ESP9
 work_item_id: wi_01KZ3FKQQ6FB98FMPVY6MD3XE9
-attempt_id: at_01KZ3FM1W8WB4J9MNKW8AQBXGK
 created_at: 2026-08-03T14:32:48.758407Z
 producer: aes-validate
 result: passed
@@ -12,7 +12,7 @@ dependencies:
   work_item_contract_digest: sha256:67ad0154f02e36b1cee584f2046af59d2efcb31ccf6d313d1ae88366a0760e91
   artifacts:
     - artifact_id: ar_01KZ5DE0ZABZ72Y1SY2ZWA9BV0
-      digest: sha256:c107071800b6b3e21489adbdbf6b56bb287e435edb7914faf7b28db428919d88
+      digest: sha256:be6b59fbe4c57191eb9289c168d7611fe911218eba32552747b11797a0ca80ad
       locator: validation.md
   subject:
     kind: change_set

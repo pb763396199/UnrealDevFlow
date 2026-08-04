@@ -1,9 +1,9 @@
 ---
 schema_version: 1
+protocol: 1.3.0
 artifact: plan
 artifact_id: ar_01KZ3MVK2Z8BJ2RWJBS7G1338P
 work_item_id: wi_01KZ3FKQQ6FB98FMPVY6MD3XE9
-attempt_id: at_01KZ3FM1W8WB4J9MNKW8AQBXGK
 created_at: 2026-08-03T11:06:32.415991Z
 producer: aes-plan
 result: ready
@@ -12,7 +12,7 @@ dependencies:
   work_item_contract_digest: sha256:67ad0154f02e36b1cee584f2046af59d2efcb31ccf6d313d1ae88366a0760e91
   artifacts:
     - artifact_id: ar_01KZ3K7ZXZF9KGDQ7DDP6Q2WSB
-      digest: sha256:472a9a777bd4b354b154e30fbc3777ac7dae640845e5ea13af5e59e973d42a83
+      digest: sha256:901d16d8c3d7cded1d561265cfe118cdb5fdf8215fba42340bee68fc69dcac9c
       locator: design.md
 ---
 

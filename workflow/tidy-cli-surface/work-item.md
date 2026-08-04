@@ -1,5 +1,6 @@
 ---
 schema_version: 1
+protocol: 1.3.0
 id: wi_01KZ3FKQQ6FB98FMPVY6MD3XE9
 short_id: svt5c9xd
 home_repository: "https://github.com/pb763396199/UnrealDevFlow.git"
@@ -7,7 +8,8 @@ title: "整理 unrealdevflow 的命令行表面：命名一致性与 --format �
 status: done
 created_at: 2026-08-03T09:34:52.135459Z
 created_by: codex
-selected_attempt: at_01KZ3FM1W8WB4J9MNKW8AQBXGK
+branch_or_pr: "refactor/tidy-cli-surface"
+base_revision: bad22632e66ec81138d8b082b4ee6d29c95fc9a7
 ---
 
 # 整理 unrealdevflow 的命令行表面：命名一致性与 --format 覆盖面

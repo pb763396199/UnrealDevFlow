@@ -1,9 +1,9 @@
 ---
 schema_version: 1
+protocol: 1.3.0
 artifact: validation
 artifact_id: ar_01KZ3F3TNRPR5CTASREF550CFY
 work_item_id: wi_01KZ35W0S9TYQ7V4PFHSDKC5SM
-attempt_id: at_01KZ35WCEAJTX3MNDKH02BCYDS
 created_at: 2026-08-03T09:26:10.872230Z
 producer: aes-validate
 outcome: passed
@@ -35,7 +35,7 @@ dependencies:
   work_item_contract_digest: sha256:49d4bfe999b674c14b3b950b648deb9398a2b8fa776407ce710f864911dfebb1
   artifacts:
     - artifact_id: ar_01KZ3EW91M84KGH2GHJPBJM4RK
-      digest: sha256:201a0e0d22be312e7e992db3bea192a85d44f48b2d10ba75578668442e105eb9
+      digest: sha256:96c6766702cd5372b217869dc764d5351611b7f32a6ca988c29e156866dfea66
       locator: reviews/code-review.md
   subject:
     kind: change_set

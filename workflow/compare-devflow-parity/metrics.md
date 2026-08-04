@@ -1,9 +1,9 @@
 ---
 schema_version: 1
+protocol: 1.3.0
 artifact: metrics
 artifact_id: ar_01KZ3FBCFNHZDBG085EDMM0B81
 work_item_id: wi_01KZ35W0S9TYQ7V4PFHSDKC5SM
-attempt_id: at_01KZ35WCEAJTX3MNDKH02BCYDS
 created_at: 2026-08-03T09:30:18.485261Z
 producer: collect-metrics
 result: complete

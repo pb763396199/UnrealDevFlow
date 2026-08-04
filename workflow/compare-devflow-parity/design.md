@@ -1,9 +1,9 @@
 ---
 schema_version: 1
+protocol: 1.3.0
 artifact: design
 artifact_id: ar_01KZ37AC6DB46XA48QK5HR0CM6
 work_item_id: wi_01KZ35W0S9TYQ7V4PFHSDKC5SM
-attempt_id: at_01KZ35WCEAJTX3MNDKH02BCYDS
 created_at: 2026-08-03T07:09:56.813449Z
 producer: aes-brainstorm
 result: accepted
@@ -12,8 +12,8 @@ dependencies:
   work_item_contract_digest: sha256:49d4bfe999b674c14b3b950b648deb9398a2b8fa776407ce710f864911dfebb1
   artifacts:
     - artifact_id: ar_01KZ36QJHA21RAMT1ZYKXEH9PK
-      digest: sha256:26fef60f6e11fb58bcb5ffc2bcc5daf3bf4f8c3207c0071005d4a9a2618f0e20
-      locator: ../../research/devflow-fork-drift-research.md
+      digest: sha256:a5f61de80993bb8fc8b8731fc1264bd64b4840efe27232a9b70fa406fd35838a
+      locator: research/devflow-fork-drift-research.md
 ---
 
 ## 目标
@@ -36,7 +36,7 @@ UWF 后来把它整合成了 `uwf-devflow` 模块。整合的做法是保留引�
 - `unrealdevflow` 侧多了 482 行 CLI 加四个命令模块，还领先两个提交。
 - git 上两边没有关联，是 fork-and-drift。
 
-事实依据见 [devflow-fork-drift-research.md](../../research/devflow-fork-drift-research.md)。
+事实依据见 [devflow-fork-drift-research.md](research/devflow-fork-drift-research.md)。
 
 ## 非目标
 

@@ -1,9 +1,9 @@
 ---
 schema_version: 1
+protocol: 1.3.0
 artifact: research
 artifact_id: ar_01KZ36QJHA21RAMT1ZYKXEH9PK
 work_item_id: wi_01KZ35W0S9TYQ7V4PFHSDKC5SM
-attempt_id: null
 created_at: 2026-08-03T06:59:40.714363Z
 producer: aes-research
 result: complete

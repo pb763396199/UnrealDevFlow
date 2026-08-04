@@ -1,5 +1,6 @@
 ---
 schema_version: 1
+protocol: 1.3.0
 id: wi_01KZ35W0S9TYQ7V4PFHSDKC5SM
 short_id: 47axmb9j
 home_repository: "https://github.com/pb763396199/UnrealDevFlow.git"
@@ -7,7 +8,8 @@ title: "把 DevFlow 从 UnrealWorkflow 拆回独立工具"
 status: done
 created_at: 2026-08-03T06:44:37.804286Z
 created_by: codex
-selected_attempt: at_01KZ35WCEAJTX3MNDKH02BCYDS
+branch_or_pr: "feature/compare-devflow-parity"
+base_revision: e5fff6055ae6e214e1566ab02bfd011370aa0232
 ---
 
 # 把 DevFlow 从 UnrealWorkflow 拆回独立工具

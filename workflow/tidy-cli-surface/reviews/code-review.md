@@ -1,9 +1,9 @@
 ---
 schema_version: 1
+protocol: 1.3.0
 artifact: review
 artifact_id: ar_01KZ5DCTJAWBDSR926HPJGZ2DF
 work_item_id: wi_01KZ3FKQQ6FB98FMPVY6MD3XE9
-attempt_id: at_01KZ3FM1W8WB4J9MNKW8AQBXGK
 created_at: 2026-08-04T03:34:37.386367Z
 producer: aes-review
 verdict: approved
@@ -12,7 +12,7 @@ dependencies:
   work_item_contract_digest: sha256:67ad0154f02e36b1cee584f2046af59d2efcb31ccf6d313d1ae88366a0760e91
   artifacts:
     - artifact_id: ar_01KZ5D544083RHJB4KHYDBNT42
-      digest: sha256:d6f80a3744ed92c498b0e3ee86d9787d615818335d97f9f148f3f48ca44f9501
+      digest: sha256:548a2727f801f55e847d30f8d65fbf64348590ab945383ed7a222f20c563dd3e
       locator: ../implementation.md
   subject:
     kind: change_set
