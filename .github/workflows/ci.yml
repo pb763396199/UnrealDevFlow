@@ -21,10 +21,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Read pinned toolchain
+        id: toolchain
+        shell: bash
+        run: echo "channel=$(grep '^channel' rust-toolchain.toml | cut -d'"' -f2)" >> "$GITHUB_OUTPUT"
+
       - name: Install Rust
-        # 不写 toolchain 和 components，让 action 去读根目录的
-        # rust-toolchain.toml。版本只有那一个地方写，不会跟本地对不上。
+        # 版本从 rust-toolchain.toml 里读出来传进去。这个 action 不会自己读那个
+        # 文件，但本地 cargo 会——不这样接一下，两边又会各说各的。
         uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.toolchain.outputs.channel }}
+          components: rustfmt, clippy
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
