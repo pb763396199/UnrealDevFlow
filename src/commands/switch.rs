@@ -58,7 +58,7 @@ pub fn run(
         // We need to know which plugins were active; we derive them from GlobalState.
         let state = GlobalState::load()?;
         let mut plan: Vec<(String, PathBuf)> = Vec::new();
-        for (_proj, ps) in state.projects.iter() {
+        for ps in state.projects.values() {
             for j in &ps.junctions {
                 if !plan.iter().any(|(n, _)| n == &j.plugin_name) {
                     let main_path = config
