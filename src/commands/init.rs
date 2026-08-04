@@ -302,9 +302,14 @@ mod tests {
         std::fs::create_dir_all(&source).expect("source dir");
         std::fs::write(plugin.join("AesWorld.uplugin"), "{}").expect("uplugin");
 
+        // `detect_plugin_from_path` returns a canonicalized path. When the
+        // account name is longer than eight characters Windows hands out a
+        // TEMP like `C:\Users\RUNNER~1\...`, so the raw temp path and the
+        // canonical one differ by more than case. Normalise both sides.
+        let expected = dunce::canonicalize(&plugin).expect("canonical plugin");
         assert_eq!(
             detect_plugin_from_path(&source, &plugins_root),
-            Some(plugin)
+            Some(expected)
         );
     }
 
