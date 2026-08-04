@@ -1,13 +1,13 @@
 ---
 schema_version: 1
 artifact: implementation
-artifact_id: ar_01KZ40KNHCMHJFZHTY17CGTA2T
+artifact_id: ar_01KZ5D544083RHJB4KHYDBNT42
 work_item_id: wi_01KZ3FKQQ6FB98FMPVY6MD3XE9
 attempt_id: at_01KZ3FM1W8WB4J9MNKW8AQBXGK
-created_at: 2026-08-03T14:31:55.692320Z
+created_at: 2026-08-04T03:30:25.024453Z
 producer: aes-execute
 result: complete
-supersedes: ar_01KZ400CM1DGHBT8KMG7RH4M04
+supersedes: ar_01KZ40KNHCMHJFZHTY17CGTA2T
 dependencies:
   work_item_contract_digest: sha256:67ad0154f02e36b1cee584f2046af59d2efcb31ccf6d313d1ae88366a0760e91
   artifacts:
@@ -16,12 +16,12 @@ dependencies:
       locator: plan.md
   subject:
     kind: change_set
-    digest: sha256:abc7dc42bdb017d8c6ab99c0eb05d2100c3d87c71d16c26b3a441797065871d6
+    digest: sha256:74cf36a04a4116b1603a55ffb325f397709574ec851f759e5daff7f4f200a2d1
     repository: https://github.com/pb763396199/UnrealDevFlow.git
     base_revision: bad22632e66ec81138d8b082b4ee6d29c95fc9a7
-    revision: 46fe42a0e91e8fcbbcf18c7d92106a8f70e814a7
-    tree: d2ef02c83135ef13a6c070f76d4ffa9238825e11
-    content_digest: sha256:abc7dc42bdb017d8c6ab99c0eb05d2100c3d87c71d16c26b3a441797065871d6
+    revision: ea9fa55ac58c7ecfd6f6b2fb7e9a05f52047102a
+    tree: 924a56dfeb98558e7ff3bc46f743abfca25aebe2
+    content_digest: sha256:74cf36a04a4116b1603a55ffb325f397709574ec851f759e5daff7f4f200a2d1
     branch_or_pr: refactor/tidy-cli-surface
     workflow_excluded: true
 ---
@@ -31,7 +31,7 @@ dependencies:
 `unrealdevflow` 改名为 `udf`，20 个平铺命令收成 `workspace` / `task` / `build` / `skill` 四个组，
 22 个叶子命令全部支持 `--format json` 并返回真实数据。版本跳到 `0.2.0`。
 
-13 个提交，基线 `bad2263`，落在 `refactor/tidy-cli-surface` 上。
+14 个提交，基线 `bad2263`，落在 `refactor/tidy-cli-surface` 上。
 
 | 步骤 | 提交 | 改了什么 |
 | --- | --- | --- |
@@ -48,6 +48,7 @@ dependencies:
 | S11 | `09ec1db` | 评审两条阻断的修复，顺带解掉一条建议 |
 | S12 | `e0b715d` | 验收发现的文档遗漏：发布资产清单里的二进制名 |
 | S12 | `46fe42a` | 验收发现的功能缺口：build status 的任务引用改成可省略 |
+| S13 | `adcc789` | 人工核对打回的三条，外加帮助文本与两份 SKILL.md 全面中文化 |
 
 ## 评审提的问题怎么修的（S11）
 
@@ -94,9 +95,43 @@ dependencies:
 可选而 `build-status` 必填，两个都是查任务状态」正是设计开头点名要消掉的那条不一致。S6 收
 build 组时照搬了旧签名，我当时没查设计。现在走跟另外两个查询命令同一条 `latest_task_ref` 路径。
 
+## 人工核对打回了什么（S13）
+
+用户测了 1–10 条，3 条没过、2 条留了反馈。
+
+**安装器有三处，都是这次改名留下的账。** 这三处 S9 的冒烟全程带 `--skip-skill-install`、
+AC-001 又只在临时目录里塞了一个 `unrealdevflow.exe`，所以一个都没暴露出来。
+
+- 第 5 步敲的还是 `udf skills install`。S7 把 `skills` 单数化时漏了 `install.ps1:223`，
+  命令报 `unrecognized subcommand 'skills'`，而脚本无条件打印「global AI skill installed」
+  ——什么都没装还说装好了。现在检查 `$LASTEXITCODE`，失败就 throw。
+- 遗留清理只认 `unrealdevflow.exe` 一种形态。用户机器上实际是 `unrealdevflow.cmd`
+  （指向仓库 target/release 的开发垫片）加 `unrealdevflow.installed-20260630.exe`，
+  两个都没删，所以旧名还能敲通——AC-001 的「旧名一个不留」没真正做到。改成按名字形态
+  匹配 `^unrealdevflow(\.installed-.*)?$` 且扩展名是 exe/cmd/bat，`unrealdevflow-installer.ps1`
+  是发布资产不受影响。
+- 顺带发现 `Install-FromSource` 不看 cargo 的退出码。构建失败时会把上次留下的旧二进制
+  拷出去并报成功。这个是我在按用户的目录形态复现时撞到的，用户没提。
+
+**重复 switch 看不出跟全新切换有什么区别。** 用户选了「照做，但先说清楚」，所以行为不变，
+只是在开头多一行说明。查过账本：那条「未记账 Junction」警告报得对——S9 冒烟的 T0 备份显示
+用户的 `state.json` 里 DEV_1 是 `active_task: None`、0 个 junction，而磁盘上有个旧版本留下的
+活 Junction，账本确实是空的。不是本次引入的。
+
+**帮助文本要中文。** 用户在第 5 条和第 8 条各提了一次。22 个叶子的说明、参数和取值全改。
+clap 自带的段落标题、`-h`/`-V` 说明和每一层自动生成的 `help` 子命令 derive 宏够不到，
+在 `main.rs` 里递归套一遍：`help_template` 换用法段，`mut_args` 按位置参数/选项分别回填
+「参数」「选项」标题，`mut_subcommand` 换每层 `help` 的说明。27 个帮助页扫过，没有残留的
+英文骨架。两份 SKILL.md 同样改成中文，顺带修掉 `skills/unrealdevflow/SKILL.md` 里那句
+「`start` 是 `create` 的包装」——`start` 在 S5 就删了，这句一直没人发现。
+
+**没做的：** clap 在参数给错时吐的报错（`error: the following required arguments were not
+provided`）还是英文。那串文案在 clap 库内部，要换得自己实现一套 `ErrorFormatter` 重写它
+全部的错误渲染。已经写进人工清单第 5 条让用户判断能不能接受。
+
 ## 跑了什么，结果如何
 
-三条发布门禁在末版 `46fe42a` 通过：`cargo fmt --check`、
+三条发布门禁在末版 `adcc789` 通过：`cargo fmt --check`、
 `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`、
 `cargo test` 退出码都是 0，**71 个用例全过**（基线 65，新增 6）。
 

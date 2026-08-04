@@ -11,17 +11,17 @@ supersedes: null
 dependencies:
   work_item_contract_digest: sha256:67ad0154f02e36b1cee584f2046af59d2efcb31ccf6d313d1ae88366a0760e91
   artifacts:
-    - artifact_id: ar_01KZ40N1BGZ6GJRGHMTZM585QH
-      digest: sha256:9b7f0923b723b3623f691094580ff6a3474de167619d5fa860971caa4879e2c0
+    - artifact_id: ar_01KZ5DE0ZABZ72Y1SY2ZWA9BV0
+      digest: sha256:c107071800b6b3e21489adbdbf6b56bb287e435edb7914faf7b28db428919d88
       locator: validation.md
   subject:
     kind: change_set
-    digest: sha256:abc7dc42bdb017d8c6ab99c0eb05d2100c3d87c71d16c26b3a441797065871d6
+    digest: sha256:74cf36a04a4116b1603a55ffb325f397709574ec851f759e5daff7f4f200a2d1
     repository: https://github.com/pb763396199/UnrealDevFlow.git
     base_revision: bad22632e66ec81138d8b082b4ee6d29c95fc9a7
-    revision: 46fe42a0e91e8fcbbcf18c7d92106a8f70e814a7
-    tree: d2ef02c83135ef13a6c070f76d4ffa9238825e11
-    content_digest: sha256:abc7dc42bdb017d8c6ab99c0eb05d2100c3d87c71d16c26b3a441797065871d6
+    revision: ea9fa55ac58c7ecfd6f6b2fb7e9a05f52047102a
+    tree: 924a56dfeb98558e7ff3bc46f743abfca25aebe2
+    content_digest: sha256:74cf36a04a4116b1603a55ffb325f397709574ec851f759e5daff7f4f200a2d1
     branch_or_pr: refactor/tidy-cli-surface
     workflow_excluded: true
 ---

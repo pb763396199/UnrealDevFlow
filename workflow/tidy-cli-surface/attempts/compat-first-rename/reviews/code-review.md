@@ -1,37 +1,38 @@
 ---
 schema_version: 1
 artifact: review
-artifact_id: ar_01KZ40MSSATP1D6K1K3CH4WW1A
+artifact_id: ar_01KZ5DCTJAWBDSR926HPJGZ2DF
 work_item_id: wi_01KZ3FKQQ6FB98FMPVY6MD3XE9
 attempt_id: at_01KZ3FM1W8WB4J9MNKW8AQBXGK
-created_at: 2026-08-03T14:32:32.810351Z
+created_at: 2026-08-04T03:34:37.386367Z
 producer: aes-review
 verdict: approved
-supersedes: ar_01KZ402F0VD41DPCXVQHX6WCQC
+supersedes: ar_01KZ40MSSATP1D6K1K3CH4WW1A
 dependencies:
   work_item_contract_digest: sha256:67ad0154f02e36b1cee584f2046af59d2efcb31ccf6d313d1ae88366a0760e91
   artifacts:
-    - artifact_id: ar_01KZ40KNHCMHJFZHTY17CGTA2T
-      digest: sha256:296dca774469053bafcb9a675fe3fcdad17390a7d1a9f09b8d570b6af690a060
+    - artifact_id: ar_01KZ5D544083RHJB4KHYDBNT42
+      digest: sha256:d6f80a3744ed92c498b0e3ee86d9787d615818335d97f9f148f3f48ca44f9501
       locator: ../implementation.md
   subject:
     kind: change_set
-    digest: sha256:abc7dc42bdb017d8c6ab99c0eb05d2100c3d87c71d16c26b3a441797065871d6
+    digest: sha256:74cf36a04a4116b1603a55ffb325f397709574ec851f759e5daff7f4f200a2d1
     repository: https://github.com/pb763396199/UnrealDevFlow.git
     base_revision: bad22632e66ec81138d8b082b4ee6d29c95fc9a7
-    revision: 46fe42a0e91e8fcbbcf18c7d92106a8f70e814a7
-    tree: d2ef02c83135ef13a6c070f76d4ffa9238825e11
-    content_digest: sha256:abc7dc42bdb017d8c6ab99c0eb05d2100c3d87c71d16c26b3a441797065871d6
+    revision: ea9fa55ac58c7ecfd6f6b2fb7e9a05f52047102a
+    tree: 924a56dfeb98558e7ff3bc46f743abfca25aebe2
+    content_digest: sha256:74cf36a04a4116b1603a55ffb325f397709574ec851f759e5daff7f4f200a2d1
     branch_or_pr: refactor/tidy-cli-surface
     workflow_excluded: true
 ---
 
 ## 审查范围
 
-基线 `bad2263`，末版 `46fe42a`，分支 `refactor/tidy-cli-surface`，13 个提交。
+基线 `bad2263`，末版 `ea9fa55`，分支 `refactor/tidy-cli-surface`，16 个提交。
 
-第一版结论是 `changes_requested`，两条阻断在 `09ec1db` 修完并逐条复核过。之后验收又发现
-两处问题，补了 `e0b715d` 和 `46fe42a`，这两个提交也单独看过（见文末）。本版结论 `approved`。
+这份记录经过三轮。第一版 `changes_requested`，两条阻断在 `09ec1db` 修完。验收又发现两处，
+补了 `e0b715d` 和 `46fe42a`。**人工核对第一轮打回三条**，补了 `adcc789`，复审那个提交时
+又发现一处，补了 `ea9fa55`。本版结论 `approved`，但人工核对第二轮还没做完。
 下面保留原问题描述，各自附上复核结果。
 
 逐个提交核对过文件清单，没有范围外改动：`workflow/` 一次都没进过提交，`docs/plans`、
@@ -192,6 +193,56 @@ junction 真的没了」无法区分。
 这两个提交都没有碰输出层、受控构建策略和 Junction 逻辑，三条门禁在 `46fe42a` 重跑仍是 0，
 71 个用例全过。
 
+## 人工核对第一轮打回的三条（`adcc789`）
+
+这三条全是我的验收没覆盖到的地方，值得单独说清楚为什么漏了。
+
+**安装器的三处问题，我的 AC-001 验证方法本身有缺陷。** 我在临时目录里只塞了一个
+`unrealdevflow.exe`——那正好是安装器代码里写着要删的那一种。等于拿被测代码的假设去
+造测试数据，测了个寂寞。用户机器上真实的形态是 `unrealdevflow.cmd` 加
+`unrealdevflow.installed-20260630.exe`，两个都没删。修法是按名字形态匹配而不是硬编码
+一个文件名，`unrealdevflow-installer.ps1` 因为不匹配 `^unrealdevflow(\.installed-.*)?$`
+而保住，这个边界是对的，实测确认。
+
+`skills install` 那处更直接：S7 把命令单数化，`install.ps1:223` 没跟上，而脚本无条件
+打印成功。我的 AC-003 全仓扫描排除了 `scripts/` 吗？没有——但我扫的是 `build-project`
+这类旧命令名，没扫 `skills install` 这个组合。教训是改名之后应该反过来扫「所有调用自身
+可执行文件的地方」，而不是只扫旧名字。
+
+第三处（构建失败仍报成功）是我在复现用户的目录形态时撞到的，用户没提。同一类问题：
+PowerShell 里调原生命令不检查 `$LASTEXITCODE` 就是静默吞错。三处现在都检查了。
+
+**重复 switch 的提示。** 用户选了「照做，但先说清楚」，所以 `report_if_already_active`
+只打印不改变控制流，放在所有诊断之后、真正动手之前。判定条件是账本的 `active_task` 对得上
+**且**每个 Junction 的实际目标都对得上，两个都满足才说话——只对一半时保持沉默是对的，
+那种情况下面的重建确实在做实事。`junction::get_target` 失败按「对不上」处理，也对。
+
+我核对了用户报的「未记账 Junction」警告：S9 冒烟的 T0 备份里 DEV_1 是 `active_task: None`、
+0 个 junction，磁盘上却有旧版本留下的活 Junction。警告报得对，不是缺陷，这一点实现记录里
+写清楚了没有含糊过去。
+
+**帮助文本中文化。** 22 个叶子的 doc comment 全改，这部分是机械的。有判断的是 `main.rs`
+里那个 `localize`：不逐个给 22 个变体标注 `help_template`，而是建好命令树之后递归套一遍。
+理由成立——derive 属性只作用于标注的那一层，逐个标既啰嗦又必漏。`mut_args` 按
+`is_positional()` 分成「参数」和「选项」两个标题，没有混成一段。每一层自动生成的 `help`
+子命令都单独换了说明，27 个帮助页扫过没有残留。
+
+`Cli` 上新增的 `help` / `version` 两个字段是 clap 的惯用法（关掉自动 flag 换成自己声明的
+同名参数），不是死代码，clippy 在 `-D warnings` 下也过了。
+
+解析入口从 `Cli::parse()` 换成 `from_arg_matches`，这是行为面最大的改动，我单独验了运行时：
+`-V`、`--version`、`udf help task`、全局 `--format` 放在命令前后两种位置、`-v`、隐藏的
+`aw-status`、缺参数退出码 2、未知子命令退出码 2——都对。
+
+## 复审 `adcc789` 时发现的（`ea9fa55`）
+
+`aw-status --format json` 吐两个 JSON 文档：它自己打印的固定契约，加上 `flush_unemitted`
+兜底补的信封。这是 S3 给 `list` 和 `status` 修过的同一类问题，当时没看这个隐藏命令。
+
+修法我认可：它不能改成走 `emit`，AgentWatcher 读的就是那个固定形状。加一个 `mark_emitted`
+让自己负责整个 stdout 的命令声明一声，注释里明写「只给已有外部消费方的固定契约用，新命令
+一律走 emit」——这个口子有边界，不会变成绕过信封的后门。
+
 ## 没有覆盖的范围
 
 - **完整的 Release 安装链路没跑过**。安装器删旧 exe 只用 `-FromSource` 验过，
@@ -200,7 +251,10 @@ junction 真的没了」无法区分。
 - **`skill install` / `remove` 没有实跑**。冒烟全程带 `--skip-skill-install`，T7 被跳过。
 - **项目内依赖 junction 这条路径完全没有覆盖**，实现记录里说明了原因（四个可用主插件都没有
   本地项目插件依赖）。
-- **S11 与 S12 的修复都没有重跑端到端冒烟**。改动都在输出层与配置豁免上，用 JSON 输出逐条实测，
+- **S11、S12、S13 的修复都没有重跑端到端冒烟**。改动都在输出层与配置豁免上，用 JSON 输出逐条实测，
   没有再动用户的真实项目。
+- **clap 内部的报错文案仍是英文**。参数给错时的 `error: the following required arguments
+  were not provided` 在 clap 库里，要换得自己实现一套 `ErrorFormatter` 重写全部错误渲染。
+  这次没做，已经写进人工清单第 5 条让用户判断能不能接受。
 - **`0.2.0` 的 Release notes 只做了内容审查，没有跑 `generate-release-notes.ps1` 验证它能被
   模板校验通过**（那段脚本会拒绝含占位符的 notes）。
