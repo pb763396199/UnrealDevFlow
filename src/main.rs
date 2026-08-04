@@ -19,13 +19,22 @@ mod output;
 mod plugin;
 mod state;
 
-use clap::Parser;
+use clap::FromArgMatches;
 use cli::{Cli, Commands};
 use error::Result;
 use tracing_subscriber::EnvFilter;
 
 fn main() {
-    let cli = Cli::parse();
+    // 帮助文本要全中文，clap 的段落标题和自动生成的 `help` 子命令是英文硬编码，
+    // derive 宏够不到。build() 先把自动子命令落成真实节点，否则 mut_subcommand
+    // 找不到它会 panic。
+    let mut command = <Cli as clap::CommandFactory>::command();
+    command.build();
+    let command = localize(command);
+    let cli = match Cli::from_arg_matches(&command.get_matches()) {
+        Ok(cli) => cli,
+        Err(error) => error.exit(),
+    };
     // Decide how this run talks before anything can print.
     output::set_format(&cli.format);
     let command = command_name(&cli.command);
@@ -37,6 +46,37 @@ fn main() {
             std::process::exit(1);
         }
     }
+}
+
+/// 把中文骨架套到整棵命令树上。
+///
+/// derive 宏上的 `help_template` / `next_help_heading` 只作用于它标注的那一层，
+/// 22 个叶子逐个标一遍既啰嗦又容易漏。段落标题是挂在每个参数上的，所以已经建好
+/// 的命令要靠 `mut_args` 回头改。位置参数和选项分开归类，否则会混成一段。
+fn localize(command: clap::Command) -> clap::Command {
+    let command = command
+        .help_template(cli::HELP_TEMPLATE)
+        .subcommand_help_heading("命令")
+        .mut_args(|arg| {
+            let heading = if arg.is_positional() {
+                "参数"
+            } else {
+                "选项"
+            };
+            arg.help_heading(heading)
+        });
+    let names: Vec<String> = command
+        .get_subcommands()
+        .map(|sub| sub.get_name().to_string())
+        .collect();
+    names.into_iter().fold(command, |command, name| {
+        if name == "help" {
+            // 每一层都有一个自动生成的 help，说明文字都要换。
+            command.mut_subcommand(name, |sub| sub.about("显示某条命令的帮助"))
+        } else {
+            command.mut_subcommand(name, localize)
+        }
+    })
 }
 
 /// Name reported in the JSON envelope, so callers can tell which command spoke.

@@ -1,22 +1,47 @@
 //! CLI command definitions for UnrealDevFlow
+//!
+//! 帮助文本一律写中文。这个工具的使用者是中文开发者和替他们干活的 AI 助手，
+//! 命令名、参数名和取值保持英文（它们是要照着敲的），说明文字用中文。
 
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
+/// clap 自带的段落标题和 -h/-V 说明是英文硬编码的。`next_help_heading` 换掉
+/// 选项段的标题，`help_template` 换掉用法段的标题，`-h`/`-V` 则关掉自动版本
+/// 换成自己声明的同名参数。`help` 子命令的说明在 main.rs 里用
+/// `mut_subcommand` 补，derive 宏够不到它。
+pub const HELP_TEMPLATE: &str = "{about}
+
+用法：{usage}
+
+{all-args}";
+
 #[derive(Parser)]
 #[command(name = "udf")]
-#[command(about = "Unreal Engine plugin parallel development workflow tool")]
+#[command(about = "UE 插件并行开发工作流工具")]
 #[command(version = env!("UDF_VERSION_LONG"))]
+#[command(help_template = HELP_TEMPLATE)]
+#[command(next_help_heading = "选项")]
+#[command(subcommand_help_heading = "命令")]
+#[command(disable_help_flag = true, disable_version_flag = true)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
 
-    /// Output format: `human` (default) or `json`. Every command honors it;
-    /// under `json` a command emits exactly one document on stdout.
+    /// 显示帮助
+    #[arg(long, short = 'h', global = true, action = clap::ArgAction::Help)]
+    pub help: Option<bool>,
+
+    /// 显示版本号
+    #[arg(long, short = 'V', action = clap::ArgAction::Version)]
+    pub version: Option<bool>,
+
+    /// 输出格式：human（默认）或 json。每个命令都认这个参数；
+    /// json 模式下一条命令只往标准输出吐一个文档。
     #[arg(long, global = true, default_value = "human")]
     pub format: OutputFormat,
 
-    /// Enable verbose logging
+    /// 打开详细日志
     #[arg(long, short, global = true)]
     pub verbose: bool,
 }
@@ -29,42 +54,42 @@ pub enum OutputFormat {
 
 #[derive(Clone, Debug, clap::ValueEnum, PartialEq)]
 pub enum MergeStrategy {
-    /// Rebase task branch onto dev (default preference)
+    /// 把任务分支变基到 dev 上（推荐，历史是线性的）
     Rebase,
-    /// Create merge commit, preserve task history
+    /// 生成一个合并提交，保留任务分支的历史
     Merge,
-    /// Squash all task commits into one
+    /// 把任务的所有提交压成一个
     Squash,
-    /// Fast-forward only, fail if not possible
+    /// 只允许快进，做不到就报错
     FfOnly,
 }
 
 #[derive(Subcommand)]
 pub enum Commands {
-    /// AgentWatcher read-only module status probe.
+    /// AgentWatcher 模块状态探测（只读）。
     #[command(name = "aw-status", hide = true)]
     AwStatus,
 
-    /// Set up and inspect the UE project environments you work in.
+    /// 配置和检查你干活用的 UE 项目环境。
     Workspace {
         #[command(subcommand)]
         action: WorkspaceAction,
     },
 
-    /// Create, inspect and retire isolated development tasks.
+    /// 创建、查看和收尾隔离的开发任务。
     Task {
         #[command(subcommand)]
         action: TaskAction,
     },
 
-    /// Compile a task Host or the main project, and decide when that is allowed.
+    /// 编译任务宿主或主项目，以及判断现在允不允许编。
     Build {
         #[command(subcommand)]
         action: BuildAction,
     },
 
-    /// Install/inspect/remove the UnrealDevFlow skill for AI agent providers
-    /// (opencode / copilot / codex / claude code).
+    /// 给 AI 助手（opencode / copilot / codex / claude code）装、查、删
+    /// UnrealDevFlow 的 skill。
     Skill {
         #[command(subcommand)]
         action: SkillAction,
@@ -73,266 +98,260 @@ pub enum Commands {
 
 #[derive(Subcommand)]
 pub enum BuildAction {
-    /// Build a task's Host project
+    /// 编译一个任务的宿主项目
     Task {
-        /// Task ref, e.g. workspace/task-id.
+        /// 任务引用，形如 workspace/task-id。
         task_ref: String,
 
-        /// Build in background
+        /// 放到后台编，命令立刻返回
         #[arg(long)]
         background: bool,
 
-        /// Mutex mode: auto (default) / wait / no-mutex
+        /// 互斥锁模式：auto（默认）/ wait / no-mutex
         ///
-        /// auto    : -WaitMutex if engine Intermediate/Build/Shared is missing,
-        ///           -NoMutex once shared PCH is ready. Validator hint biases
-        ///           to -NoMutex.
-        /// wait    : always -WaitMutex (queue if another build is running)
-        /// no-mutex: always -NoMutex (parallel; fastest when PCH cached)
+        /// auto    ：引擎的 Intermediate/Build/Shared 还没生成时用 -WaitMutex，
+        ///           共享 PCH 就绪之后改用 -NoMutex。带 --validator 时偏向 -NoMutex。
+        /// wait    ：始终 -WaitMutex（别人在编就排队等）
+        /// no-mutex：始终 -NoMutex（并行，PCH 已缓存时最快）
         #[arg(long, value_enum, default_value = "auto")]
         mutex: crate::build_profile::MutexMode,
 
-        /// Hint: build is invoked by a validator / CI (not an IDE).
+        /// 告诉工具这次编译是验证器或 CI 发起的，不是 IDE。
         #[arg(long)]
         validator: bool,
 
-        /// Only compile primary plugin modules (passes `-Module=` per primary)
+        /// 只编主插件的模块（给每个主插件传一个 `-Module=`）
         #[arg(long)]
         primary_only: bool,
 
-        /// Build strictness profile. Default: light.
+        /// 编译严格度档位。默认 light。
         #[arg(long, value_enum, default_value = "light")]
         profile: crate::build_profile::BuildProfile,
 
-        /// Override the UBT log directory. Default: <host>/Logs/UBT/
+        /// 改写 UBT 日志目录。默认 <host>/Logs/UBT/
         #[arg(long)]
         build_log_dir: Option<PathBuf>,
     },
 
-    /// Build the workspace's main UE project instead of a task Host
+    /// 编 workspace 的主 UE 项目，而不是任务宿主
     Project {
-        /// Workspace name. Required when more than one workspace exists.
+        /// workspace 名。配了不止一个 workspace 时必须给。
         #[arg(long)]
         workspace: Option<String>,
 
-        /// Build strictness profile. Default: light.
+        /// 编译严格度档位。默认 light。
         #[arg(long, value_enum, default_value = "light")]
         profile: crate::build_profile::BuildProfile,
 
-        /// Editor target override. Default: derived from the .uproject.
+        /// 改写编辑器目标名。默认从 .uproject 推导。
         #[arg(long)]
         target: Option<String>,
     },
 
-    /// Report whether a controlled UE build may start right now (never builds)
+    /// 回答现在能不能启动一次受控编译（它自己永远不编）
     ///
-    /// Prints one of: ready / needsUserInput / blocked / deferred.
+    /// 结论是四个之一：ready / needsUserInput / blocked / deferred。
     Check {
-        /// Task ref, e.g. workspace/task-id. If omitted, checks the workspace's
-        /// main project instead of a task Host.
+        /// 任务引用，形如 workspace/task-id。不给就检查 workspace 的主项目，
+        /// 而不是某个任务宿主。
         task_ref: Option<String>,
 
-        /// Workspace name. Used when no task ref is given.
+        /// workspace 名。不给任务引用时用它定位项目。
         #[arg(long)]
         workspace: Option<String>,
 
-        /// Build strictness profile. Default: light.
+        /// 编译严格度档位。默认 light。
         #[arg(long, value_enum, default_value = "light")]
         profile: crate::build_profile::BuildProfile,
 
-        /// Editor target override. Default: derived from the .uproject.
+        /// 改写编辑器目标名。默认从 .uproject 推导。
         #[arg(long)]
         target: Option<String>,
 
-        /// A build command to validate against the resolved project before it runs.
+        /// 顺便校验这条编译命令跟解析出来的项目对不对得上，在它真跑之前。
         #[arg(long)]
         build_command: Option<String>,
     },
 
-    /// Check whether a proposed command bypasses the controlled build path
+    /// 检查一条命令是不是绕过了受控编译路径
     ///
-    /// Exits non-zero when the command is refused.
+    /// 判定为拒绝时退出码非零。
     Gate {
-        /// The command a tool or agent proposes to run.
+        /// 某个工具或 AI 助手打算执行的那条命令。
         command: String,
     },
 
-    /// Check build status of a task
+    /// 查一个任务的编译状态
     Status {
-        /// Task ref, e.g. workspace/task-id. If omitted, reports on the most
-        /// recently touched task.
+        /// 任务引用，形如 workspace/task-id。不给就按最近动过的任务。
         task_ref: Option<String>,
     },
 }
 
 #[derive(Subcommand)]
 pub enum TaskAction {
-    /// Create an isolated task: one git worktree per primary plugin, plus a Host project.
+    /// 建一个隔离的任务：每个主插件一个 git worktree，外加一个宿主项目。
     Create {
-        /// Task description. Also saved as the original prompt unless --prompt is given.
+        /// 任务描述。没给 --prompt 时，它同时被存成用户原始需求。
         description: String,
 
-        /// Custom task ID (overrides auto-suggestion)
+        /// 自定义任务 ID（覆盖自动建议的那个）
         #[arg(long)]
         id: Option<String>,
 
-        /// Explicit task branch name used in every primary repository.
-        /// Defaults to task/<workspace>/<task-id>.
+        /// 每个主插件仓库里都用这个分支名。
+        /// 默认是 task/<workspace>/<task-id>。
         #[arg(long)]
         branch: Option<String>,
 
-        /// Git ref used as the base in every primary repository.
+        /// 每个主插件仓库都从这个 git 引用切分支。
         #[arg(long)]
         base_ref: Option<String>,
 
-        /// Original prompt to save in metadata. Defaults to the description.
+        /// 存进元数据的用户原始需求。不给就用任务描述顶上。
         #[arg(long)]
         prompt: Option<String>,
 
-        /// Workspace name. Required when more than one workspace exists.
+        /// workspace 名。配了不止一个 workspace 时必须给。
         #[arg(long)]
         workspace: Option<String>,
 
-        /// Primary plugin names (comma-separated). If omitted, falls back to the
-        /// legacy `plugin_path` configured plugin.
+        /// 主插件名，多个用逗号隔开。不给就退回配置里那个
+        /// 老式的 plugin_path 插件。
         #[arg(long, value_delimiter = ',')]
         primary: Option<Vec<String>>,
 
-        /// Dependency override mappings as `name=engine` / `name=project` /
-        /// `name=<absolute-path>`. Repeatable.
+        /// 指定某个依赖从哪来，写成 `名字=engine` / `名字=project` /
+        /// `名字=<绝对路径>`。可以给多次。
         #[arg(long = "override-dep", value_parser = parse_dep_override)]
         override_dep: Vec<DepOverride>,
 
-        /// Skip confirmation prompts
+        /// 不要问我，直接做
         #[arg(long, short = 'y')]
         yes: bool,
     },
 
-    /// List all tasks
+    /// 列出所有任务
     List {
-        /// Workspace name to filter tasks
+        /// 只看这个 workspace 下的任务
         #[arg(long)]
         workspace: Option<String>,
     },
 
-    /// Tell the user the single next step for a task.
+    /// 告诉你这个任务接下来该做哪一步。
     Next {
-        /// Task ref, e.g. workspace/task-id. If omitted, uses latest task when unambiguous.
+        /// 任务引用，形如 workspace/task-id。不给且不产生歧义时按最近的任务。
         task_ref: Option<String>,
     },
 
-    /// Point a UE project's Junctions at this task (affects next Editor launch)
+    /// 把某个 UE 项目的 Junction 指到这个任务上（下次启动编辑器才生效）
     Switch {
-        /// Task ref, e.g. workspace/task-id. Use "main" to switch back to the main repos.
+        /// 任务引用，形如 workspace/task-id。写 "main" 表示切回主仓库。
         task_ref: String,
 
-        /// UE project path(s) to update (comma-separated for multiple).
+        /// 要改的 UE 项目路径，多个用逗号隔开。
         ///
-        /// Only "main" may target several projects. A task is bound to the
-        /// project frozen in its metadata, so naming any other project is
-        /// refused before any Junction changes.
+        /// 只有 "main" 允许一次指向多个项目。任务绑死在它元数据里冻结的
+        /// 那个项目上，点名别的项目会在动任何 Junction 之前就被拒绝。
         #[arg(long, value_delimiter = ',')]
         project: Option<Vec<PathBuf>>,
 
-        /// Force switch even if Editor is running
+        /// 编辑器还开着也照切
         #[arg(long)]
         force: bool,
 
-        /// Skip the automatic "Generate Visual Studio project files" step.
+        /// 跳过自动重新生成 Visual Studio 工程文件这一步。
         #[arg(long)]
         skip_regen_project_files: bool,
     },
 
-    /// Merge a task into its primary repositories
+    /// 把一个任务合回它的主插件仓库
     ///
-    /// ⚠️ THIS COMMAND ONLY MERGES - IT NEVER DELETES ANYTHING
-    /// After merge, you MUST run `task cleanup` to remove worktree/branch.
+    /// ⚠️ 这条命令只合并，什么都不删。
+    /// 合完之后你必须再跑一次 `task cleanup` 去清 worktree 和分支。
     ///
-    /// Tasks may have multiple primary plugins. Use --plugin to merge a
-    /// specific plugin, or --all to iterate in reverse order with independent
-    /// confirmations per plugin.
+    /// 一个任务可以有多个主插件。用 --plugin 指定合哪一个，
+    /// 或者用 --all 逆序逐个合，每个插件单独确认。
     Merge {
-        /// Task ref, e.g. workspace/task-id.
+        /// 任务引用，形如 workspace/task-id。
         task_ref: String,
 
-        /// Merge strategy (required - agent must ask user)
-        /// Options: rebase, merge, squash, ff-only
+        /// 合并策略（必填，AI 助手必须先问用户）
+        /// 可选：rebase、merge、squash、ff-only
         #[arg(long, value_enum)]
         strategy: MergeStrategy,
 
-        /// Target a specific primary plugin (required when task has >1 primary
-        /// plugin unless --all is set)
+        /// 只合这一个主插件（任务有多个主插件且没给 --all 时必填）
         #[arg(long)]
         plugin: Option<String>,
 
-        /// Merge every primary plugin in reverse declaration order, with
-        /// independent confirmation per plugin
+        /// 按声明的逆序逐个合并每个主插件，每个单独确认
         #[arg(long)]
         all: bool,
 
-        /// Force merge even if there are conflicts
+        /// 有冲突也照合
         #[arg(long)]
         force: bool,
 
-        /// Skip confirmation prompts
+        /// 不要问我，直接做
         #[arg(long, short = 'y')]
         yes: bool,
 
-        /// Show what would be merged without actually merging
+        /// 只看会合什么，不真的合
         #[arg(long)]
         dry_run: bool,
     },
 
-    /// Finish a task by running the merge guide.
+    /// 走一遍合并向导，把任务收掉。
     Finish {
-        /// Task ref, e.g. workspace/task-id. If omitted, uses latest task when unambiguous.
+        /// 任务引用，形如 workspace/task-id。不给且不产生歧义时按最近的任务。
         task_ref: Option<String>,
 
-        /// Merge strategy. If omitted, asks interactively.
+        /// 合并策略。不给就交互式问你。
         #[arg(long, value_enum)]
         strategy: Option<MergeStrategy>,
 
-        /// Merge all primary plugins.
+        /// 合并全部主插件。
         #[arg(long)]
         all: bool,
 
-        /// Target primary plugin.
+        /// 只合这一个主插件。
         #[arg(long)]
         plugin: Option<String>,
 
-        /// Skip confirmation prompts after strategy is known.
+        /// 策略定下来之后就别再问了。
         #[arg(long, short = 'y')]
         yes: bool,
     },
 
-    /// Cleanup worktree and branch after merge verification
+    /// 合并验证过之后，清掉 worktree 和分支
     Cleanup {
-        /// Task ref, e.g. workspace/task-id.
+        /// 任务引用，形如 workspace/task-id。
         task_ref: String,
 
-        /// Force cleanup without confirmation
+        /// 不确认直接清
         #[arg(long)]
         force: bool,
 
-        /// Skip confirmation prompts
+        /// 不要问我，直接做
         #[arg(long, short = 'y')]
         yes: bool,
     },
 
-    /// Delete a task without merging
+    /// 不合并，直接删掉一个任务
     Delete {
-        /// Task ref, e.g. workspace/task-id.
+        /// 任务引用，形如 workspace/task-id。
         task_ref: String,
 
-        /// Force delete without confirmation
+        /// 不确认直接删
         #[arg(long)]
         force: bool,
 
-        /// Skip confirmation prompts
+        /// 不要问我，直接做
         #[arg(long, short = 'y')]
         yes: bool,
 
-        /// Show what would be deleted without actually deleting
+        /// 只看会删什么，不真的删
         #[arg(long)]
         dry_run: bool,
     },
@@ -340,100 +359,106 @@ pub enum TaskAction {
 
 #[derive(Subcommand)]
 pub enum WorkspaceAction {
-    /// First-run setup: detect and register a workspace, then install the AI skill.
+    /// 第一次用就跑这个：探测并登记一个 workspace，然后装上 AI skill。
     Init {
-        /// Workspace name. If omitted, one is suggested from the project path.
+        /// workspace 名。不给就从项目路径里给你建议一个。
         #[arg(long)]
         workspace: Option<String>,
 
-        /// UE project directory containing a .uproject file.
+        /// 含有 .uproject 文件的 UE 项目目录。
         #[arg(long)]
         project: Option<PathBuf>,
 
-        /// Project plugins root. If omitted, inferred from project siblings.
+        /// 项目插件根目录。不给就从项目的同级目录里推。
         #[arg(long)]
         plugins_root: Option<PathBuf>,
 
-        /// Hosts root. If omitted, defaults to <project-parent>/Hosts.
+        /// 宿主根目录。不给默认是 <项目上级目录>/Hosts。
         #[arg(long)]
         hosts_root: Option<PathBuf>,
 
-        /// UE engine path. If omitted, inferred from .uproject EngineAssociation.
+        /// UE 引擎路径。不给就按 .uproject 里的 EngineAssociation 推。
         #[arg(long)]
         engine_path: Option<PathBuf>,
 
-        /// Skip confirmation prompts.
+        /// 不要问我，直接做。
         #[arg(long, short = 'y')]
         yes: bool,
 
-        /// Do not install the AI skill during init.
+        /// 初始化时不要装 AI skill。
         #[arg(long)]
         skip_skill_install: bool,
     },
 
-    /// Add or update a named UE project workspace.
+    /// 新增或更新一个具名的 UE 项目 workspace。
     Add {
+        /// 给这个 workspace 起的名字。
         name: String,
-        /// UE project directory containing a .uproject.
+        /// 含有 .uproject 文件的 UE 项目目录。
         #[arg(long)]
         project: PathBuf,
-        /// Hosts root directory.
+        /// 宿主根目录。
         #[arg(long)]
         hosts_root: PathBuf,
-        /// Project plugins root.
+        /// 项目插件根目录。
         #[arg(long)]
         plugins_root: PathBuf,
-        /// UE engine path. If omitted, inferred from project.
+        /// UE 引擎路径。不给就从项目推。
         #[arg(long)]
         engine_path: Option<PathBuf>,
-        /// Legacy default primary plugin path.
+        /// 老式的默认主插件路径。
         #[arg(long)]
         plugin_path: Option<PathBuf>,
-        /// Skip confirmation prompts.
+        /// 不要问我，直接做。
         #[arg(long, short = 'y')]
         yes: bool,
     },
-    /// List registered workspaces.
+    /// 列出已登记的 workspace。
     List,
-    /// Check whether a workspace points at valid directories.
+    /// 检查一个 workspace 指的目录还在不在、对不对。
     Doctor {
+        /// 要检查的 workspace 名。
         name: String,
-        /// Recursively validate every plugin source under plugins_root.
+        /// 把 plugins_root 底下每一个插件源都递归查一遍。
         #[arg(long)]
         deep: bool,
     },
-    /// Remove a workspace registration.
+    /// 注销一个 workspace。
     Remove {
+        /// 要注销的 workspace 名。
         name: String,
+        /// 不要问我，直接做。
         #[arg(long, short = 'y')]
         yes: bool,
     },
 
-    /// Show which task each UE project currently points at.
+    /// 看每个 UE 项目现在指向哪个任务。
     Status,
 }
 
 #[derive(Subcommand)]
 pub enum SkillAction {
-    /// Copy skills/<name>/SKILL.md into .codex/ + .agents/ + .claude/ + opencode skill dirs
+    /// 把 skills/<名字>/SKILL.md 装到 .codex/ + .agents/ + .claude/ 和 opencode 的 skill 目录
     Install {
-        /// Install to user home (~/.codex/ + ~/.agents/ + ~/.claude/ + opencode) instead of project
+        /// 装到用户主目录（~/.codex/ + ~/.agents/ + ~/.claude/ + opencode），而不是当前项目
         #[arg(long, short = 'g')]
         global: bool,
-        /// Project root (default: current dir)
+        /// 项目根目录（默认当前目录）
         #[arg(long)]
         project: Option<PathBuf>,
     },
-    /// Show which providers have the skill installed (project + global)
+    /// 看哪些 AI 助手已经装了这个 skill（项目级和全局都看）
     List {
-        /// Project root (default: current dir)
+        /// 项目根目录（默认当前目录）
         #[arg(long)]
         project: Option<PathBuf>,
     },
-    /// Remove installed skills
+    /// 删掉装好的 skill
     Remove {
+        /// 删用户主目录里的那份，而不是当前项目的
         #[arg(long, short = 'g')]
         global: bool,
+        /// 项目根目录（默认当前目录）
         #[arg(long)]
         project: Option<PathBuf>,
     },
@@ -455,10 +480,10 @@ pub struct DepOverride {
 fn parse_dep_override(raw: &str) -> std::result::Result<DepOverride, String> {
     let (name, value) = raw
         .split_once('=')
-        .ok_or_else(|| format!("invalid --override-dep '{}', expected NAME=VALUE", raw))?;
+        .ok_or_else(|| format!("--override-dep '{}' 写法不对，应该是 名字=取值", raw))?;
     let name = name.trim().to_string();
     if name.is_empty() {
-        return Err(format!("invalid --override-dep '{}': empty name", raw));
+        return Err(format!("--override-dep '{}' 写法不对：名字是空的", raw));
     }
     let value = value.trim();
     let kind = match value {

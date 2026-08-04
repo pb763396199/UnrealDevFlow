@@ -143,6 +143,7 @@ pub fn run(
             diagnose_existing_junction_ledger(&state, project_path, plugin_name, &junction_path);
             preflight_existing_path(&junction_path, &project_name)?;
         }
+        report_if_already_active(&state, project_path, task_id, &switch_plan);
     }
 
     // === Switch every junction for every project ===
@@ -331,6 +332,42 @@ fn validate_task_project_scope(
         bound_project.display(),
         requested
     )))
+}
+
+/// Say so when this project is already on the task being switched to.
+///
+/// The work still happens — re-pointing a Junction at where it already points
+/// is harmless, and regenerating project files is sometimes exactly why you
+/// re-ran the command. But without this line the output looks identical to a
+/// real switch, so you cannot tell whether anything moved.
+fn report_if_already_active(
+    state: &GlobalState,
+    project_path: &Path,
+    task_id: &str,
+    switch_plan: &[(String, PathBuf)],
+) {
+    let project_key = canonical_project_key(project_path);
+    let Some(project_state) = state.get_project(&project_key) else {
+        return;
+    };
+    if project_state.active_task.as_deref() != Some(task_id) {
+        return;
+    }
+    let all_on_target = switch_plan.iter().all(|(plugin_name, target_path)| {
+        let junction_path = junction_path_for(project_path, plugin_name);
+        junction::get_target(&junction_path)
+            .map(|actual| paths_equal(&actual, target_path))
+            .unwrap_or(false)
+    });
+    if !all_on_target {
+        return;
+    }
+    output::print_info(&format!(
+        "项目 '{}' 已经在任务 '{}' 上，{} 个 Junction 都指向正确目标。下面的重建是幂等的，若只想确认状态可用 `udf workspace status`。",
+        project_path.display(),
+        task_id,
+        switch_plan.len()
+    ));
 }
 
 /// Warn when the Junction on disk disagrees with what state.json recorded.

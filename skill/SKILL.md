@@ -45,7 +45,7 @@ udf task finish <workspace>/<task-id>
 
 完整说明见后文「完整工作流」章节。
 
-## When to Use
+## 什么时候用
 
 当用户提出以下类型的任务时触发：
 - 开发新功能
@@ -159,7 +159,7 @@ udf task delete {workspace}/{task-id} --yes --force
 5. **完成后通知用户** — 告诉用户怎么验收
 6. **Commit message 必须是中文** — 遵循下方格式要求，包含反思内容
 
-## Commit Message 格式要求
+## 提交信息格式要求
 
 **所有 git commit 必须使用中文 message**，格式如下：
 

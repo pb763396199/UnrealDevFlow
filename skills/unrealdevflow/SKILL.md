@@ -1,22 +1,22 @@
 ---
 name: unrealdevflow
-description: UE plugin parallel development workflow (git worktree + NTFS junction + strict UBT). Use when user asks to develop / investigate / fix / verify an Unreal Engine plugin. Triggers: 开发、调查、验证、修复、实现、测试功能.
+description: UE 插件并行开发工作流（git worktree + NTFS Junction + 严格 UBT）。当用户要开发、调查、修复或验证一个虚幻引擎插件时使用。触发词：开发、调查、验证、修复、实现、测试功能。
 user-invocable: true
-argument-hint: "<task description>"
+argument-hint: "<任务描述>"
 ---
 
 # UnrealDevFlow — UE 插件多任务并行开发
 
-## When to use
+## 什么时候用
 
-- User asks to develop / investigate / fix / verify an Unreal Engine plugin
-- A task needs `git worktree` isolation from the main plugin repo
-- The change must be compiled against a real UE Editor target (with strict dependency checks)
-- A primary plugin depends on other plugins (e.g. `EarthPCG` depends on `AesWorld`) — both need to compile together
+- 用户要开发、调查、修复或验证一个虚幻引擎插件
+- 这次改动需要用 `git worktree` 跟主插件仓库隔离开
+- 改完必须对着真实的 UE 编辑器目标编一遍（带严格依赖检查）
+- 主插件依赖别的插件（比如 `EarthPCG` 依赖 `AesWorld`），两个要一起编
 
-## Binary location
+## 可执行文件在哪
 
-The `udf` CLI should be in PATH. If `Get-Command udf` fails, use the release installer location:
+`udf` 应该已经在 PATH 里。`Get-Command udf` 找不到就用安装目录里的：
 
 ```powershell
 $udf = Get-Command udf -ErrorAction SilentlyContinue
@@ -25,220 +25,233 @@ if (-not $udf) {
 }
 ```
 
-If neither path exists, install the tool first:
+两个都没有就先装：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -c "irm https://github.com/pb763396199/UnrealDevFlow/releases/latest/download/unrealdevflow-installer.ps1 | iex"
 ```
 
-## Beginner flow (preferred)
+## 小白入口（优先走这条）
 
-For first-time users, keep the flow to four commands:
+第一次用的人，四条命令就够：
 
 ```powershell
-udf workspace init --project "<UE project dir>" [--workspace <name>]
-udf task create "<user's original request>" --workspace <name> --primary <Plugin> --id <task-id> --yes
+udf workspace init --project "<UE项目目录>" [--workspace <名字>]
+udf task create "<用户的原始需求>" --workspace <名字> --primary <插件> --id <task-id> --yes
 udf task next <workspace>/<task-id>
 udf task finish <workspace>/<task-id>
 ```
 
-- `init` detects project/plugins/engine/hosts, saves a named workspace, installs the AI skill, and runs doctor.
-- Workspace names identify a UE project environment, not a task. Prefer the tool suggestion or a project name such as `neon-dev`; never use task names such as `sublevel-tweak` as the workspace.
-- If more than one workspace exists, use full task refs: `workspace/task-id`. Never guess from a short id when ambiguous.
-- `start` wraps `create` and preserves the original user request as the task prompt.
-- `next` prints only the next action the user should take.
-- `finish` is the merge guide; the user must still choose the merge strategy, with `rebase` as the recommended default.
+- `init` 自动探测项目、插件、引擎和 hosts，存成一个具名 workspace，装上 AI skill，再跑一遍 doctor。
+- workspace 名字标识的是一个 UE 项目环境，不是一个任务。用工具建议的名字，或者项目名比如
+  `neon-dev`；千万别拿 `sublevel-tweak` 这种任务名当 workspace 名。
+- 配了不止一个 workspace 时，任务引用必须写全：`workspace/task-id`。有歧义时不要靠短 id 猜。
+- `next` 只告诉用户下一步该做什么。
+- `finish` 是合并向导，合并策略仍然要用户自己选，推荐默认 `rebase`。
 
-## 5-step workflow (agent reference)
+## 五步标准工作流（给 AI 助手看的）
 
-### 1. START/CREATE — create isolated task workspace
+### 1. CREATE — 建一个隔离的任务工作区
 
 ```powershell
-udf task create "<task description>" `
-    --workspace <workspace-name> `
+udf task create "<任务描述>" `
+    --workspace <workspace名> `
     --id <task-id> `
     --primary AesWorld,AesWorld_AI `
     --override-dep PCG=project `
     --yes
 
-# Low-level equivalent:
-udf task create "<task description>" `
-    --workspace <workspace-name> `
+# 想显式保存用户原话时：
+udf task create "<任务描述>" `
+    --workspace <workspace名> `
     --id <task-id> `
-    --prompt "<user's original prompt — preserve verbatim>" `
+    --prompt "<用户的原始需求，一字不改地存下来>" `
     --primary AesWorld,AesWorld_AI `
     --override-dep PCG=project `
     --yes
 ```
 
-- `--id` must be a short kebab-case identifier (e.g. `prefab-save-bug`).
-- `--prompt` is **mandatory** — every later agent reads it.
-- `--workspace` is required when multiple UE project workspaces exist.
-- `--primary` accepts comma-separated plugin names (v2 multi-plugin).
-- `--override-dep` resolves engine-vs-project conflict (`<name>=engine|project|<absolute-path>`).
-- `--id` must contain only lowercase ASCII letters, digits, and hyphens; never include `/`, `\`, `..`, spaces, or Chinese characters.
-- Create/start requires each primary plugin's main checkout to be on a clean `dev` branch. Do not create from feature/task branches, detached HEAD, Host worktrees, or DEV project Junctions.
-- `plugins_root` must be the stable main plugin repository root, not `<UE project>/Plugins`, a Host directory, a Junction/symlink/reparse point, or any path containing duplicate plugin names.
-- The tool auto-parses each primary plugin's `.uplugin`, scans engine+project plugin roots, and creates Junctions for project-local dependencies.
-- New workspace tasks live under `<hosts_root>/W-<workspace>/T-<task-id>_Host`.
-- New metadata writes `workspace`, `task_uid`, and a frozen `context` so later commands do not depend on mutable global defaults.
+- `--id` 要短，kebab-case，比如 `prefab-save-bug`。
+- `--prompt` **必须存住用户原话**，后面每个 AI 助手都要读它。不给 `--prompt` 时，任务描述会被
+  当成原始需求存进去。
+- 配了多个 UE 项目 workspace 时，`--workspace` 必填。
+- `--primary` 接逗号分隔的多个插件名（v2 多插件）。
+- `--override-dep` 解决引擎和项目里同名插件的冲突（`<名字>=engine|project|<绝对路径>`）。
+- `--id` 只能用小写英文字母、数字和连字符，不能有 `/`、`\`、`..`、空格或中文。
+- 每个主插件的主检出必须停在干净的 `dev` 分支上才能建任务。不要从 feature/task 分支、
+  游离 HEAD、Host worktree 或 DEV 项目的 Junction 上建。
+- `plugins_root` 必须是稳定的主插件仓库根目录，不能是 `<UE项目>/Plugins`、Host 目录、
+  Junction/符号链接/重解析点，也不能是任何含有重名插件的路径。
+- 工具会自动解析每个主插件的 `.uplugin`，扫描引擎和项目的插件根目录，给项目内依赖建 Junction。
+- 新任务落在 `<hosts_root>/W-<workspace>/T-<task-id>_Host` 下。
+- 新元数据会写入 `workspace`、`task_uid` 和一份冻结的 `context`，这样后面的命令不依赖可变的全局默认值。
 
-### 2. WORK — edit code in the worktree only
+### 2. WORK — 只在 worktree 里改代码
 
 ```
-Task worktree: {hosts_root}/W-<workspace>/T-<id>_Host/Plugins/<plugin-name>/Source/...
-Task meta:     {hosts_root}/W-<workspace>/T-<id>_Host/.udf-meta.json
-Task ref:      <workspace>/<id>
+任务 worktree：{hosts_root}/W-<workspace>/T-<id>_Host/Plugins/<插件名>/Source/...
+任务元数据：  {hosts_root}/W-<workspace>/T-<id>_Host/.udf-meta.json
+任务引用：    <workspace>/<id>
 ```
 
-- ✅ Read, edit, and `git commit` inside the worktree.
-- ✅ Commit messages must be **Chinese**, format `Task#XXX [内容] / 修改内容 / 过程反思 / 后续注意`.
-- ❌ Never modify `{plugins_root}/<plugin>/` (the main plugin repo).
-- ❌ Never modify other tasks' worktrees or the DEV project.
+- ✅ 在 worktree 里读、改、`git commit`。
+- ✅ 提交信息必须是**中文**，格式 `Task#XXX [内容] / 修改内容 / 过程反思 / 后续注意`。
+- ❌ 绝不改 `{plugins_root}/<插件>/`（主插件仓库）。
+- ❌ 绝不改别的任务的 worktree，也不改 DEV 项目。
 
-### 3. BUILD — compile with strict flags (default)
+### 3. BUILD — 用严格参数编译（默认就是严格的）
 
 ```powershell
-udf build task <task-ref>                    # default profile = light
-udf build task <task-ref> --primary-only     # only primary plugin modules (-Module=...)
-udf build task <task-ref> --profile medium   # + WarningsAsErrors
-udf build task <task-ref> --profile heavy    # -Rebuild -DisableUnity -NoSharedPCH (slow)
-udf build status <task-ref>
+udf build task <task-ref>                    # 默认档位 light
+udf build task <task-ref> --primary-only     # 只编主插件的模块（-Module=...）
+udf build task <task-ref> --profile medium   # 再加 WarningsAsErrors
+udf build task <task-ref> --profile heavy    # -Rebuild -DisableUnity -NoSharedPCH（慢）
+udf build status <task-ref>                  # 省略 task-ref 就按最近动过的任务
 ```
 
-- Light profile: `-FailIfGeneratedCodeChanges -NoUBTMakefiles -DisableAdaptiveUnity`.
-- Failure log: `<host>/Logs/UBT/Build_<profile>_<timestamp>.log`.
+- light 档位带的参数：`-FailIfGeneratedCodeChanges -NoUBTMakefiles -DisableAdaptiveUnity`。
+- 失败日志在 `<host>/Logs/UBT/Build_<profile>_<时间戳>.log`。
 
-#### Controlled build: ask before you compile
+#### 受控编译：编之前先问能不能编
 
-One engine directory has exactly one UnrealBuildTool mutex. Two builds at once
-corrupt each other's intermediates, so never hand-assemble a `Build.bat` line.
+同一个引擎目录只有一把 UnrealBuildTool 互斥锁。两个编译同时跑会互相搞坏中间产物，
+所以永远不要自己拼一条 `Build.bat` 命令。
 
 ```powershell
-udf build check <task-ref>                 # may a build start right now?
-udf build check <task-ref> --format json   # same answer, machine readable
-udf build check --workspace <name>         # no task ref = the main project
+udf build check <task-ref>                 # 现在能不能开编？
+udf build check <task-ref> --format json   # 同样的结论，机器可读
+udf build check --workspace <名字>          # 不给任务引用就是查主项目
 ```
 
-Four verdicts. The command itself always exits 0 — the verdict is the answer,
-not a failure to answer.
+四种结论。这条命令自己永远返回 0——结论就是答案，不是失败。
 
-| Verdict | Meaning | What to do |
+| 结论 | 意思 | 该怎么做 |
 |---|---|---|
-| `ready` | a build may start | run `udf build task <task-ref>` |
-| `deferred` | another UBT holds the mutex | wait, do not bypass it |
-| `blocked` | refused by policy (e.g. `-NoMutex` present) | read the `reason` field |
-| `needsUserInput` | engine/project could not be resolved | pass `--workspace`, or fix the workspace config |
+| `ready` | 可以开编 | 跑 `udf build task <task-ref>` |
+| `deferred` | 别的 UBT 占着锁 | 等它结束，不要绕过去 |
+| `blocked` | 被策略拒了（比如命令里带了 `-NoMutex`） | 看返回里的 `reason` 字段 |
+| `needsUserInput` | 引擎或项目解析不出来 | 补 `--workspace`，或者修一下 workspace 配置 |
 
 ```powershell
-# Does a proposed command bypass the controlled path? Exit code 1 when refused.
-udf build gate "<the full command you were about to run>"
+# 你打算跑的那条命令，是不是绕过了受控编译？拒绝时退出码 1。
+udf build gate "<你打算执行的完整命令>"
 
-# Build the workspace's main project instead of a task Host
-udf build project [--workspace <name>] [--profile light|medium|heavy]
+# 编 workspace 的主项目，而不是任务宿主
+udf build project [--workspace <名字>] [--profile light|medium|heavy]
 ```
 
-Engine root resolution order: the workspace's `engine_path` → the
-`UNREALDEVFLOW_UE_ENGINE_ROOT` environment variable → `EngineAssociation` in
-the `.uproject`.
+引擎根目录的解析顺序：workspace 的 `engine_path` → 环境变量
+`UNREALDEVFLOW_UE_ENGINE_ROOT` → `.uproject` 里的 `EngineAssociation`。
 
-### 4. SWITCH — NEVER run without explicit user authorization
+### 4. SWITCH — 没有用户明确授权，绝不执行
 
-**⛔ HARD RULE: You MUST NOT run `udf task switch` unless the user explicitly says to do so.**
+**⛔ 硬规则：用户没明确说要切，你就不许跑 `udf task switch`。**
 
-This is not a suggestion. This is a hard prohibition. Reasons:
-- `switch` rewrites NTFS Junctions that the running UE Editor depends on
-- Running it while Editor is open will corrupt the Editor session
-- The user must close UE Editor first, then authorize the switch
+这不是建议，是禁令。理由：
 
-When the build succeeds, **tell the user** and **wait for their explicit instruction**:
+- `switch` 会改写正在运行的 UE 编辑器依赖的 NTFS Junction
+- 编辑器开着的时候切，会搞坏这个编辑器会话
+- 必须用户先关掉 UE 编辑器，再授权切换
+
+编译成功之后，**告诉用户**，然后**等他明确发话**：
 
 ```
-✅ Task <id> built successfully.
+✅ 任务 <id> 编译通过。
 
-To verify, please:
-1. Close UE Editor (if running)
-2. Tell me to run: udf task switch <task-ref>
-3. Then restart UE Editor and verify the feature
+要验收的话，请：
+1. 关掉 UE 编辑器（如果开着）
+2. 告诉我执行：udf task switch <task-ref>
+3. 然后重启 UE 编辑器验证功能
 
-After verification:
+验收通过之后：
   udf task finish <task-ref>
   udf task cleanup <task-ref>
 
-If verification failed:
+验收没过：
   udf task delete <task-ref> --yes --force
 ```
 
-Even if the user says "帮我切" or "switch it", you should confirm the exact command before executing, because switch is destructive to the running Editor session.
+就算用户说了「帮我切」，执行前也要把完整命令念一遍确认，因为 switch 对正在运行的
+编辑器会话是破坏性的。
 
-### 5. MERGE — only after user confirms
+### 5. MERGE — 用户确认之后才做
 
-**⚠️ IMPORTANT: `udf task merge` automatically fetches from origin before merging.**
+**⚠️ 注意：`udf task merge` 会先自动从 origin 拉一次再合。**
 
-This ensures you're merging against the latest remote state. If other tasks have been merged to dev while you were working, the merge will include those changes.
+这是为了让你合的是最新的远端状态。你干活期间要是有别的任务合进了 dev，这次合并会把那些
+改动一起带进来。
 
-`--strategy` is **required** and you **must ask the user** which one (1.rebase / 2.merge / 3.squash / 4.ff-only). Never pick a default for them.
+`--strategy` 是**必填**的，而且你**必须问用户**要哪一个（1.rebase / 2.merge / 3.squash /
+4.ff-only）。绝不替他选默认值。
 
 ```powershell
-# Single primary plugin
+# 单个主插件
 udf task merge <task-ref> --plugin AesWorld --strategy rebase
 
-# All primary plugins (v2, in reverse declaration order, independent confirmations)
+# 全部主插件（v2，按声明逆序，每个单独确认）
 udf task merge <task-ref> --all --strategy rebase
 
-# Inspect result
+# 只看会合什么，不真的合
+udf task merge <task-ref> --all --strategy rebase --dry-run
+
+# 看结果
 git log --oneline -5
 
-# ONLY after user confirms the merge looks right:
+# 用户确认合并结果没问题之后，才做这一步：
 udf task cleanup <task-ref>
 ```
 
-## 🚫 Hard rules
+## 🚫 硬规则
 
-| ❌ Forbidden | ✅ Use instead |
+| ❌ 禁止 | ✅ 改用 |
 |---|---|
-| **Running `udf task switch` without explicit user authorization** | **Tell user the command, wait for them to say "run it"** |
+| **没有用户明确授权就跑 `udf task switch`** | **把命令告诉用户，等他说「跑吧」** |
 | `git merge` / `git rebase` / `git cherry-pick` | `udf task merge` |
 | `git branch -D` / `git worktree remove` / `git reset --hard` | `udf task cleanup` / `delete` |
-| Auto-`cleanup` right after merge | Wait for explicit user confirmation |
-| Picking `--strategy` without asking the user | Ask, then pass the user's choice |
-| Editing the main plugin repo `{plugins_root}/<plugin>/` | Edit only the task worktree |
-| Running `Build.bat` / `RunUBT.bat` directly | `udf build task`, after `udf build check` says `ready` |
-| Passing `-NoMutex` to work around a busy build | Wait out the `deferred` verdict |
+| 合并完直接自动 `cleanup` | 等用户明确确认 |
+| 不问用户就自己定 `--strategy` | 先问，再把用户的选择传进去 |
+| 改主插件仓库 `{plugins_root}/<插件>/` | 只改任务的 worktree |
+| 直接跑 `Build.bat` / `RunUBT.bat` | 等 `udf build check` 说 `ready`，再跑 `udf build task` |
+| 用 `-NoMutex` 绕过别人正在编 | 老实等 `deferred` 结束 |
 
-## Failure recovery
+## 出问题了怎么办
 
-| Symptom | Fix |
+| 症状 | 怎么修 |
 |---|---|
-| "目录被占用" on `switch` | Close Rider/VSCode/file explorer, retry with `udf task switch <task-ref> --force` |
-| "Build.bat 不存在" | Re-run `udf workspace add --engine-path "正确路径"` |
-| `build` seems to hang behind another compile | `udf build check <task-ref>` — `deferred` means another UBT holds the mutex |
-| Wrong merge order | `git reflog`, then `git reset --hard <before-merge-commit>`, re-run `udf task merge` |
-| Engine+project dep conflict | `udf task create ... --override-dep <name>=engine\|project` |
-| Short task id is ambiguous | Use full ref `workspace/task-id` |
-| "Broken junction" warning on `switch` | **Auto-fixed**: `switch` detects broken junctions (target deleted) and removes them automatically. This happens when a task was deleted without cleanup. No manual action needed. |
+| `switch` 报「目录被占用」 | 关掉 Rider/VSCode/资源管理器，再跑 `udf task switch <task-ref> --force` |
+| 报「Build.bat 不存在」 | 重跑 `udf workspace add --engine-path "正确路径"` |
+| `build` 像是卡在别人的编译后面 | `udf build check <task-ref>`——`deferred` 就是别的 UBT 占着锁 |
+| 合并顺序搞错了 | `git reflog`，然后 `git reset --hard <合并前的提交>`，重跑 `udf task merge` |
+| 引擎和项目的依赖冲突 | `udf task create ... --override-dep <名字>=engine\|project` |
+| 短任务 id 有歧义 | 用完整引用 `workspace/task-id` |
+| `switch` 报「Broken junction」警告 | **会自动修**：`switch` 发现断链 Junction（目标已删）会自己移除。任务被删但没 cleanup 时会出现这种情况，不用手动处理。 |
 
-## Junction lifecycle (important)
+## Junction 的生命周期（重要）
 
-When you run `udf task delete <task-ref>`, the tool **automatically cleans up junctions** in all known main projects that point to the deleted task's worktrees. This prevents "broken junctions" that would block future `switch` operations.
+跑 `udf task delete <task-ref>` 时，工具会**自动清理 Junction**——所有已知主项目里指向这个
+任务 worktree 的 Junction 都会被清掉。这是为了不留下会挡住以后 `switch` 的断链 Junction。
 
-**What happens during `delete`:**
-1. Scans all projects in `~/.unrealdevflow/state.json`
-2. Finds junctions pointing to the task's worktrees
-3. Removes those junctions from the main projects
-4. Then deletes the task's worktrees and branches
+**`delete` 的时候发生了什么：**
 
-**What happens during `switch`:**
-- If it encounters a broken junction (target no longer exists), it automatically removes it and creates a fresh junction
-- You'll see a warning: "Found broken junction at ... (target no longer exists)"
-- This is safe and expected behavior
+1. 扫 `~/.unrealdevflow/state.json` 里所有项目
+2. 找出指向这个任务 worktree 的 Junction
+3. 从主项目里移除这些 Junction
+4. 然后才删任务的 worktree 和分支
 
-**Best practice:** Always use `udf task delete` instead of manually removing worktree directories. This ensures junctions are properly cleaned up.
+**`switch` 的时候发生了什么：**
 
-## Full docs (in the tool's source repo)
+- 碰到断链 Junction（目标已经不存在），自动移除并重建一个新的
+- 你会看到一行警告：「Found broken junction at ... (target no longer exists)」
+- 这是安全的、预期内的行为
+- 如果这个项目本来就已经在这个任务上，会打一行提示告诉你，重建是幂等的
 
-- `AGENTS.md` — canonical workflow + v2 multi-plugin + commit format + troubleshooting
-- `README.md` — user-facing install, init/start/next/finish, workspace docs
-- `docs/plans/2026-06-12-002-multi-workspace-and-simple-commands.md` — workspace + beginner command design
-- `docs/plans/2026-06-09-001-feat-multi-plugin-support-implementation-plan.md` — v2 design
-- `docs/insights/2026-06-09-001-ubt-strict-build-flags-reference.md` — UBT strict flags reference
+**最佳实践：**永远用 `udf task delete`，不要手动删 worktree 目录。这样 Junction 才会被正确清掉。
+
+## 完整文档（在工具的源码仓库里）
+
+- `AGENTS.md` — 完整规范：工作流、v2 多插件、提交格式、故障排查
+- `README.md` — 面向用户的安装、init/create/next/finish、workspace 说明
+- `docs/releases/v0.2.0.md` — 0.2.0 的命令改名对照表
+- `docs/plans/2026-06-12-002-multi-workspace-and-simple-commands.md` — workspace 与小白命令的设计
+- `docs/plans/2026-06-09-001-feat-multi-plugin-support-implementation-plan.md` — v2 设计
+- `docs/insights/2026-06-09-001-ubt-strict-build-flags-reference.md` — UBT 严格编译参数考据

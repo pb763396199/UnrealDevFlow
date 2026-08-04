@@ -156,8 +156,15 @@ function Install-FromSource {
     Push-Location $Root
     try {
         cargo build --release --locked
+        $buildExit = $LASTEXITCODE
     } finally {
         Pop-Location
+    }
+    # Without this the installer copies whatever udf.exe the last successful
+    # build left behind and calls it a success — you end up running a stale
+    # binary that reports a version you never built.
+    if ($buildExit -ne 0) {
+        throw "cargo build --release --locked failed with exit code $buildExit"
     }
 
     Copy-Item -LiteralPath (Join-Path $Root "target\release\udf.exe") -Destination (Join-Path $Destination "udf.exe") -Force
@@ -194,11 +201,20 @@ if ($NoPath) {
 }
 
 Write-Step "[4/5] Verifying command"
-$legacyExe = Join-Path $InstallPath "unrealdevflow.exe"
-if (Test-Path -LiteralPath $legacyExe) {
-    Remove-Item -LiteralPath $legacyExe -Force
-    Write-Ok "removed the superseded unrealdevflow.exe from $InstallPath"
-}
+# The old name has to stop resolving, and it had more than one shape: the
+# installed exe, the timestamped backup a previous installer left behind, and
+# hand-made .cmd/.bat shims. Anything still answering to `unrealdevflow` sends
+# the user (or their agent) to a build that no longer matches the docs.
+# `unrealdevflow-installer.ps1` is a different name and stays.
+Get-ChildItem -LiteralPath $InstallPath -File |
+    Where-Object {
+        $_.BaseName -match '^unrealdevflow(\.installed-.*)?$' -and
+        $_.Extension -in @('.exe', '.cmd', '.bat')
+    } |
+    ForEach-Object {
+        Remove-Item -LiteralPath $_.FullName -Force
+        Write-Ok "removed the superseded $($_.Name) from $InstallPath"
+    }
 $exeTarget = Join-Path $InstallPath "udf.exe"
 & $exeTarget --version
 if ($NoPath) {
@@ -220,9 +236,13 @@ if ($NoSkill) {
 } else {
     Push-Location $InstallPath
     try {
-        & $exeTarget skills install --global
+        & $exeTarget skill install --global
+        $skillExit = $LASTEXITCODE
     } finally {
         Pop-Location
+    }
+    if ($skillExit -ne 0) {
+        throw "udf skill install --global failed with exit code $skillExit"
     }
     Write-Ok "global AI skill installed"
 }
