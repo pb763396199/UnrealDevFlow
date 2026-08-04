@@ -1,4 +1,4 @@
-#!/usr/bin/env pwsh
+﻿#!/usr/bin/env pwsh
 <#
 .SYNOPSIS
 Generate curated UnrealDevFlow release notes.
@@ -147,7 +147,16 @@ if ($LASTEXITCODE -eq 0) {
 }
 
 $range = if ($PreviousTag) { "$PreviousTag..$releaseEnd" } else { $releaseEnd }
-$commits = @(git log $range --pretty=format:"- %s" 2>$null)
+# git writes UTF-8, but Windows PowerShell decodes a native command's stdout
+# with the console codepage — on a Chinese Windows that turns every commit
+# subject into mojibake in the published release notes.
+$previousOutputEncoding = [Console]::OutputEncoding
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+try {
+    $commits = @(git log $range --pretty=format:"- %s" 2>$null)
+} finally {
+    [Console]::OutputEncoding = $previousOutputEncoding
+}
 if (-not $commits) {
     $commits = @("- No commits found for $range.")
 }
@@ -157,7 +166,10 @@ $installCommand = 'powershell -ExecutionPolicy Bypass -c "irm https://github.com
 
 $curatedPath = Join-Path $RepoRoot "docs\releases\$releaseTag.md"
 if (Test-Path -LiteralPath $curatedPath) {
-    $notesTemplate = Get-Content -Raw -LiteralPath $curatedPath
+    # Windows PowerShell 5.1 reads files without a BOM as ANSI, which turns the
+    # Chinese section headings into mojibake and makes every required-section
+    # check fail. Say UTF-8 out loud rather than putting a BOM on the markdown.
+    $notesTemplate = Get-Content -Raw -Encoding utf8 -LiteralPath $curatedPath
     $sourcePath = $curatedPath
 } elseif ($AllowGeneratedDraft) {
     $notesTemplate = @'
