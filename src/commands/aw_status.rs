@@ -74,12 +74,14 @@ pub fn run() -> Result<()> {
                 {
                     "name": "futureTaskCreate",
                     "safety": "boundedWrite",
-                    "summary": "后续阶段可接入 create/start/switch，但本阶段不开放"
+                    "summary": "后续阶段可接入 create/switch，但本阶段不开放"
                 }
             ]
         }
     });
 
     println!("{}", serde_json::to_string_pretty(&result)?);
+    // AgentWatcher 读的是这个固定形状，套上信封会打断它，所以这里自报已输出。
+    crate::output::mark_emitted();
     Ok(())
 }

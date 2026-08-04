@@ -106,6 +106,14 @@ pub fn emit_failure(command: &str, error: &str) {
 ///
 /// Without it their progress lines would be collected in JSON mode and then
 /// silently dropped, so a successful run would print nothing at all.
+/// 这条命令自己负责整个 stdout，安全网不要再补一个信封。
+///
+/// 只给已经有外部消费方的固定契约用（`aw-status` 是 AgentWatcher 在读）。
+/// 新命令一律走 `emit`。
+pub fn mark_emitted() {
+    EMITTED.with(|emitted| *emitted.borrow_mut() = true);
+}
+
 pub fn flush_unemitted(command: &str) {
     let already = EMITTED.with(|emitted| *emitted.borrow());
     if already || !is_json() {
