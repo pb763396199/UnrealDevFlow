@@ -4,10 +4,10 @@ id: wi_01KZ3FKQQ6FB98FMPVY6MD3XE9
 short_id: svt5c9xd
 home_repository: "https://github.com/pb763396199/UnrealDevFlow.git"
 title: "整理 unrealdevflow 的命令行表面：命名一致性与 --format 覆盖面"
-status: in_review
+status: done
 created_at: 2026-08-03T09:34:52.135459Z
 created_by: codex
-selected_attempt: null
+selected_attempt: at_01KZ3FM1W8WB4J9MNKW8AQBXGK
 ---
 
 # 整理 unrealdevflow 的命令行表面：命名一致性与 --format 覆盖面
