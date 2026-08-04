@@ -104,6 +104,43 @@ Invoke-CheckedStep "Check release support files" {
     }
 }
 
+Invoke-CheckedStep "Check PowerShell script encoding" {
+    # Windows PowerShell 5.1 reads a .ps1 without a BOM using the console
+    # codepage. One Chinese character inside a string literal is then enough to
+    # eat the closing quote and take the whole script down with a syntax error,
+    # which is exactly how the 0.2.0 release notes generator broke.
+    foreach ($script in Get-ChildItem -Path "scripts" -Filter "*.ps1" -File) {
+        $bytes = [System.IO.File]::ReadAllBytes($script.FullName)
+        $hasBom = $bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF
+        if ($hasBom) { continue }
+        $text = [System.Text.Encoding]::UTF8.GetString($bytes)
+        if ($text.ToCharArray() | Where-Object { [int]$_ -gt 127 }) {
+            throw "scripts/$($script.Name) has non-ASCII characters but no UTF-8 BOM; Windows PowerShell 5.1 will misread it"
+        }
+    }
+    Write-Host "All scripts/*.ps1 are safe to parse under Windows PowerShell 5.1"
+}
+
+Invoke-CheckedStep "Generate release notes (dry run)" {
+    # Checking that the generator file exists proves nothing. It has to run,
+    # against the curated notes for this very version, or a missing section or
+    # a leftover placeholder only surfaces after the tag is already pushed.
+    $probe = Join-Path ([System.IO.Path]::GetTempPath()) ("udf-release-notes-" + [System.Guid]::NewGuid().ToString("N") + ".md")
+    try {
+        & (Join-Path $PSScriptRoot "generate-release-notes.ps1") -Version (Get-CargoPackageVersion) -OutputPath $probe
+        if ($LASTEXITCODE -ne 0) {
+            throw "generate-release-notes.ps1 exited with $LASTEXITCODE"
+        }
+        $notes = Get-Content -Raw -Encoding utf8 -LiteralPath $probe
+        if ($notes.Contains([char]0xFFFD)) {
+            throw "Generated release notes contain replacement characters; something was decoded with the wrong codepage"
+        }
+        Write-Host "Release notes generate cleanly ($($notes.Split("`n").Count) lines)"
+    } finally {
+        if (Test-Path -LiteralPath $probe) { Remove-Item -LiteralPath $probe -Force }
+    }
+}
+
 Invoke-CheckedStep "cargo fmt" {
     cargo fmt --all -- --check
 }
