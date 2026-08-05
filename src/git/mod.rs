@@ -435,34 +435,53 @@ pub fn rebase_branch(repo_path: &Path, branch_name: &str, based_on: &str) -> Res
 }
 
 /// Squash merge: combines all commits from the branch into a single commit
+/// Squash a task branch into the checked-out branch of `repo_path`.
+///
+/// `git merge --squash` stages the result without committing, so every failure
+/// after that point has to put the index and working tree back. Two things used
+/// to go wrong: conflicts were looked for on stderr while git announces them on
+/// stdout, and a failing follow-up commit left the staged tree in place. Both
+/// handed the user a main repo full of changes they never made.
 pub fn squash_branch(repo_path: &Path, branch_name: &str) -> Result<()> {
-    use std::process::Command;
+    // Knowing the tree was clean going in is what makes the undo below safe:
+    // anything staged afterwards is ours to remove.
+    let dirty = git_stdout(repo_path, &["status", "--porcelain"])?;
+    if !dirty.is_empty() {
+        return Err(GitError::CommandFailed(format!(
+            "Cannot squash task branch '{}': target worktree is not clean.\n{}",
+            branch_name, dirty
+        ))
+        .into());
+    }
 
-    // Use `git merge --squash` which stages all changes but doesn't commit
-    // Then we need to commit manually
     let output = Command::new("git")
         .args(["merge", "--squash", branch_name])
         .current_dir(repo_path)
         .output()?;
 
     if !output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
-        if stderr.contains("conflict") || stderr.contains("CONFLICT") {
-            // Abort the merge
-            let _ = Command::new("git")
-                .args(["merge", "--abort"])
-                .current_dir(repo_path)
-                .output();
+        // git reports CONFLICT on stdout; aborting unconditionally is simpler
+        // than deciding first, and a no-op when there is nothing to abort.
+        let _ = Command::new("git")
+            .args(["merge", "--abort"])
+            .current_dir(repo_path)
+            .output();
+        let _ = Command::new("git")
+            .args(["reset", "--hard", "HEAD"])
+            .current_dir(repo_path)
+            .output();
+        if stdout.contains("CONFLICT") || stderr.contains("CONFLICT") {
             return Err(GitError::MergeConflict(format!(
                 "Squash conflicts in branch '{}'. Merge aborted.",
                 branch_name
             ))
             .into());
         }
-        return Err(GitError::CommandFailed(format!("Squash failed: {}", stderr)).into());
+        return Err(GitError::CommandFailed(format!("Squash failed: {}{}", stdout, stderr)).into());
     }
 
-    // Commit the squashed changes with auto-generated message
     let commit_msg = format!("Squash task branch '{}'", branch_name);
     let commit_output = Command::new("git")
         .args(["commit", "-m", &commit_msg])
@@ -471,13 +490,23 @@ pub fn squash_branch(repo_path: &Path, branch_name: &str) -> Result<()> {
 
     if !commit_output.status.success() {
         let stderr = String::from_utf8_lossy(&commit_output.stderr);
-        return Err(GitError::CommandFailed(format!("Failed to commit squash: {}", stderr)).into());
+        let stdout = String::from_utf8_lossy(&commit_output.stdout);
+        // The squash is already staged. Failing out without this leaves the
+        // whole merge sitting in the user's index.
+        let _ = Command::new("git")
+            .args(["reset", "--hard", "HEAD"])
+            .current_dir(repo_path)
+            .output();
+        return Err(GitError::CommandFailed(format!(
+            "Failed to commit squash: {}{}",
+            stdout, stderr
+        ))
+        .into());
     }
 
     Ok(())
 }
 
-/// Fast-forward only merge: only succeeds if the target branch is directly ahead
 pub fn ff_only_merge(repo_path: &Path, branch_name: &str) -> Result<()> {
     use std::process::Command;
 

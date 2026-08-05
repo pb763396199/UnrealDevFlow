@@ -1,6 +1,6 @@
 use assert_cmd::Command;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 
 fn git(dir: &Path, args: &[&str]) {
@@ -1345,4 +1345,236 @@ fn merge_strategy_leaves_the_source_repo_index_matching_head() {
         source_repo.join("feature.txt").is_file(),
         "合并带进来的文件必须真的出现在工作区里"
     );
+}
+
+/// 主仓库跑完一条命令之后，暂存区和工作区必须跟跑之前一样。
+///
+/// 唯一允许的差异是 HEAD 前进（合并本来就该产生提交）和分支增减。留下未提交的
+/// 改动就是污染——用户会看到自己没做过的暂存内容，下一次 task create 也会被
+/// 干净工作区检查拦下。
+fn assert_source_repo_undisturbed(source_repo: &Path, what: &str) {
+    let status = git_stdout(source_repo, &["status", "--porcelain"]);
+    assert_eq!(status, "", "{} 之后主仓库不该有未提交的改动", what);
+    let unmerged = git_stdout(source_repo, &["ls-files", "--unmerged"]);
+    assert_eq!(unmerged, "", "{} 之后主仓库不该有未合并的条目", what);
+    assert!(
+        !source_repo.join(".git").join("MERGE_HEAD").exists(),
+        "{} 之后主仓库不该停在 MERGING 状态",
+        what
+    );
+    assert!(
+        !source_repo.join(".git").join("CHERRY_PICK_HEAD").exists(),
+        "{} 之后主仓库不该停在 cherry-pick 中途",
+        what
+    );
+}
+
+fn task_with_one_commit(
+    root: &Path,
+    config_dir: &Path,
+    hosts_root: &Path,
+    plugins_root: &Path,
+    task_id: &str,
+    branch: &str,
+    body: &str,
+) -> PathBuf {
+    let source_repo = plugins_root.join("AesWorld");
+    let host_dir = hosts_root.join("W-test").join(format!("T-{task_id}_Host"));
+    let worktree = host_dir.join("Plugins").join("AesWorld");
+    fs::create_dir_all(&host_dir).expect("host dir");
+
+    let based_on = setup_repo_with_base(&source_repo);
+    git(
+        &source_repo,
+        &[
+            "worktree",
+            "add",
+            &worktree.to_string_lossy(),
+            &based_on,
+            "-b",
+            branch,
+        ],
+    );
+    fs::write(worktree.join("probe.txt"), body).expect("probe file");
+    git(&worktree, &["add", "-A"]);
+    git(&worktree, &["commit", "-m", "feat: probe"]);
+
+    write_test_config(root, config_dir, hosts_root, plugins_root);
+    write_test_meta(
+        &host_dir,
+        TestContext {
+            root,
+            hosts_root,
+            plugins_root,
+        },
+        &source_repo,
+        task_id,
+        branch,
+        &based_on,
+    );
+    source_repo
+}
+
+fn merge_with_strategy(config_dir: &Path, task_ref: &str, strategy: &str) {
+    Command::cargo_bin("udf")
+        .expect("binary")
+        .env("UNREALDEVFLOW_CONFIG_DIR", config_dir)
+        .args(["task", "merge", task_ref, "--strategy", strategy, "--yes"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn every_merge_strategy_leaves_the_source_repo_undisturbed() {
+    for strategy in ["merge", "squash", "rebase", "ff-only"] {
+        let temp = TempDir::new().expect("temp dir");
+        let root = temp.path();
+        let config_dir = root.join("config");
+        let hosts_root = root.join("Hosts");
+        let plugins_root = root.join("Plugins");
+        fs::create_dir_all(&config_dir).expect("config dir");
+
+        let task_id = format!("probe-{}", strategy.replace('-', ""));
+        let source_repo = task_with_one_commit(
+            root,
+            &config_dir,
+            &hosts_root,
+            &plugins_root,
+            &task_id,
+            &format!("feature/{task_id}"),
+            "probe\n",
+        );
+
+        assert_source_repo_undisturbed(&source_repo, "建任务");
+        merge_with_strategy(&config_dir, &format!("test/{task_id}"), strategy);
+        assert_source_repo_undisturbed(&source_repo, &format!("--strategy {strategy}"));
+    }
+}
+
+#[test]
+fn a_conflicting_squash_does_not_strand_the_source_repo() {
+    let temp = TempDir::new().expect("temp dir");
+    let root = temp.path();
+    let config_dir = root.join("config");
+    let hosts_root = root.join("Hosts");
+    let plugins_root = root.join("Plugins");
+    fs::create_dir_all(&config_dir).expect("config dir");
+
+    let source_repo = task_with_one_commit(
+        root,
+        &config_dir,
+        &hosts_root,
+        &plugins_root,
+        "clash",
+        "feature/clash",
+        "from task\n",
+    );
+
+    // 主分支上把同一个文件改成别的内容，squash 必然冲突
+    fs::write(source_repo.join("probe.txt"), "from dev\n").expect("dev file");
+    git(&source_repo, &["add", "-A"]);
+    git(&source_repo, &["commit", "-m", "dev writes probe"]);
+
+    // 冲突时命令本身失败是对的，重点是失败之后仓库不能留残骸
+    let _ = Command::cargo_bin("udf")
+        .expect("binary")
+        .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
+        .args([
+            "task",
+            "merge",
+            "test/clash",
+            "--strategy",
+            "squash",
+            "--yes",
+        ])
+        .assert();
+
+    assert_source_repo_undisturbed(&source_repo, "冲突的 squash");
+}
+
+#[test]
+fn creating_and_deleting_a_task_leaves_the_source_repo_undisturbed() {
+    let temp = TempDir::new().expect("temp dir");
+    let root = temp.path();
+    let config_dir = root.join("config");
+    let hosts_root = root.join("Hosts");
+    let plugins_root = root.join("Plugins");
+    let source_repo = plugins_root.join("AesWorld");
+    fs::create_dir_all(&config_dir).expect("config dir");
+
+    setup_repo_with_base(&source_repo);
+    fs::create_dir_all(source_repo.join("Source").join("AesWorld")).expect("source dir");
+    fs::write(
+        source_repo.join("AesWorld.uplugin"),
+        "{ \"FriendlyName\": \"AesWorld\", \"Modules\": [{\"Name\": \"AesWorld\"}], \"Plugins\": [] }",
+    )
+    .expect("uplugin");
+    git(&source_repo, &["add", "-A"]);
+    git(&source_repo, &["commit", "-m", "add uplugin"]);
+
+    let project = root.join("UGA").join("DEV");
+    fs::create_dir_all(project.join("Plugins")).expect("project");
+    fs::write(
+        project.join("UGA.uproject"),
+        "{ \"FileVersion\": 3, \"EngineAssociation\": \"5.5\", \"Plugins\": [] }",
+    )
+    .expect("uproject");
+    let engine = root.join("Engine");
+    fs::create_dir_all(engine.join("Engine").join("Build").join("BatchFiles")).expect("engine");
+    fs::write(
+        engine
+            .join("Engine")
+            .join("Build")
+            .join("BatchFiles")
+            .join("Build.bat"),
+        "",
+    )
+    .expect("build.bat");
+
+    Command::cargo_bin("udf")
+        .expect("binary")
+        .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
+        .args([
+            "workspace",
+            "add",
+            "test",
+            "--project",
+            &project.to_string_lossy(),
+            "--hosts-root",
+            &hosts_root.to_string_lossy(),
+            "--plugins-root",
+            &plugins_root.to_string_lossy(),
+            "--engine-path",
+            &engine.to_string_lossy(),
+            "-y",
+        ])
+        .assert()
+        .success();
+
+    Command::cargo_bin("udf")
+        .expect("binary")
+        .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
+        .args([
+            "task",
+            "create",
+            "probe",
+            "--workspace",
+            "test",
+            "--id",
+            "create-probe",
+            "--primary",
+            "AesWorld",
+            "--yes",
+        ])
+        .assert()
+        .success();
+    assert_source_repo_undisturbed(&source_repo, "task create");
+
+    Command::cargo_bin("udf")
+        .expect("binary")
+        .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
+        .args(["task", "delete", "test/create-probe", "--yes", "--force"])
+        .assert()
+        .success();
+    assert_source_repo_undisturbed(&source_repo, "task delete");
 }
