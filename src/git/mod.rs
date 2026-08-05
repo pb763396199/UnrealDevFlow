@@ -114,44 +114,51 @@ pub fn delete_branch(repo: &Repository, name: &str) -> Result<()> {
     Ok(())
 }
 
-pub fn merge_branch(repo: &Repository, branch_name: &str) -> Result<()> {
-    let branch = repo.find_branch(branch_name, git2::BranchType::Local)?;
-    let branch_commit = branch.get().peel_to_commit()?;
+/// Merge a task branch into the checked-out branch of `repo_path`.
+///
+/// This used to build the merge in memory with git2 and commit it with
+/// `repo.commit(Some("HEAD"), ..)`. That moves the branch ref but touches
+/// neither the index nor the working tree, so the repository was left with
+/// HEAD ahead of both: every file the merge introduced showed up as a staged
+/// change nobody made, and the next `task create` was refused for a dirty
+/// working tree. Shell out like the other three strategies already do and let
+/// git move all three together.
+pub fn merge_branch(repo_path: &Path, branch_name: &str) -> Result<()> {
+    let output = Command::new("git")
+        .args([
+            "merge",
+            "--no-ff",
+            "--no-edit",
+            "-m",
+            &format!("Merge branch '{}'", branch_name),
+            branch_name,
+        ])
+        .current_dir(repo_path)
+        .output()?;
 
-    let head = repo.head()?;
-    let head_commit = head.peel_to_commit()?;
-
-    // Find merge base
-    let merge_base = repo.merge_base(head_commit.id(), branch_commit.id())?;
-    // Check if already up to date
-    if merge_base == branch_commit.id() {
+    if output.status.success() {
         return Ok(());
     }
 
-    // Perform merge
-    let mut index = repo.merge_commits(&head_commit, &branch_commit, None)?;
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // Leaving a half-finished merge behind would strand the repo in MERGING
+    // state, which is worse than the failure we are already reporting.
+    let _ = Command::new("git")
+        .args(["merge", "--abort"])
+        .current_dir(repo_path)
+        .output();
 
-    if index.has_conflicts() {
+    if stdout.contains("CONFLICT") || stderr.contains("CONFLICT") {
         return Err(
             GitError::MergeConflict(format!("Merge conflicts in branch: {}", branch_name)).into(),
         );
     }
-
-    // Create merge commit
-    let tree_id = index.write_tree_to(repo)?;
-    let tree = repo.find_tree(tree_id)?;
-    let sig = repo.signature()?;
-
-    repo.commit(
-        Some("HEAD"),
-        &sig,
-        &sig,
-        &format!("Merge branch '{}'", branch_name),
-        &tree,
-        &[&head_commit, &branch_commit],
-    )?;
-
-    Ok(())
+    Err(GitError::CommandFailed(format!(
+        "Failed to merge branch '{}': {}{}",
+        branch_name, stdout, stderr
+    ))
+    .into())
 }
 
 fn git_stdout(repo_path: &Path, args: &[&str]) -> Result<String> {

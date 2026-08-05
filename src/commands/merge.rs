@@ -432,8 +432,7 @@ fn merge_single_plugin(
             }
         }
         crate::cli::MergeStrategy::Merge => {
-            let repo = git::open_repo(&source_repo)?;
-            match git::merge_branch(&repo, &primary.branch) {
+            match git::merge_branch(&source_repo, &primary.branch) {
                 Ok(_) => {
                     output::print_success(&format!(
                         "Branch '{}' merged successfully",

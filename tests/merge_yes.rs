@@ -1270,3 +1270,79 @@ fn merge_refuses_a_branch_the_ledger_assigns_to_another_workspace() {
         .assert()
         .failure();
 }
+
+#[test]
+fn merge_strategy_leaves_the_source_repo_index_matching_head() {
+    let temp = TempDir::new().expect("temp dir");
+    let root = temp.path();
+    let config_dir = root.join("config");
+    let hosts_root = root.join("Hosts");
+    let plugins_root = root.join("Plugins");
+    let source_repo = plugins_root.join("AesWorld");
+    let host_dir = hosts_root.join("W-test").join("T-index-probe_Host");
+    let worktree = host_dir.join("Plugins").join("AesWorld");
+    fs::create_dir_all(&config_dir).expect("config dir");
+    fs::create_dir_all(&host_dir).expect("host dir");
+
+    let based_on = setup_repo_with_base(&source_repo);
+    git(
+        &source_repo,
+        &[
+            "worktree",
+            "add",
+            &worktree.to_string_lossy(),
+            &based_on,
+            "-b",
+            "feature/index-probe",
+        ],
+    );
+    fs::write(worktree.join("feature.txt"), "new work\n").expect("feature file");
+    git(&worktree, &["add", "-A"]);
+    git(&worktree, &["commit", "-m", "feat: 加一个文件"]);
+
+    write_test_config(root, &config_dir, &hosts_root, &plugins_root);
+    write_test_meta(
+        &host_dir,
+        TestContext {
+            root,
+            hosts_root: &hosts_root,
+            plugins_root: &plugins_root,
+        },
+        &source_repo,
+        "index-probe",
+        "feature/index-probe",
+        &based_on,
+    );
+
+    assert_eq!(
+        git_stdout(&source_repo, &["status", "--porcelain"]),
+        "",
+        "前提：主仓库一开始是干净的"
+    );
+
+    Command::cargo_bin("udf")
+        .expect("binary")
+        .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
+        .args([
+            "task",
+            "merge",
+            "test/index-probe",
+            "--strategy",
+            "merge",
+            "--yes",
+        ])
+        .assert()
+        .success();
+
+    // 合并把 feature.txt 带进了 HEAD。索引和工作区必须跟着走，否则用户会看到
+    // 一堆自己没动过的暂存改动，而且下一次 task create 会被干净工作区检查拦下。
+    assert_eq!(
+        git_stdout(&source_repo, &["status", "--porcelain"]),
+        "",
+        "合并之后主仓库的暂存区不该有东西"
+    );
+    assert!(
+        source_repo.join("feature.txt").is_file(),
+        "合并带进来的文件必须真的出现在工作区里"
+    );
+}
