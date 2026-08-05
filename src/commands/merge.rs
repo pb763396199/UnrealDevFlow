@@ -135,6 +135,7 @@ pub(crate) fn run_inner(
         ));
         let report = merge_single_plugin(
             task_id,
+            meta.task_uid.as_deref(),
             &host_dir,
             primary,
             &meta.branch,
@@ -223,6 +224,7 @@ struct PluginMergeReport {
 #[allow(clippy::too_many_arguments)]
 fn merge_single_plugin(
     task_id: &str,
+    task_uid: Option<&str>,
     host_dir: &Path,
     primary: &PrimaryPlugin,
     task_branch: &str,
@@ -236,9 +238,16 @@ fn merge_single_plugin(
     let namespaced_suffix = format!("/{}", task_id_only);
     // 台账那条是新加的：分支名可以完全不含 task-id，只要 git 里记着它属于这个任务。
     // 原有三条一条不删，老任务照走。
-    let ledger_says_ours = git::branch_ledger::task_of(&primary.source_repo, &primary.branch)
-        .unwrap_or_default()
-        .is_some_and(|owner| owner == task_id || owner.ends_with(&namespaced_suffix));
+    //
+    // 比的是完整的任务引用。用后缀比会让 `ws2/save-bug` 在合并 `ws1/save-bug` 时
+    // 也算数——那正是台账存完整引用要防的事。老元数据没有 task_uid，才退回宽松判定。
+    let ledger_owner =
+        git::branch_ledger::task_of(&primary.source_repo, &primary.branch).unwrap_or_default();
+    let ledger_says_ours = match (ledger_owner.as_deref(), task_uid) {
+        (Some(owner), Some(uid)) => owner == uid,
+        (Some(owner), None) => owner == task_id || owner.ends_with(&namespaced_suffix),
+        (None, _) => false,
+    };
     let branch_matches = primary.branch == task_branch
         || primary.branch == legacy_expected
         || (primary.branch.starts_with("task/") && primary.branch.ends_with(&namespaced_suffix))

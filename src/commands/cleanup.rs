@@ -53,6 +53,30 @@ fn expected_branch_names(config: &Config, task_ref: &str) -> Vec<String> {
     branches.into_iter().collect()
 }
 
+/// 台账里存的是完整的 `<workspace>/<task-id>`，用户却可以只敲 task-id。
+///
+/// 所以查台账前要把裸引用补全。`expected_branch_names` 早就为名字反推做了同样的事，
+/// 这里是同一个道理：workspace 不确定时，每个已登记的 workspace 都试一遍。
+fn ledger_task_refs(config: &Config, task_ref: &str) -> Vec<String> {
+    let (workspace, task_id) = host::parse_task_ref(task_ref);
+    let mut refs = BTreeSet::new();
+    match workspace {
+        Some(workspace) => {
+            refs.insert(format!(
+                "{}/{}",
+                crate::config::sanitize_workspace_name(&workspace),
+                task_id
+            ));
+        }
+        None => {
+            for workspace in config.workspace_names() {
+                refs.insert(format!("{}/{}", workspace, task_id));
+            }
+        }
+    }
+    refs.into_iter().collect()
+}
+
 fn candidate_plugin_roots(config: &Config, task_ref: &str) -> Vec<PathBuf> {
     let (workspace, _) = host::parse_task_ref(task_ref);
     let mut roots = BTreeSet::new();
@@ -138,6 +162,7 @@ fn cleanup_orphaned_branches(
     skip_confirm: bool,
 ) -> Result<()> {
     let branches = expected_branch_names(config, task_ref);
+    let ledger_refs = ledger_task_refs(config, task_ref);
     let roots = candidate_plugin_roots(config, task_ref);
     let mut matches: Vec<(PathBuf, String)> = Vec::new();
 
@@ -155,8 +180,11 @@ fn cleanup_orphaned_branches(
                 continue;
             }
             // 台账知道确切的分支名，哪怕它完全不符合任何命名规则。
-            for branch in git::branch_ledger::lookup(&repo_path, task_ref).unwrap_or_default() {
-                matches.push((repo_path.clone(), branch));
+            for candidate in &ledger_refs {
+                for branch in git::branch_ledger::lookup(&repo_path, candidate).unwrap_or_default()
+                {
+                    matches.push((repo_path.clone(), branch));
+                }
             }
             for branch in &branches {
                 if local_branch_exists(&repo_path, branch) {
@@ -175,6 +203,8 @@ fn cleanup_orphaned_branches(
         task_ref
     ));
     if matches.is_empty() {
+        // 找不到不等于清理成功。说清楚是「没有可清的」，别让人以为清过了。
+        output::print_info(&format!("没有找到属于任务 '{}' 的残留分支。", task_ref));
         output::emit("task cleanup", untouched(task_ref, true), render_cleanup);
         return Ok(());
     }

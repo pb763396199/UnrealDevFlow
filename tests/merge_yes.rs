@@ -1175,3 +1175,98 @@ fn merge_still_refuses_a_branch_nothing_vouches_for() {
         .assert()
         .failure();
 }
+
+#[test]
+fn cleanup_reaches_the_ledger_even_when_the_task_is_named_without_its_workspace() {
+    let temp = TempDir::new().expect("temp dir");
+    let root = temp.path();
+    let config_dir = root.join("config");
+    let hosts_root = root.join("Hosts");
+    let plugins_root = root.join("Plugins");
+    let source_repo = plugins_root.join("AesWorld");
+    fs::create_dir_all(&config_dir).expect("config dir");
+
+    setup_repo_with_base(&source_repo);
+    git(&source_repo, &["branch", "release/bare-custom"]);
+    git(
+        &source_repo,
+        &["config", "branch.release/bare-custom.udftask", "test/bare"],
+    );
+    write_test_config(root, &config_dir, &hosts_root, &plugins_root);
+
+    // 裸 task-id，不写 workspace/ 前缀
+    Command::cargo_bin("udf")
+        .expect("binary")
+        .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
+        .args(["task", "cleanup", "bare", "--force"])
+        .assert()
+        .success();
+
+    assert_eq!(
+        git_stdout(&source_repo, &["branch", "--list", "release/bare-custom"]),
+        "",
+        "裸引用也该查得到台账"
+    );
+}
+
+#[test]
+fn merge_refuses_a_branch_the_ledger_assigns_to_another_workspace() {
+    let temp = TempDir::new().expect("temp dir");
+    let root = temp.path();
+    let config_dir = root.join("config");
+    let hosts_root = root.join("Hosts");
+    let plugins_root = root.join("Plugins");
+    let source_repo = plugins_root.join("AesWorld");
+    let host_dir = hosts_root.join("W-test").join("T-shared-id_Host");
+    fs::create_dir_all(&config_dir).expect("config dir");
+    fs::create_dir_all(&host_dir).expect("host dir");
+
+    let based_on = setup_repo_with_base(&source_repo);
+    git(&source_repo, &["branch", "feature/other-workspace-work"]);
+    // 台账说这个分支属于【别的 workspace】里同名的任务
+    git(
+        &source_repo,
+        &[
+            "config",
+            "branch.feature/other-workspace-work.udftask",
+            "otherws/shared-id",
+        ],
+    );
+    write_test_config(root, &config_dir, &hosts_root, &plugins_root);
+    write_test_meta(
+        &host_dir,
+        TestContext {
+            root,
+            hosts_root: &hosts_root,
+            plugins_root: &plugins_root,
+        },
+        &source_repo,
+        "shared-id",
+        "feature/shared-id",
+        &based_on,
+    );
+
+    let meta_path = host_dir.join(".udf-meta.json");
+    let mut meta: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&meta_path).expect("read meta")).expect("meta");
+    meta["primary_plugins"][0]["branch"] = serde_json::json!("feature/other-workspace-work");
+    fs::write(
+        &meta_path,
+        serde_json::to_string_pretty(&meta).expect("json"),
+    )
+    .expect("write meta");
+
+    Command::cargo_bin("udf")
+        .expect("binary")
+        .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
+        .args([
+            "task",
+            "merge",
+            "test/shared-id",
+            "--strategy",
+            "rebase",
+            "--yes",
+        ])
+        .assert()
+        .failure();
+}
