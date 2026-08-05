@@ -1578,3 +1578,43 @@ fn creating_and_deleting_a_task_leaves_the_source_repo_undisturbed() {
         .success();
     assert_source_repo_undisturbed(&source_repo, "task delete");
 }
+
+#[test]
+fn an_untracked_file_does_not_block_squash_or_rebase() {
+    for strategy in ["squash", "rebase"] {
+        let temp = TempDir::new().expect("temp dir");
+        let root = temp.path();
+        let config_dir = root.join("config");
+        let hosts_root = root.join("Hosts");
+        let plugins_root = root.join("Plugins");
+        fs::create_dir_all(&config_dir).expect("config dir");
+
+        let task_id = format!("untracked-{strategy}");
+        let source_repo = task_with_one_commit(
+            root,
+            &config_dir,
+            &hosts_root,
+            &plugins_root,
+            &task_id,
+            &format!("feature/{task_id}"),
+            "probe\n",
+        );
+
+        // 用户的主仓库里长期躺着这种东西，它碰不到合并，也碰不到回滚
+        fs::create_dir_all(source_repo.join("workflow")).expect("workflow dir");
+        fs::write(source_repo.join("workflow").join("notes.md"), "wip\n").expect("notes");
+        assert_eq!(
+            git_stdout(&source_repo, &["status", "--porcelain"]),
+            "?? workflow/",
+            "前提：只有未跟踪文件"
+        );
+
+        merge_with_strategy(&config_dir, &format!("test/{task_id}"), strategy);
+
+        assert_eq!(
+            git_stdout(&source_repo, &["status", "--porcelain"]),
+            "?? workflow/",
+            "{strategy} 跑完之后未跟踪文件该原样还在，且没有别的脏东西"
+        );
+    }
+}

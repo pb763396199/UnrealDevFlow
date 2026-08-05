@@ -432,6 +432,8 @@ fn merge_single_plugin(
             }
         }
         crate::cli::MergeStrategy::Merge => {
+            // 只为在路径不是仓库时给出准确错误，句柄本身不再需要。
+            let _ = git::open_repo(&source_repo)?;
             match git::merge_branch(&source_repo, &primary.branch) {
                 Ok(_) => {
                     output::print_success(&format!(

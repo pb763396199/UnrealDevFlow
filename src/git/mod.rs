@@ -308,7 +308,12 @@ pub fn rebase_branch(repo_path: &Path, branch_name: &str, based_on: &str) -> Res
     let target_branch = git_stdout(repo_path, &["rev-parse", "--abbrev-ref", "HEAD"])?;
     let target_tip = git_stdout(repo_path, &["rev-parse", "HEAD"])?;
     let task_tip = git_stdout(repo_path, &["rev-parse", branch_name])?;
-    let clean_status = git_stdout(repo_path, &["status", "--porcelain"])?;
+    // 同 squash：只看已跟踪文件。restore_target_tip 用的 reset --hard 不碰未跟踪
+    // 文件，把它们算进来只会为一个 workflow/ 目录拒绝整次重放。
+    let clean_status = git_stdout(
+        repo_path,
+        &["status", "--porcelain", "--untracked-files=no"],
+    )?;
     if !clean_status.is_empty() {
         return Err(GitError::CommandFailed(format!(
             "Cannot replay task branch '{}': target worktree is not clean.\n{}",
@@ -443,9 +448,15 @@ pub fn rebase_branch(repo_path: &Path, branch_name: &str, based_on: &str) -> Res
 /// stdout, and a failing follow-up commit left the staged tree in place. Both
 /// handed the user a main repo full of changes they never made.
 pub fn squash_branch(repo_path: &Path, branch_name: &str) -> Result<()> {
-    // Knowing the tree was clean going in is what makes the undo below safe:
-    // anything staged afterwards is ours to remove.
-    let dirty = git_stdout(repo_path, &["status", "--porcelain"])?;
+    // Knowing the tracked tree was clean going in is what makes the undo below
+    // safe: anything staged afterwards is ours to remove. Untracked files are
+    // deliberately excluded -- `reset --hard` never touches them, and git
+    // already refuses on its own if the merge would overwrite one. Counting
+    // them would refuse a squash for a stray `workflow/` directory.
+    let dirty = git_stdout(
+        repo_path,
+        &["status", "--porcelain", "--untracked-files=no"],
+    )?;
     if !dirty.is_empty() {
         return Err(GitError::CommandFailed(format!(
             "Cannot squash task branch '{}': target worktree is not clean.\n{}",
