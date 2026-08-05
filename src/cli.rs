@@ -52,6 +52,40 @@ pub enum OutputFormat {
     Human,
 }
 
+/// 任务的变更类型，决定默认分支名的前缀。
+///
+/// 这六个取自 AES Workflow 协议，也是这个仓库自己分支在用的那套，
+/// 所以 udf 建出来的分支跟手工建的长相一致。
+#[derive(Clone, Copy, Debug, clap::ValueEnum, PartialEq)]
+pub enum ChangeType {
+    /// 新功能、能力增强
+    Feature,
+    /// 缺陷修复
+    Fix,
+    /// 线上急修
+    Hotfix,
+    /// 重构
+    Refactor,
+    /// 纯文档
+    Docs,
+    /// 杂务
+    Chore,
+}
+
+impl ChangeType {
+    /// 分支前缀，跟取值同名。
+    pub fn prefix(self) -> &'static str {
+        match self {
+            ChangeType::Feature => "feature",
+            ChangeType::Fix => "fix",
+            ChangeType::Hotfix => "hotfix",
+            ChangeType::Refactor => "refactor",
+            ChangeType::Docs => "docs",
+            ChangeType::Chore => "chore",
+        }
+    }
+}
+
 #[derive(Clone, Debug, clap::ValueEnum, PartialEq)]
 pub enum MergeStrategy {
     /// 把任务分支变基到 dev 上（推荐，历史是线性的）
@@ -199,8 +233,13 @@ pub enum TaskAction {
         #[arg(long)]
         id: Option<String>,
 
+        /// 变更类型，决定默认分支名的前缀。不给按 feature。
+        /// 给了 --branch 时这个参数被忽略。
+        #[arg(long = "type", value_enum)]
+        change_type: Option<ChangeType>,
+
         /// 每个主插件仓库里都用这个分支名。
-        /// 默认是 task/<workspace>/<task-id>。
+        /// 默认是 <type>/<task-id>，比如 feature/prefab-save-bug。
         #[arg(long)]
         branch: Option<String>,
 

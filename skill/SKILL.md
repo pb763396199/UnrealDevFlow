@@ -30,6 +30,7 @@ udf task finish <workspace>/<task-id>
 - workspace 名称可以由工具建议，也可以用户自定义；内部会规范成 kebab-case。
 - 多 workspace 时任务引用必须使用 `workspace/task-id`；短 id 歧义时必须报错，不能猜测。
 - `task create` 不给 `--prompt` 时会把描述当原始需求写进任务元数据。
+- `task create` 的 `--type` 决定分支名前缀，不给按 `feature`。
 - `next` 只告诉用户当前最该做的一步。
 - `finish` 是合并向导，仍必须让用户选择合并策略，默认推荐 rebase。
 

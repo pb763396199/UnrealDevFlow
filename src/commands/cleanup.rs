@@ -29,6 +29,10 @@ fn delete_with_retry(path: &PathBuf, max_retries: u32) -> Result<()> {
     unreachable!()
 }
 
+/// Host 已经丢了，元数据读不到，只能从别处找出这个任务的分支。
+///
+/// 两条腿：先问 git 的分支台账（本次改动之后建的任务都有），再按老的命名规则拼名字
+/// （兜住之前建的）。台账那条是精确的，拼名字那条是猜的，两条合并去重。
 fn expected_branch_names(config: &Config, task_ref: &str) -> Vec<String> {
     let (workspace, task_id) = host::parse_task_ref(task_ref);
     let mut branches = BTreeSet::new();
@@ -150,6 +154,10 @@ fn cleanup_orphaned_branches(
             if git::open_repo(&repo_path).is_err() {
                 continue;
             }
+            // 台账知道确切的分支名，哪怕它完全不符合任何命名规则。
+            for branch in git::branch_ledger::lookup(&repo_path, task_ref).unwrap_or_default() {
+                matches.push((repo_path.clone(), branch));
+            }
             for branch in &branches {
                 if local_branch_exists(&repo_path, branch) {
                     matches.push((repo_path.clone(), branch.clone()));
@@ -157,6 +165,9 @@ fn cleanup_orphaned_branches(
             }
         }
     }
+
+    matches.sort();
+    matches.dedup();
 
     println!();
     output::print_warning(&format!(

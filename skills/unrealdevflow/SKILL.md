@@ -72,6 +72,8 @@ udf task create "<任务描述>" `
 ```
 
 - `--id` 要短，kebab-case，比如 `prefab-save-bug`。
+- `--type` 决定分支名前缀，取值 `feature`（默认）/ `fix` / `hotfix` / `refactor` / `docs` /
+  `chore`。**读完需求你来判断是哪一类**，别一律用默认值。
 - `--prompt` **必须存住用户原话**，后面每个 AI 助手都要读它。不给 `--prompt` 时，任务描述会被
   当成原始需求存进去。
 - 配了多个 UE 项目 workspace 时，`--workspace` 必填。
@@ -85,6 +87,13 @@ udf task create "<任务描述>" `
 - 工具会自动解析每个主插件的 `.uplugin`，扫描引擎和项目的插件根目录，给项目内依赖建 Junction。
 - 新任务落在 `<hosts_root>/W-<workspace>/T-<task-id>_Host` 下。
 - 新元数据会写入 `workspace`、`task_uid` 和一份冻结的 `context`，这样后面的命令不依赖可变的全局默认值。
+
+**分支名怎么来的**：默认 `<type>/<task-id>`，比如 `feature/prefab-save-bug`，**不带工程名**。
+`--type` 取六个值之一，不给按 `feature`。给了 `--branch` 就整个用它，`--type` 被忽略。
+
+分支名可以随便起，包括完全不含 task-id 的名字。工具在主插件仓库的
+`branch.<分支名>.udftask` 里记着它属于哪个任务，所以 Host 目录丢了之后
+`task cleanup` 照样找得回这个分支。这条记录在 `git branch -D` 时由 git 自己带走。
 
 ### 2. WORK — 只在 worktree 里改代码
 

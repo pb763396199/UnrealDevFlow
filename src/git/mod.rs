@@ -1,5 +1,6 @@
 //! Git operations module
 
+pub mod branch_ledger;
 pub mod worktree;
 
 use crate::error::{GitError, Result};

@@ -1021,3 +1021,157 @@ fn rebase_merge_restores_target_tip_after_replay_conflict() {
         original_task_tip
     );
 }
+
+#[test]
+fn cleanup_finds_an_orphan_branch_whose_name_says_nothing_about_the_task() {
+    let temp = TempDir::new().expect("temp dir");
+    let root = temp.path();
+    let config_dir = root.join("config");
+    let hosts_root = root.join("Hosts");
+    let plugins_root = root.join("Plugins");
+    let source_repo = plugins_root.join("AesWorld");
+    fs::create_dir_all(&config_dir).expect("config dir");
+
+    setup_repo_with_base(&source_repo);
+    // 名字里没有 task-id，也不符合任何命名规则；只有台账知道它属于谁
+    git(&source_repo, &["branch", "release/unrelated-name"]);
+    git(
+        &source_repo,
+        &[
+            "config",
+            "branch.release/unrelated-name.udftask",
+            "test/ledger-orphan",
+        ],
+    );
+    write_test_config(root, &config_dir, &hosts_root, &plugins_root);
+
+    // Host 从来没建过，等于已经丢失
+    Command::cargo_bin("udf")
+        .expect("binary")
+        .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
+        .args(["task", "cleanup", "test/ledger-orphan", "--force"])
+        .assert()
+        .success();
+
+    assert_eq!(
+        git_stdout(
+            &source_repo,
+            &["branch", "--list", "release/unrelated-name"]
+        ),
+        "",
+        "台账指名的分支应该被清掉"
+    );
+}
+
+#[test]
+fn merge_accepts_a_branch_the_ledger_vouches_for() {
+    let temp = TempDir::new().expect("temp dir");
+    let root = temp.path();
+    let config_dir = root.join("config");
+    let hosts_root = root.join("Hosts");
+    let plugins_root = root.join("Plugins");
+    let source_repo = plugins_root.join("AesWorld");
+    let host_dir = hosts_root.join("W-test").join("T-ledger-merge_Host");
+    fs::create_dir_all(&config_dir).expect("config dir");
+    fs::create_dir_all(&host_dir).expect("host dir");
+
+    let based_on = setup_repo_with_base(&source_repo);
+    git(
+        &source_repo,
+        &["checkout", "-b", "hotfix/nothing-in-common"],
+    );
+    fs::write(source_repo.join("task.txt"), "task\n").expect("task file");
+    git(&source_repo, &["add", "task.txt"]);
+    git(&source_repo, &["commit", "-m", "task work"]);
+    git(&source_repo, &["checkout", "dev"]);
+    git(
+        &source_repo,
+        &[
+            "config",
+            "branch.hotfix/nothing-in-common.udftask",
+            "test/ledger-merge",
+        ],
+    );
+    write_test_config(root, &config_dir, &hosts_root, &plugins_root);
+    write_test_meta(
+        &host_dir,
+        TestContext {
+            root,
+            hosts_root: &hosts_root,
+            plugins_root: &plugins_root,
+        },
+        &source_repo,
+        "ledger-merge",
+        "hotfix/nothing-in-common",
+        &based_on,
+    );
+
+    Command::cargo_bin("udf")
+        .expect("binary")
+        .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
+        .args([
+            "task",
+            "merge",
+            "test/ledger-merge",
+            "--strategy",
+            "rebase",
+            "--yes",
+        ])
+        .assert()
+        .success();
+}
+
+#[test]
+fn merge_still_refuses_a_branch_nothing_vouches_for() {
+    let temp = TempDir::new().expect("temp dir");
+    let root = temp.path();
+    let config_dir = root.join("config");
+    let hosts_root = root.join("Hosts");
+    let plugins_root = root.join("Plugins");
+    let source_repo = plugins_root.join("AesWorld");
+    let host_dir = hosts_root.join("W-test").join("T-ledger-refuse_Host");
+    fs::create_dir_all(&config_dir).expect("config dir");
+    fs::create_dir_all(&host_dir).expect("host dir");
+
+    let based_on = setup_repo_with_base(&source_repo);
+    git(&source_repo, &["branch", "hotfix/someone-elses-work"]);
+    write_test_config(root, &config_dir, &hosts_root, &plugins_root);
+    write_test_meta(
+        &host_dir,
+        TestContext {
+            root,
+            hosts_root: &hosts_root,
+            plugins_root: &plugins_root,
+        },
+        &source_repo,
+        "ledger-refuse",
+        "hotfix/ledger-refuse",
+        &based_on,
+    );
+
+    // 让插件记的分支跟任务记的分开：名字不含 task-id、不是 task/ 形态、台账里也没有。
+    // 四条判定全不成立，merge 必须停下来。
+    let meta_path = host_dir.join(".udf-meta.json");
+    let mut meta: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&meta_path).expect("read meta")).expect("meta");
+    meta["primary_plugins"][0]["branch"] = serde_json::json!("hotfix/someone-elses-work");
+    fs::write(
+        &meta_path,
+        serde_json::to_string_pretty(&meta).expect("meta json"),
+    )
+    .expect("write meta");
+
+    Command::cargo_bin("udf")
+        .expect("binary")
+        .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
+        .args([
+            "task",
+            "merge",
+            "test/ledger-refuse",
+            "--strategy",
+            "rebase",
+            "--yes",
+        ])
+        .assert()
+        .failure();
+}

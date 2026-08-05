@@ -195,6 +195,7 @@ fn run(cli: Cli) -> Result<()> {
             cli::TaskAction::Create {
                 description,
                 id,
+                change_type,
                 branch,
                 base_ref,
                 prompt,
@@ -205,6 +206,7 @@ fn run(cli: Cli) -> Result<()> {
             } => commands::create::run(
                 &description,
                 id,
+                change_type,
                 branch,
                 base_ref,
                 // A task without its original prompt loses the reason it exists,

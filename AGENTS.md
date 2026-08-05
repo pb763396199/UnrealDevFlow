@@ -40,6 +40,7 @@ udf task finish <workspace>/<task-id>
 - workspace 名称可由工具建议，也可由用户用 `--workspace` 指定；内部会规范成 kebab-case。
 - 只有一个 workspace 时可省略 `--workspace`；多个 workspace 时必须显式指定，避免 session 串项目。
 - `task create` 不给 `--prompt` 时会把描述当原始需求存进元数据。
+- `task create` 的 `--type` 决定分支名前缀，不给按 `feature`。
 - `next` 只告诉用户下一步该执行什么，不输出长说明书。
 - `finish` 是验收通过后的合并向导，仍必须由用户选择合并策略，默认推荐 rebase。
 
@@ -54,6 +55,9 @@ udf task finish <workspace>/<task-id>
 ```powershell
 udf task create "任务描述" --workspace workspace-name --id task-id --primary AesWorld --yes
 
+# 修缺陷的任务，分支会是 fix/task-id
+udf task create "任务描述" --workspace workspace-name --id task-id --type fix --primary AesWorld --yes
+
 # 专业模式：等价底层命令
 udf task create "任务描述" --workspace workspace-name --id task-id --prompt "用户原始prompt" --primary AesWorld --yes
 ```
@@ -64,8 +68,16 @@ udf task create "任务描述" --workspace workspace-name --id task-id --prompt 
 - 引擎自带依赖自动 enable，**项目内依赖**创建 Junction 链回主仓库（只读）
 - 写入 `.udf-meta.json`（v3 schema，含 `workspace` / `task_uid` / `context`）
 
+**分支名怎么来的**：默认 `<type>/<task-id>`，比如 `feature/prefab-save-bug`，**不带工程名**。
+`--type` 取六个值之一，不给按 `feature`。给了 `--branch` 就整个用它，`--type` 被忽略。
+
+分支名可以随便起，包括完全不含 task-id 的名字。工具在主插件仓库的
+`branch.<分支名>.udftask` 里记着它属于哪个任务，所以 Host 目录丢了之后
+`task cleanup` 照样找得回这个分支。这条记录在 `git branch -D` 时由 git 自己带走。
+
 **关键参数**：
 - `--id`：短英文 kebab-case
+- `--type`：变更类型，决定分支名前缀。`feature`（默认）/ `fix` / `hotfix` / `refactor` / `docs` / `chore`
 - `--prompt`：**必须完整保存用户原始需求**，后续 agent 都要读
 - `--primary AesWorld,AesWorld_AI`：v2 多主插件
 - `--workspace neon-dev`：多 UE 项目并行时必须指定

@@ -234,9 +234,15 @@ fn merge_single_plugin(
     let (_, task_id_only) = host::parse_task_ref(task_id);
     let legacy_expected = format!("task-{}", task_id_only);
     let namespaced_suffix = format!("/{}", task_id_only);
+    // 台账那条是新加的：分支名可以完全不含 task-id，只要 git 里记着它属于这个任务。
+    // 原有三条一条不删，老任务照走。
+    let ledger_says_ours = git::branch_ledger::task_of(&primary.source_repo, &primary.branch)
+        .unwrap_or_default()
+        .is_some_and(|owner| owner == task_id || owner.ends_with(&namespaced_suffix));
     let branch_matches = primary.branch == task_branch
         || primary.branch == legacy_expected
-        || (primary.branch.starts_with("task/") && primary.branch.ends_with(&namespaced_suffix));
+        || (primary.branch.starts_with("task/") && primary.branch.ends_with(&namespaced_suffix))
+        || ledger_says_ours;
     if !branch_matches {
         return Err(UdfError::Other(format!(
             "Branch name '{}' for plugin '{}' does not match expected task id '{}'. Aborting to prevent accidental merge.",

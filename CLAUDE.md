@@ -17,6 +17,7 @@ udf task finish <workspace>/<task-id>
 - `init` 自动探测 UE 项目、Plugins 根目录、Engine、Hosts，并安装 AI skill。
 - workspace 名称可自动建议，也可用户自定义；多个 workspace 时任务引用必须写成 `workspace/task-id`。
 - `task create` 不给 `--prompt` 时会把描述当原始需求存进元数据。
+- `task create` 的 `--type` 决定分支名前缀，不给按 `feature`。
 - `next` 只告诉用户下一步。
 - `finish` 是合并向导，必须让用户选择策略，默认推荐 rebase。
 
@@ -30,6 +31,7 @@ udf task create "任务描述" --workspace workspace-name --id task-id --primary
 udf task create "任务描述" --workspace workspace-name --id task-id --prompt "用户原始prompt" --primary AesWorld --yes
 ```
 - `--id` 短英文 kebab-case
+- `--type` 决定分支名前缀：`feature`（默认）/ `fix` / `hotfix` / `refactor` / `docs` / `chore`
 - `--prompt` **必须完整保存用户原始需求**
 - `--workspace` 多项目并行时必须显式指定
 - 多主插件：`--primary AesWorld,AesWorld_AI`

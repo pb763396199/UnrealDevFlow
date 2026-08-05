@@ -423,7 +423,7 @@ fn start_from_valid_main_repo_records_canonical_source_and_base() {
     assert_eq!(git_stdout(&worktree, &["rev-parse", "HEAD"]), dev_head);
     assert_eq!(
         git_stdout(&worktree, &["rev-parse", "--abbrev-ref", "HEAD"]),
-        "task/bad/good-task"
+        "feature/good-task"
     );
 }
 
@@ -911,4 +911,168 @@ fn create_rejects_duplicate_plugin_names_in_plugins_root() {
         .assert()
         .failure()
         .stderr(predicate::str::contains("重复插件"));
+}
+
+#[test]
+fn default_branch_name_carries_the_change_type_and_not_the_workspace() {
+    let temp = TempDir::new().expect("temp dir");
+    let root = temp.path();
+    let config_dir = root.join("config");
+    let main_repo = setup_main_plugin_repo(root);
+    let project = root.join("UGA").join("DEV");
+    let plugins_root = main_repo.parent().expect("plugins root");
+    write_workspace_config(&config_dir, root, &project, plugins_root);
+
+    Command::cargo_bin("udf")
+        .expect("binary")
+        .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
+        .args([
+            "task",
+            "create",
+            "some work",
+            "--workspace",
+            "bad",
+            "--id",
+            "save-bug",
+            "--primary",
+            "AesWorld",
+            "--yes",
+        ])
+        .assert()
+        .success();
+
+    let worktree = root
+        .join("Hosts")
+        .join("W-bad")
+        .join("T-save-bug_Host")
+        .join("Plugins")
+        .join("AesWorld");
+    let branch = git_stdout(&worktree, &["rev-parse", "--abbrev-ref", "HEAD"]);
+    assert_eq!(branch, "feature/save-bug");
+    assert!(!branch.contains("bad"), "分支名不该带工程名: {}", branch);
+}
+
+#[test]
+fn change_type_picks_the_branch_prefix() {
+    let temp = TempDir::new().expect("temp dir");
+    let root = temp.path();
+    let config_dir = root.join("config");
+    let main_repo = setup_main_plugin_repo(root);
+    let project = root.join("UGA").join("DEV");
+    let plugins_root = main_repo.parent().expect("plugins root");
+    write_workspace_config(&config_dir, root, &project, plugins_root);
+
+    Command::cargo_bin("udf")
+        .expect("binary")
+        .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
+        .args([
+            "task",
+            "create",
+            "fix it",
+            "--workspace",
+            "bad",
+            "--id",
+            "save-bug",
+            "--type",
+            "fix",
+            "--primary",
+            "AesWorld",
+            "--yes",
+        ])
+        .assert()
+        .success();
+
+    let worktree = root
+        .join("Hosts")
+        .join("W-bad")
+        .join("T-save-bug_Host")
+        .join("Plugins")
+        .join("AesWorld");
+    assert_eq!(
+        git_stdout(&worktree, &["rev-parse", "--abbrev-ref", "HEAD"]),
+        "fix/save-bug"
+    );
+}
+
+#[test]
+fn an_unknown_change_type_is_refused_before_anything_is_created() {
+    let temp = TempDir::new().expect("temp dir");
+    let root = temp.path();
+    let config_dir = root.join("config");
+    let main_repo = setup_main_plugin_repo(root);
+    let project = root.join("UGA").join("DEV");
+    let plugins_root = main_repo.parent().expect("plugins root");
+    write_workspace_config(&config_dir, root, &project, plugins_root);
+
+    Command::cargo_bin("udf")
+        .expect("binary")
+        .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
+        .args([
+            "task",
+            "create",
+            "nope",
+            "--workspace",
+            "bad",
+            "--id",
+            "save-bug",
+            "--type",
+            "nonsense",
+            "--primary",
+            "AesWorld",
+            "--yes",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("feature").and(predicate::str::contains("hotfix")));
+
+    assert!(
+        !root
+            .join("Hosts")
+            .join("W-bad")
+            .join("T-save-bug_Host")
+            .exists(),
+        "取值非法时不该建出 Host"
+    );
+}
+
+#[test]
+fn the_branch_ledger_records_which_task_owns_the_branch() {
+    let temp = TempDir::new().expect("temp dir");
+    let root = temp.path();
+    let config_dir = root.join("config");
+    let main_repo = setup_main_plugin_repo(root);
+    let project = root.join("UGA").join("DEV");
+    let plugins_root = main_repo.parent().expect("plugins root");
+    write_workspace_config(&config_dir, root, &project, plugins_root);
+
+    Command::cargo_bin("udf")
+        .expect("binary")
+        .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
+        .args([
+            "task",
+            "create",
+            "ledger",
+            "--workspace",
+            "bad",
+            "--id",
+            "save-bug",
+            "--branch",
+            "release/totally-unrelated",
+            "--primary",
+            "AesWorld",
+            "--yes",
+        ])
+        .assert()
+        .success();
+
+    // 分支名完全不含 task-id，能不能找回来只取决于台账
+    let recorded = git_stdout(
+        &main_repo,
+        &[
+            "config",
+            "--get",
+            "branch.release/totally-unrelated.udftask",
+        ],
+    );
+    assert_eq!(recorded, "bad/save-bug");
 }

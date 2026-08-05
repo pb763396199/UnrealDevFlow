@@ -35,6 +35,7 @@ struct DependencyOverrides {
 pub fn run(
     description: &str,
     custom_id: Option<String>,
+    change_type: Option<crate::cli::ChangeType>,
     custom_branch: Option<String>,
     base_ref: Option<String>,
     prompt: Option<String>,
@@ -87,9 +88,21 @@ pub fn run(
     )?;
     validate_primary_names(&primary_names, &project_plugins)?;
     validate_primary_sources_are_main_worktrees(&primary_names, &project_plugins)?;
-    let branch_name =
-        custom_branch.unwrap_or_else(|| format!("task/{}/{}", workspace_name, task_id));
+    // 分支名不再带工程名。身份记在 git 的分支台账里（branch_ledger），名字只负责
+    // 让人一眼看出这次改动是什么性质。
+    if custom_branch.is_some() && change_type.is_some() {
+        output::print_warning(
+            "同时给了 --branch 和 --type，--type 被忽略：--branch 已经指定了完整分支名。",
+        );
+    }
+    let branch_name = custom_branch.unwrap_or_else(|| {
+        let prefix = change_type
+            .unwrap_or(crate::cli::ChangeType::Feature)
+            .prefix();
+        format!("{}/{}", prefix, task_id)
+    });
     validate_branch_name(&branch_name)?;
+    let task_ref = format!("{}/{}", workspace_name, task_id);
     let primary_plans = prepare_primary_plans(
         &primary_names,
         &project_plugins,
@@ -281,6 +294,15 @@ pub fn run(
                 &branch_name,
             )?;
             git::worktree::update_submodules(&plan.worktree_abs)?;
+            // 台账是索引，分支才是主产物。写不上就退回按名字反推，不该让整个任务失败。
+            if let Err(error) =
+                git::branch_ledger::record(&plan.source_repo, &branch_name, &task_ref)
+            {
+                output::print_warning(&format!(
+                    "分支台账没写上（{}）。这个任务的 Host 如果丢失，孤儿分支清理将退回按名字反推。",
+                    error
+                ));
+            }
             primary_meta.push(PrimaryPlugin {
                 name: plan.name.clone(),
                 source_repo: plan.source_repo.clone(),

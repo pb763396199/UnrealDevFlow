@@ -119,6 +119,7 @@ udf workspace doctor neon-dev
 
 创建前会强校验：
 - `--id` 只能是小写英文、数字和连字符，不能包含 `/`、`\`、`..`。
+- `--type` 决定分支名前缀，取值 `feature`（默认）/ `fix` / `hotfix` / `refactor` / `docs` / `chore`。
 - 主插件仓库必须停在干净的 `dev` 分支；不能从 feature/task/detached HEAD 创建新任务。
 - `plugins_root` 中不能有重复同名插件、缺失依赖、Host/worktree/Junction/symlink 可变入口。
 - 创建失败会回滚已生成的 Host/worktree，避免留下无 `.udf-meta.json` 的半成品目录。
