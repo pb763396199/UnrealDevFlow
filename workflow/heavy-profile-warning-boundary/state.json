@@ -1,0 +1,109 @@
+{
+  "artifacts": [
+    {
+      "artifact_id": "ar_01KZWF4R0J0DTCF96PEBAPAE49",
+      "depends_on": [],
+      "freshness": "fresh",
+      "outcome": "fixed",
+      "path": "debug.md",
+      "stage": 40,
+      "type": "debug"
+    },
+    {
+      "artifact_id": "ar_01KZWHKREPYY8F60A901Z1MCZ1",
+      "depends_on": [
+        "ar_01KZWFC0N4CJXXGGTPZM2QHNH8",
+        "ar_01KZWFENMXPEC9TTZ21FNDPM4W"
+      ],
+      "freshness": "fresh",
+      "outcome": "delivered",
+      "path": "delivery.md",
+      "stage": 80,
+      "type": "delivery"
+    },
+    {
+      "artifact_id": "ar_01KZWFENMXPEC9TTZ21FNDPM4W",
+      "depends_on": [
+        "ar_01KZWFC0N4CJXXGGTPZM2QHNH8"
+      ],
+      "freshness": "fresh",
+      "outcome": "passed",
+      "path": "manual-test.md",
+      "stage": 70,
+      "type": "manual-test"
+    },
+    {
+      "artifact_id": "ar_01KZWFAQZ1MEYD3C4DYT3KQW4M",
+      "depends_on": [
+        "ar_01KZWF4R0J0DTCF96PEBAPAE49"
+      ],
+      "freshness": "fresh",
+      "outcome": "approved",
+      "path": "reviews/code-review.md",
+      "stage": 60,
+      "type": "review"
+    },
+    {
+      "artifact_id": "ar_01KZWFC0N4CJXXGGTPZM2QHNH8",
+      "depends_on": [
+        "ar_01KZWF4R0J0DTCF96PEBAPAE49",
+        "ar_01KZWFAQZ1MEYD3C4DYT3KQW4M"
+      ],
+      "freshness": "fresh",
+      "outcome": "passed",
+      "path": "validation.md",
+      "stage": 70,
+      "type": "validation"
+    }
+  ],
+  "computed_from": {
+    "change_set": {
+      "content_digest": "sha256:bc020be704b5c1e1afdc011a6766685e93ab0923dca6705ab9b7c656f64caa7e",
+      "revision": "70c6f330827914920cdfedd2fb7f5b38de4b9ec9",
+      "tree": "a76aec6579c4ad9d128003f5efc7e33c9a08e4b8"
+    },
+    "documents": {
+      "debug.md": "sha256:28b2444438572e59579d7c119bf78b2aad5c0e9e7b4c854d86c2e887d3df4b11",
+      "delivery.md": "sha256:2e3c5841b96d9637187e578a26b460401c6683566ab92c78febb4a38f1cd0d5a",
+      "manual-test.md": "sha256:929c577ca45b0b1f8bf6143a45c195171b206110f87d44fefe1d1c362956138c",
+      "reviews/code-review.md": "sha256:e77c4d632a0e49b53d5aa1f053bafc9a63199a3ff590a38705cd89ed1164f2d5",
+      "validation.md": "sha256:9a992d1a7b29373379aa610a9d6dc34331889417b72e077e379acb4997b06d0d",
+      "work-item.md": "sha256:01c1299b5a7f2c24af527b081645e07b507b39a7ba8c89714165edeee75484f9"
+    }
+  },
+  "generated_at": "2026-08-13T03:12:14.854838Z",
+  "generated_by": {
+    "tool_revision": "sha256:edeb0e648b58"
+  },
+  "manual_test": {
+    "failed": 0,
+    "open": 0,
+    "passed": 0
+  },
+  "next": "已收口",
+  "protocol": "1.3.0",
+  "schema_version": 1,
+  "stage": {
+    "next_skill": "aes-retrospect",
+    "reached": "delivery",
+    "reached_stage": 80,
+    "waiting_on": null
+  },
+  "work_item": {
+    "acceptance_ids": [
+      "AC-001",
+      "AC-002",
+      "AC-003",
+      "AC-004"
+    ],
+    "branch": "fix/heavy-profile-warning-boundary",
+    "contract_digest": "sha256:6c5d4463a14ee7512dc818706ee9cd137f547bdffdb416b1aa0e5e20bf814d29",
+    "home_repository": "https://github.com/pb763396199/UnrealDevFlow.git",
+    "id": "wi_01KZWF13NWAB3WM1WDMBX9VHKC",
+    "kind": "fix",
+    "short_id": "rkj05b7e",
+    "slug": "heavy-profile-warning-boundary",
+    "status": "done",
+    "title": "收窄 heavy 构建档位的警告责任边界"
+  }
+}
