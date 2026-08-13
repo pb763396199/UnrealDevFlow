@@ -1,0 +1,159 @@
+{
+  "artifacts": [
+    {
+      "artifact_id": "ar_01KZXE664C2F3T5YHVKBYWECNG",
+      "depends_on": [
+        "ar_01KZX9F39MRS0R9RANVB02Y67R"
+      ],
+      "freshness": "fresh",
+      "outcome": "fixed",
+      "path": "debug.md",
+      "stage": 40,
+      "type": "debug"
+    },
+    {
+      "artifact_id": "ar_01KZXF4RHVPCG94F66FPSNTEPY",
+      "depends_on": [
+        "ar_01KZXF0RM7P1CG7JKN30BZ7C22",
+        "ar_01KZXF0RQBWYCWW5VP6V3DBQZ1"
+      ],
+      "freshness": "fresh",
+      "outcome": "delivered",
+      "path": "delivery.md",
+      "stage": 80,
+      "type": "delivery"
+    },
+    {
+      "artifact_id": "ar_01KZX3BGW3V6YEKSKM2Y2625FA",
+      "depends_on": [
+        "ar_01KZWJFVQ0JNC2EDH5NCF5FNN9"
+      ],
+      "freshness": "fresh",
+      "outcome": "accepted",
+      "path": "design.md",
+      "stage": 20,
+      "type": "design"
+    },
+    {
+      "artifact_id": "ar_01KZXE6607RD14QVTTPJJF8J77",
+      "depends_on": [
+        "ar_01KZX3BGW3V6YEKSKM2Y2625FA",
+        "ar_01KZX9F39MRS0R9RANVB02Y67R"
+      ],
+      "freshness": "superseded",
+      "outcome": "complete",
+      "path": "implementation.md",
+      "stage": 50,
+      "type": "implementation"
+    },
+    {
+      "artifact_id": "ar_01KZXF0RQBWYCWW5VP6V3DBQZ1",
+      "depends_on": [
+        "ar_01KZXF0RM7P1CG7JKN30BZ7C22"
+      ],
+      "freshness": "fresh",
+      "outcome": "passed",
+      "path": "manual-test.md",
+      "stage": 70,
+      "type": "manual-test"
+    },
+    {
+      "artifact_id": "ar_01KZX9F39MRS0R9RANVB02Y67R",
+      "depends_on": [
+        "ar_01KZX3BGW3V6YEKSKM2Y2625FA"
+      ],
+      "freshness": "fresh",
+      "outcome": "ready",
+      "path": "plan.md",
+      "stage": 30,
+      "type": "plan"
+    },
+    {
+      "artifact_id": "ar_01KZWJFVQ0JNC2EDH5NCF5FNN9",
+      "depends_on": [],
+      "freshness": "fresh",
+      "outcome": "complete",
+      "path": "research/ueb-capabilities-research.md",
+      "stage": 10,
+      "type": "research"
+    },
+    {
+      "artifact_id": "ar_01KZXF0RH2HVF06V94H9JYM184",
+      "depends_on": [
+        "ar_01KZXE664C2F3T5YHVKBYWECNG"
+      ],
+      "freshness": "fresh",
+      "outcome": "approved",
+      "path": "reviews/code-review.md",
+      "stage": 60,
+      "type": "review"
+    },
+    {
+      "artifact_id": "ar_01KZXF0RM7P1CG7JKN30BZ7C22",
+      "depends_on": [
+        "ar_01KZXF0RH2HVF06V94H9JYM184"
+      ],
+      "freshness": "fresh",
+      "outcome": "passed",
+      "path": "validation.md",
+      "stage": 70,
+      "type": "validation"
+    }
+  ],
+  "computed_from": {
+    "change_set": {
+      "content_digest": "sha256:3d13fc82e5166b396e5d98a2ade107529797777faa244e8ce76e9b341bafdc41",
+      "revision": "df02180b3ec0e11d3584bde3214eb073f5b05316",
+      "tree": "af0bd4ffee4f0295817642cae110f872a093ef26"
+    },
+    "documents": {
+      "debug.md": "sha256:08df70eafb432310b36f70dc4f521eab499c2a403dbf53b3b87289f9ee856e3c",
+      "delivery.md": "sha256:6aba0bc669ba327d2676de64c31604950eda7a2a6f867c86ba13e547d033fe43",
+      "design.md": "sha256:8b1e3a4e31da70ef79f27568f890ae183f4b773acaa0d25e4bf2a0ab03ce8a3c",
+      "implementation.md": "sha256:458e50f46e58e9494daf9c595dbc3cdfb5f61afd5a84d512743c9c865a4b1c97",
+      "manual-test.md": "sha256:4f6d9b8955946126716f3e8c7166da6d75bd02149cad77f0ef03ed2a9690f851",
+      "plan.md": "sha256:b79c615a8c1f4b7cc531402d8cff57f7592a911bb153aedc7f3aa413bb293393",
+      "research/ueb-capabilities-research.md": "sha256:0d02b6ea450a6ddea403d66b1480c38bcfbbfb32a709c8b371ef94652e276dc0",
+      "reviews/code-review.md": "sha256:288305ea8ff7bb923e4fc44997eef23515fbd968462abc158e0ca1ded6538632",
+      "validation.md": "sha256:67988d901c1e3b2b5eb3492527b895e860eea65fc0f26d2440c0a497c5a8fa21",
+      "work-item.md": "sha256:1f69ee2cd41daee0fa83f063fcb7b23575a976d58e9726e8817f6051b27f8d43"
+    }
+  },
+  "generated_at": "2026-08-13T11:47:10.269771Z",
+  "generated_by": {
+    "tool_revision": "sha256:49565cd5fb56"
+  },
+  "manual_test": {
+    "failed": 0,
+    "open": 0,
+    "passed": 0
+  },
+  "next": "已收口",
+  "protocol": "1.3.0",
+  "schema_version": 1,
+  "stage": {
+    "next_skill": "aes-retrospect",
+    "reached": "delivery",
+    "reached_stage": 80,
+    "waiting_on": null
+  },
+  "work_item": {
+    "acceptance_ids": [
+      "AC-001",
+      "AC-002",
+      "AC-003",
+      "AC-004",
+      "AC-005",
+      "AC-006"
+    ],
+    "branch": "research/ueb-packaging-build-compatibility",
+    "contract_digest": "sha256:57b10aa47e84304ef4ecf7f309eea2b72f99bc3f110ea3a68a92e08c803731b4",
+    "home_repository": "https://github.com/pb763396199/UnrealDevFlow.git",
+    "id": "wi_01KZWHP5WGDDBVMW0WVRJTAJZE",
+    "kind": "research",
+    "short_id": "0ym709a",
+    "slug": "ueb-packaging-build-compatibility",
+    "status": "done",
+    "title": "分析 UEB 打包发布编译能力兼容性"
+  }
+}
