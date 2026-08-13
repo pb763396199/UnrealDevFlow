@@ -65,17 +65,19 @@ light + -WarningsAsErrors
 - 注意：`-ShadowVariableErrors` 不在 medium 里（保留灵活性）
   - 警告变错误已能覆盖大部分误用
 
-### `heavy`（接近 Install Build）
+### `heavy`（完整重建与头文件隔离检查）
 ```
 -FailIfGeneratedCodeChanges
 -ForceHeaderGeneration
 -Rebuild
 -DisableUnity
 -NoSharedPCH
--WarningsAsErrors
 ```
 - 编译时间：**5-10 倍**（10-30 分钟）
-- 覆盖：100% 不会遗漏
+- 覆盖：强制 UHT 重生成，并暴露 Unity Build 和共享 PCH 掩盖的依赖问题
+- 警告边界：不启用全局 `-WarningsAsErrors`。关闭共享 PCH 后会直接展开更多引擎头，
+  全局升级警告会把当前编译器对引擎头的弃用提示误算成插件错误
+- 与 Installed Build 的关系：此档位只借鉴完整重建和隔离检查，不等价于 Installed Build
 - 适用：合并前最后验证
 
 ### 选档指南

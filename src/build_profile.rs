@@ -46,7 +46,6 @@ impl BuildProfile {
                 "-Rebuild",
                 "-DisableUnity",
                 "-NoSharedPCH",
-                "-WarningsAsErrors",
             ],
         }
     }
@@ -98,6 +97,44 @@ pub fn resolve_mutex(
             } else {
                 MutexMode::Wait
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::BuildProfile;
+
+    #[test]
+    fn heavy_rebuilds_without_promoting_engine_header_warnings() {
+        let flags = BuildProfile::Heavy.flags();
+
+        for expected in [
+            "-ForceHeaderGeneration",
+            "-Rebuild",
+            "-DisableUnity",
+            "-NoSharedPCH",
+        ] {
+            assert!(flags.contains(&expected), "heavy must contain {expected}");
+        }
+        assert!(!flags.contains(&"-WarningsAsErrors"));
+    }
+
+    #[test]
+    fn medium_keeps_plugin_warning_enforcement_without_heavy_rebuild_flags() {
+        let flags = BuildProfile::Medium.flags();
+
+        assert!(flags.contains(&"-WarningsAsErrors"));
+        for heavy_only in [
+            "-ForceHeaderGeneration",
+            "-Rebuild",
+            "-DisableUnity",
+            "-NoSharedPCH",
+        ] {
+            assert!(
+                !flags.contains(&heavy_only),
+                "medium must not contain {heavy_only}"
+            );
         }
     }
 }
