@@ -11,7 +11,14 @@ def cargo_test(test_name: str, test_target: str | None = None) -> None:
     if test_target:
         command.extend(["--test", test_target])
     command.extend([test_name, "--", "--exact"])
-    completed = subprocess.run(command, cwd=REPO, text=True, capture_output=True)
+    completed = subprocess.run(
+        command,
+        cwd=REPO,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        capture_output=True,
+    )
     if completed.returncode != 0:
         raise AssertionError(completed.stdout + completed.stderr)
 
