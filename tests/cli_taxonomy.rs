@@ -1,0 +1,131 @@
+mod build_profile {
+    #[derive(Clone, Copy, Debug, clap::ValueEnum, PartialEq)]
+    pub enum MutexMode {
+        Auto,
+        Wait,
+        NoMutex,
+    }
+
+    #[derive(Clone, Copy, Debug, clap::ValueEnum, PartialEq)]
+    pub enum BuildProfile {
+        Light,
+        Medium,
+        Heavy,
+    }
+}
+
+#[path = "../src/cli.rs"]
+mod cli;
+
+use clap::{CommandFactory, Parser};
+use cli::{BuildAction, Cli, Commands, PackageAction, WorkspaceAction};
+
+fn help_for(path: &[&str]) -> String {
+    let mut command = Cli::command();
+    for name in path {
+        command = command
+            .find_subcommand_mut(name)
+            .unwrap_or_else(|| panic!("missing subcommand {name}"))
+            .clone();
+    }
+    command.render_long_help().to_string()
+}
+
+fn subcommand_about(help: &str, name: &str) -> String {
+    help.lines()
+        .find_map(|line| {
+            let trimmed = line.trim_start();
+            trimmed
+                .strip_prefix(name)
+                .map(|rest| rest.trim_start().to_string())
+        })
+        .unwrap_or_else(|| panic!("missing help line for {name}\n{help}"))
+}
+
+#[test]
+fn top_level_contains_package() {
+    let parsed = Cli::parse_from(["udf", "package", "status"]);
+    assert!(matches!(
+        parsed.command,
+        Commands::Package {
+            action: PackageAction::Status { .. }
+        }
+    ));
+
+    let help = help_for(&[]);
+    assert!(help.contains("package"));
+    assert!(help.contains("生成可保存、传递或发布的制品"));
+}
+
+#[test]
+fn package_subcommands_parse_as_taxonomy_contract() {
+    let parsed = Cli::parse_from(["udf", "package", "plugin", "AesWorld", "--task", "neon/fix"]);
+    assert!(matches!(
+        parsed.command,
+        Commands::Package {
+            action: PackageAction::Plugin {
+                plugins,
+                task,
+                workspace: None,
+            }
+        } if plugins == vec!["AesWorld".to_string()] && task.as_deref() == Some("neon/fix")
+    ));
+
+    for args in [
+        ["udf", "package", "project"].as_slice(),
+        ["udf", "package", "engine"].as_slice(),
+        ["udf", "package", "check"].as_slice(),
+        ["udf", "package", "plan"].as_slice(),
+        ["udf", "package", "run"].as_slice(),
+        ["udf", "package", "status"].as_slice(),
+        ["udf", "package", "clean", "package-project-1"].as_slice(),
+    ] {
+        Cli::try_parse_from(args).unwrap_or_else(|error| panic!("{args:?} failed: {error}"));
+    }
+}
+
+#[test]
+fn build_and_workspace_gain_planned_taxonomy_actions() {
+    let build_engine = Cli::parse_from(["udf", "build", "engine", "--workspace", "neon-dev"]);
+    assert!(matches!(
+        build_engine.command,
+        Commands::Build {
+            action: BuildAction::Engine { workspace, .. }
+        } if workspace.as_deref() == Some("neon-dev")
+    ));
+
+    let build_plan = Cli::parse_from(["udf", "build", "plan", "neon-dev/task-a"]);
+    assert!(matches!(
+        build_plan.command,
+        Commands::Build {
+            action: BuildAction::Plan { task_ref, .. }
+        } if task_ref.as_deref() == Some("neon-dev/task-a")
+    ));
+
+    let workspace_inspect = Cli::parse_from(["udf", "workspace", "inspect", "neon-dev"]);
+    assert!(matches!(
+        workspace_inspect.command,
+        Commands::Workspace {
+            action: WorkspaceAction::Inspect { name, .. }
+        } if name.as_deref() == Some("neon-dev")
+    ));
+}
+
+#[test]
+fn same_named_secondary_commands_share_the_same_help_text() {
+    let build_help = help_for(&["build"]);
+    let package_help = help_for(&["package"]);
+
+    assert_eq!(
+        subcommand_about(&build_help, "check"),
+        subcommand_about(&package_help, "check")
+    );
+    assert_eq!(
+        subcommand_about(&build_help, "plan"),
+        subcommand_about(&package_help, "plan")
+    );
+    assert_eq!(
+        subcommand_about(&build_help, "status"),
+        subcommand_about(&package_help, "status")
+    );
+}

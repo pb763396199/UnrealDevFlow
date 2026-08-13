@@ -11,7 +11,7 @@ UE 插件多任务并行开发工具。基于 Git Worktree + NTFS Junction，实
 - **状态追踪**：任务状态、编译状态、Junction 状态一目了然
 - **v2 多插件**：单任务跨多插件协同开发（主插件可写 + 依赖插件只读 + 智能扫描依赖）
 - **多 Workspace**：同一台机器可同时管理多个 UE 项目，任务创建后冻结项目/Engine/Hosts 上下文，避免不同 session 串项目
-- **四个名词组**：`workspace` / `task` / `build` / `skill`，顶层只有 4 个命令，不用记 20 个名字
+- **五个名词组**：`workspace` / `task` / `build` / `package` / `skill`；编译开发产物与生成发布制品分开表达
 
 ## 安装
 
@@ -37,7 +37,7 @@ pwsh scripts/install.ps1 -FromSource
 
 ## 一分钟上手（推荐给新用户）
 
-安装后只记 4 个命令：
+安装后先记住常用的 4 步；需要发布制品时再使用 `package`：
 
 ```powershell
 # 1) 初始化当前 UE 项目。workspace 名称表示 UE 项目环境，不是任务名；
@@ -227,7 +227,7 @@ udf task finish neon-dev/prefab-save-bug
 
 ## 命令参考
 
-顶层只有四个名词组。先想「我在操作什么」，再想「做什么」。
+顶层只有五个名词组。先想「我在操作什么」，再想「做什么」。
 
 | 组 | 命令 | 说明 |
 |---|---|---|
@@ -237,6 +237,7 @@ udf task finish neon-dev/prefab-save-bug
 | | `workspace doctor` | 体检一个环境，`--deep` 递归查每个插件源 |
 | | `workspace remove` | 注销一个环境 |
 | | `workspace status` | 每个 UE 项目当前挂着哪个任务 |
+| | `workspace inspect` | 展示编译和打包将使用的项目、引擎及插件来源 |
 | task | `task create` | 创建任务（多主插件 + 智能依赖扫描） |
 | | `task list` | 列出所有任务，含损坏任务 |
 | | `task next` | 根据任务状态提示下一步 |
@@ -250,7 +251,39 @@ udf task finish neon-dev/prefab-save-bug
 | | `build check` | 只回答现在能不能编，永远不启动编译 |
 | | `build gate` | 检查一条命令有没有绕过受控构建；拦下时退出码 1 |
 | | `build status` | 查看编译状态 |
+| | `build engine` | 从源码构建 Unreal Engine；安装版引擎只能先查看计划 |
+| | `build plan` | 展示构建步骤、参数和输出位置，不执行构建 |
+| package | `package project` | 对 workspace 主项目或任务 Host 执行 BuildCookRun，生成可运行项目包 |
+| | `package plugin` | 按插件依赖闭包暂存并构建可分发插件包 |
+| | `package engine` | 通过 BuildGraph 生成 Installed Build |
+| | `package check` | 解析目标并生成可执行性检查结果，不启动 UE 工具链 |
+| | `package plan` | 展示实际命令、阶段和输出位置，不执行打包 |
+| | `package run` | 执行 workspace 的默认项目发布流程 |
+| | `package status` | 按 execution ID 查看记录；省略时查看最近一次 package 执行 |
+| | `package clean` | 仅清理由 package 记账且位于 `UnrealDevFlow` 制品目录内的输出 |
 | skill | `skill install/list/remove` | 管理装到四个 AI provider 的 skill |
+
+## Package 使用
+
+`package` 接受 workspace 或 task 作为源码来源；来源不同不会改变同名二级命令的含义、输出结构或生命周期。
+
+```powershell
+# 先检查解析结果和完整命令，不启动 Unreal 工具链
+udf --format json package plan project --workspace neon-dev
+udf --format json package plan plugin --workspace neon-dev --plugin AesWorld
+udf --format json package plan project --task neon-dev/prefab-save-bug
+
+# 生成制品
+udf package project --workspace neon-dev
+udf package plugin AesWorld --workspace neon-dev
+udf package engine --workspace neon-dev
+
+# 查询证据并清理可再生制品
+udf --format json package status [execution-id]
+udf --format json package clean <execution-id>
+```
+
+项目包默认输出到项目或 Host 的 `Saved/UnrealDevFlow/Packages/Win64`。插件包输出到相邻的 `Artifacts/UnrealDevFlow/Plugins`；任务来源则输出到任务 Host 内。每次执行都会记录命令、日志、输出与 manifest，`clean` 不会删除未记账或不在 `UnrealDevFlow` 制品目录内的路径。
 
 ## 发布流程
 
@@ -268,7 +301,7 @@ GitHub Release 由 `v*.*.*` tag 触发，并自动生成 draft release、Windows
 
 | 参数 | 说明 |
 |---|---|
-| `--format <json\|human>` | 输出格式。目前只有 `list`、`status`、`build check`、`build gate`、`build project` 会读它，其余命令始终输出人类可读文本 |
+| `--format <json\|human>` | 输出格式。构建、打包、状态和检查命令支持单一 JSON 文档输出，便于自动化消费 |
 | `-v, --verbose` | 详细日志 |
 | `-h, --help` | 帮助信息 |
 | `-V, --version` | 版本信息 |

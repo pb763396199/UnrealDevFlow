@@ -1,0 +1,824 @@
+use crate::config::Config;
+use crate::error::{Result, UdfError};
+use crate::output;
+use crate::ue_commands::{
+    Configuration, EngineSourceBuildOptions, InstalledBuildOptions, ProjectPackageOptions,
+    UbtMutexMode, UeCommand, UePlatform, engine_source_build_commands, installed_build_commands,
+    project_package_commands,
+};
+use chrono::Utc;
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PackageMode {
+    Run,
+    Plan,
+    Check,
+}
+
+impl PackageMode {
+    fn executes(self) -> bool {
+        self == Self::Run
+    }
+
+    fn state(self) -> &'static str {
+        match self {
+            Self::Run => "succeeded",
+            Self::Plan => "planned",
+            Self::Check => "blocked",
+        }
+    }
+
+    fn command(self, action: &str) -> String {
+        match self {
+            Self::Run => format!("package {action}"),
+            Self::Plan => "package plan".to_string(),
+            Self::Check => "package check".to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PackageResult {
+    execution_id: String,
+    action: String,
+    workspace: String,
+    source: String,
+    state: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    exit_code: Option<i32>,
+    commands: Vec<Vec<String>>,
+    outputs: Vec<PathBuf>,
+    #[serde(default)]
+    artifacts: Vec<PathBuf>,
+    logs: Vec<PathBuf>,
+    #[serde(default)]
+    manifests: Vec<PathBuf>,
+    #[serde(default)]
+    cleanup_targets: Vec<PathBuf>,
+    #[serde(default)]
+    diagnostics: Vec<String>,
+}
+
+fn check_package_commands(
+    commands: &[UeCommand],
+    mutex_project: Option<(&Path, &Path)>,
+) -> (String, Vec<String>) {
+    let mut missing = commands
+        .iter()
+        .map(|command| PathBuf::from(&command.executable))
+        .filter(|path| !path.is_file())
+        .collect::<Vec<_>>();
+    missing.extend(
+        commands
+            .iter()
+            .flat_map(|command| &command.arguments)
+            .filter(|argument| {
+                argument
+                    .to_ascii_lowercase()
+                    .ends_with("unrealbuildtool.dll")
+            })
+            .map(PathBuf::from)
+            .filter(|path| !path.is_file()),
+    );
+    missing.sort();
+    missing.dedup();
+    if !missing.is_empty() {
+        return (
+            "blocked".to_string(),
+            missing
+                .iter()
+                .map(|path| format!("缺少可执行文件：{}", path.display()))
+                .collect(),
+        );
+    }
+    if let Some((project, engine_root)) = mutex_project {
+        let report =
+            crate::build_policy::resolve_build_policy(&crate::build_policy::BuildPolicyRequest {
+                main_project: Some(project.to_string_lossy().to_string()),
+                engine_root: Some(engine_root.to_string_lossy().to_string()),
+                ..crate::build_policy::BuildPolicyRequest::default()
+            });
+        return (
+            report.status.as_str().to_string(),
+            std::iter::once(report.reason)
+                .chain(report.diagnostics)
+                .collect(),
+        );
+    }
+    ("ready".to_string(), Vec::new())
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ManifestEntry {
+    path: PathBuf,
+    bytes: u64,
+}
+
+fn collect_manifest_entries(
+    root: &Path,
+    current: &Path,
+    entries: &mut Vec<ManifestEntry>,
+) -> Result<()> {
+    if !current.exists() {
+        return Ok(());
+    }
+    for entry in fs::read_dir(current)? {
+        let entry = entry?;
+        let path = entry.path();
+        if entry.file_type()?.is_dir() {
+            collect_manifest_entries(root, &path, entries)?;
+        } else if entry.file_type()?.is_file() {
+            entries.push(ManifestEntry {
+                path: path.strip_prefix(root).unwrap_or(&path).to_path_buf(),
+                bytes: entry.metadata()?.len(),
+            });
+        }
+    }
+    Ok(())
+}
+
+fn write_manifest(root: &Path) -> Result<PathBuf> {
+    let mut files = Vec::new();
+    collect_manifest_entries(root, root, &mut files)?;
+    files.sort_by(|left, right| left.path.cmp(&right.path));
+    let path = root.join(".udf-manifest.json");
+    fs::write(
+        &path,
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "schemaVersion": 1,
+            "generatedAt": Utc::now().to_rfc3339(),
+            "root": root,
+            "files": files,
+        }))?,
+    )?;
+    Ok(path)
+}
+
+fn execution_id(action: &str) -> String {
+    format!("package-{action}-{}", Utc::now().format("%Y%m%dT%H%M%SZ"))
+}
+
+fn project_file(project_dir: &Path) -> Result<PathBuf> {
+    let mut projects = fs::read_dir(project_dir)?
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|ext| ext == "uproject"))
+        .collect::<Vec<_>>();
+    projects.sort();
+    match projects.as_slice() {
+        [project] => Ok(project.clone()),
+        [] => Err(UdfError::Other(format!(
+            "项目目录中找不到 .uproject：{}",
+            project_dir.display()
+        ))),
+        _ => Err(UdfError::Other(format!(
+            "项目目录中有多个 .uproject，请先修正 workspace：{}",
+            project_dir.display()
+        ))),
+    }
+}
+
+fn commands_as_argv(commands: &[UeCommand]) -> Vec<Vec<String>> {
+    commands.iter().map(UeCommand::argv).collect()
+}
+
+fn render(result: &PackageResult) -> String {
+    let mut lines = vec![format!(
+        "package {}: {} ({})",
+        result.action, result.state, result.execution_id
+    )];
+    for command in &result.commands {
+        lines.push(format!("  {}", command.join(" ")));
+    }
+    for output in &result.outputs {
+        lines.push(format!("  输出：{}", output.display()));
+    }
+    lines.join("\n")
+}
+
+fn execution_root() -> Result<PathBuf> {
+    Ok(Config::config_dir()?.join("executions").join("package"))
+}
+
+fn save_result(result: &PackageResult) -> Result<()> {
+    let root = execution_root()?;
+    fs::create_dir_all(&root)?;
+    fs::write(
+        root.join(format!("{}.json", result.execution_id)),
+        serde_json::to_vec_pretty(result)?,
+    )?;
+    fs::write(root.join("latest"), result.execution_id.as_bytes())?;
+    Ok(())
+}
+
+fn finish(command: &str, result: PackageResult) -> Result<()> {
+    save_result(&result)?;
+    output::emit(command, result, render);
+    Ok(())
+}
+
+fn run_commands(commands: &[UeCommand], log_dir: &Path) -> Result<Vec<PathBuf>> {
+    fs::create_dir_all(log_dir)?;
+    let mut logs = Vec::new();
+    for (index, command) in commands.iter().enumerate() {
+        let log = log_dir.join(format!("step-{:02}.log", index + 1));
+        let stdout = fs::File::create(&log)?;
+        let stderr = stdout.try_clone()?;
+        let status = Command::new(&command.executable)
+            .args(&command.arguments)
+            .stdout(Stdio::from(stdout))
+            .stderr(Stdio::from(stderr))
+            .status()
+            .map_err(|error| {
+                UdfError::Other(format!("无法启动 {}：{}", command.executable, error))
+            })?;
+        logs.push(log.clone());
+        if !status.success() {
+            return Err(UdfError::Other(format!(
+                "package 第 {} 步失败，退出码 {:?}。日志：{}",
+                index + 1,
+                status.code(),
+                log.display()
+            )));
+        }
+    }
+    Ok(logs)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_package_commands(
+    commands: &[UeCommand],
+    log_dir: &Path,
+    execution_id: &str,
+    action: &str,
+    workspace: &str,
+    source: &str,
+    outputs: Vec<PathBuf>,
+    cleanup_targets: Vec<PathBuf>,
+) -> Result<Vec<PathBuf>> {
+    match run_commands(commands, log_dir) {
+        Ok(logs) => Ok(logs),
+        Err(error) => {
+            let mut logs = fs::read_dir(log_dir)
+                .into_iter()
+                .flatten()
+                .flatten()
+                .map(|entry| entry.path())
+                .filter(|path| path.extension().is_some_and(|ext| ext == "log"))
+                .collect::<Vec<_>>();
+            logs.sort();
+            save_result(&PackageResult {
+                execution_id: execution_id.to_string(),
+                action: action.to_string(),
+                workspace: workspace.to_string(),
+                source: source.to_string(),
+                state: "failed".to_string(),
+                exit_code: None,
+                commands: commands_as_argv(commands),
+                artifacts: outputs.clone(),
+                outputs,
+                logs,
+                manifests: Vec::new(),
+                cleanup_targets,
+                diagnostics: vec![error.to_string()],
+            })?;
+            Err(UdfError::Other(format!(
+                "{}（execution ID: {}）",
+                error, execution_id
+            )))
+        }
+    }
+}
+
+fn plugin_closure(plugins_root: &Path, seeds: &[String]) -> Result<Vec<String>> {
+    let mut closure = BTreeSet::new();
+    let mut pending = seeds.to_vec();
+    while let Some(name) = pending.pop() {
+        if !closure.insert(name.clone()) {
+            continue;
+        }
+        let plugin_dir = plugins_root.join(&name);
+        if !plugin_dir.is_dir() {
+            // Dependencies supplied by the engine are not staged.
+            continue;
+        }
+        for dependency in crate::plugin::uplugin::read_dependencies(&plugin_dir)? {
+            if plugins_root.join(&dependency).is_dir() {
+                pending.push(dependency);
+            }
+        }
+    }
+    Ok(closure.into_iter().collect())
+}
+
+fn excluded_entry(name: &str) -> bool {
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        ".git" | "workflow" | "intermediate" | "saved" | "deriveddatacache" | "nul"
+    )
+}
+
+fn copy_tree(source: &Path, destination: &Path, include_source: bool) -> Result<()> {
+    fs::create_dir_all(destination)?;
+    for entry in fs::read_dir(source)? {
+        let entry = entry?;
+        let name = entry.file_name();
+        let name_text = name.to_string_lossy();
+        if excluded_entry(&name_text)
+            || (!include_source && name_text.eq_ignore_ascii_case("Source"))
+        {
+            continue;
+        }
+        let source_path = entry.path();
+        let destination_path = destination.join(&name);
+        if entry.file_type()?.is_dir() {
+            copy_tree(&source_path, &destination_path, include_source)?;
+        } else if entry.file_type()?.is_file() {
+            if let Some(parent) = destination_path.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            fs::copy(&source_path, &destination_path)?;
+        }
+    }
+    Ok(())
+}
+
+fn prepare_plugin_stage(plugins_root: &Path, stage_root: &Path, closure: &[String]) -> Result<()> {
+    if stage_root.exists() {
+        fs::remove_dir_all(stage_root)?;
+    }
+    fs::create_dir_all(stage_root.join("Plugins"))?;
+    for plugin in closure {
+        let source = plugins_root.join(plugin);
+        if source.is_dir() {
+            copy_tree(&source, &stage_root.join("Plugins").join(plugin), true)?;
+        }
+    }
+    let enabled = closure
+        .iter()
+        .map(|name| serde_json::json!({"Name": name, "Enabled": true}))
+        .collect::<Vec<_>>();
+    fs::write(
+        stage_root.join("HostProject.uproject"),
+        serde_json::to_vec_pretty(&serde_json::json!({"FileVersion": 3, "Plugins": enabled}))?,
+    )?;
+    Ok(())
+}
+
+fn direct_plugin_commands(
+    engine_root: &Path,
+    stage_root: &Path,
+    seeds: &[String],
+) -> Vec<UeCommand> {
+    let dotnet = engine_root.join("Engine/Binaries/ThirdParty/DotNet/8.0.300/win-x64/dotnet.exe");
+    let ubt = engine_root.join("Engine/Binaries/DotNET/UnrealBuildTool/UnrealBuildTool.dll");
+    let project = stage_root.join("HostProject.uproject");
+    let mut commands = Vec::new();
+    for seed in seeds {
+        let plugin = stage_root
+            .join("Plugins")
+            .join(seed)
+            .join(format!("{seed}.uplugin"));
+        for (target, configuration) in [
+            ("UnrealEditor", "Development"),
+            ("UnrealGame", "Development"),
+            ("UnrealGame", "Shipping"),
+        ] {
+            commands.push(UeCommand::new(
+                dotnet.to_string_lossy(),
+                vec![
+                    ubt.to_string_lossy().to_string(),
+                    target.to_string(),
+                    "Win64".to_string(),
+                    configuration.to_string(),
+                    format!("-Project={}", project.display()),
+                    format!("-plugin={}", plugin.display()),
+                    "-nohotreload".to_string(),
+                    // Plugin packaging compiles from a private staging project whose
+                    // project/plugin intermediates are isolated per execution. UEB's
+                    // dependency-aware path therefore does not take the engine-global
+                    // UBT mutex and must not block normal Host builds.
+                    "-NoMutex".to_string(),
+                    format!(
+                        "-log={}",
+                        stage_root
+                            .join("Saved/Logs")
+                            .join(format!("UBT-{seed}-{target}-{configuration}.log"))
+                            .display()
+                    ),
+                ],
+            ));
+        }
+    }
+    commands
+}
+
+pub fn project(workspace: Option<String>, task: Option<String>, mode: PackageMode) -> Result<()> {
+    let config = Config::load()?;
+    let (name, project_root, engine_root, source) = if let Some(task_ref) = task {
+        let (host_dir, _, context) = crate::host::resolve_task(&config, &task_ref)?;
+        (context.workspace, host_dir, context.engine_path, "task")
+    } else {
+        let (name, workspace_config) = config.resolve_workspace(workspace.as_deref())?;
+        (
+            name,
+            workspace_config.default_project,
+            workspace_config.engine_path,
+            "workspace",
+        )
+    };
+    let project = project_file(&project_root)?;
+    let archive_dir = project_root
+        .join("Saved")
+        .join("UnrealDevFlow")
+        .join("Packages")
+        .join("Win64");
+    let commands = project_package_commands(&ProjectPackageOptions {
+        engine_root: engine_root.clone(),
+        project: project.clone(),
+        archive_dir: archive_dir.clone(),
+        platform: UePlatform::Windows,
+        configuration: Configuration::Development,
+        mutex: UbtMutexMode::Wait,
+        package_args: None,
+        clean: false,
+    });
+    let id = execution_id("project");
+    let log_dir = project_root.join("Saved").join("UnrealDevFlow").join(&id);
+    let logs = if mode.executes() {
+        run_package_commands(
+            &commands,
+            &log_dir,
+            &id,
+            "project",
+            &name,
+            source,
+            vec![archive_dir.clone()],
+            vec![log_dir.clone()],
+        )?
+    } else {
+        Vec::new()
+    };
+    let manifests = if mode.executes() {
+        vec![write_manifest(&archive_dir)?]
+    } else {
+        Vec::new()
+    };
+    let (state, diagnostics) = if mode == PackageMode::Check {
+        check_package_commands(&commands, Some((&project, &engine_root)))
+    } else {
+        (mode.state().to_string(), Vec::new())
+    };
+    finish(
+        &mode.command("project"),
+        PackageResult {
+            execution_id: id,
+            action: "project".to_string(),
+            workspace: name,
+            source: source.to_string(),
+            state,
+            exit_code: if mode.executes() { Some(0) } else { None },
+            commands: commands_as_argv(&commands),
+            artifacts: vec![archive_dir.clone()],
+            outputs: vec![archive_dir.clone()],
+            logs,
+            manifests,
+            cleanup_targets: if mode.executes() {
+                vec![archive_dir, log_dir]
+            } else {
+                Vec::new()
+            },
+            diagnostics,
+        },
+    )
+}
+
+pub fn plugin(
+    plugins: Vec<String>,
+    task: Option<String>,
+    workspace: Option<String>,
+    mode: PackageMode,
+) -> Result<()> {
+    if plugins.is_empty() {
+        return Err(UdfError::Other("至少指定一个插件名".to_string()));
+    }
+    let config = Config::load()?;
+    let (name, plugins_root, engine_root, output_dir, source) = if let Some(task_ref) = task {
+        let (host_dir, _, context) = crate::host::resolve_task(&config, &task_ref)?;
+        (
+            context.workspace,
+            host_dir.join("Plugins"),
+            context.engine_path,
+            host_dir.join("Artifacts/UnrealDevFlow/Plugins"),
+            "task",
+        )
+    } else {
+        let (name, workspace_config) = config.resolve_workspace(workspace.as_deref())?;
+        let plugins_root = workspace_config
+            .effective_plugins_root()
+            .ok_or_else(|| UdfError::Other(format!("workspace '{}' 没有 plugins_root", name)))?;
+        let output_dir = plugins_root
+            .parent()
+            .unwrap_or(&plugins_root)
+            .join("Artifacts/UnrealDevFlow/Plugins");
+        (
+            name,
+            plugins_root,
+            workspace_config.engine_path,
+            output_dir,
+            "workspace",
+        )
+    };
+    for plugin in &plugins {
+        if !plugins_root
+            .join(plugin)
+            .join(format!("{plugin}.uplugin"))
+            .is_file()
+        {
+            return Err(UdfError::Other(format!(
+                "找不到插件描述文件：{}",
+                plugins_root
+                    .join(plugin)
+                    .join(format!("{plugin}.uplugin"))
+                    .display()
+            )));
+        }
+    }
+    let id = execution_id("plugin");
+    let stage_root = output_dir.join(".udf-stage").join(&id);
+    let closure = plugin_closure(&plugins_root, &plugins)?;
+    let commands = direct_plugin_commands(&engine_root, &stage_root, &plugins);
+    let log_dir = output_dir.join(".udf-logs").join(&id);
+    let logs = if mode.executes() {
+        prepare_plugin_stage(&plugins_root, &stage_root, &closure)?;
+        let package_dirs = plugins
+            .iter()
+            .map(|plugin| output_dir.join(plugin))
+            .collect::<Vec<_>>();
+        let mut failure_cleanup = vec![stage_root.clone()];
+        failure_cleanup.push(log_dir.clone());
+        let logs = run_package_commands(
+            &commands,
+            &log_dir,
+            &id,
+            "plugin",
+            &name,
+            source,
+            package_dirs,
+            failure_cleanup,
+        )?;
+        for plugin in &plugins {
+            let package_dir = output_dir.join(plugin);
+            if package_dir.exists() {
+                fs::remove_dir_all(&package_dir)?;
+            }
+            copy_tree(
+                &stage_root.join("Plugins").join(plugin),
+                &package_dir,
+                false,
+            )?;
+        }
+        logs
+    } else {
+        Vec::new()
+    };
+    let manifests = if mode.executes() {
+        plugins
+            .iter()
+            .map(|plugin| write_manifest(&output_dir.join(plugin)))
+            .collect::<Result<Vec<_>>>()?
+    } else {
+        Vec::new()
+    };
+    let (state, diagnostics) = if mode == PackageMode::Check {
+        check_package_commands(&commands, None)
+    } else {
+        (mode.state().to_string(), Vec::new())
+    };
+    let package_dirs = plugins
+        .iter()
+        .map(|plugin| output_dir.join(plugin))
+        .collect::<Vec<_>>();
+    let mut cleanup_targets = package_dirs.clone();
+    cleanup_targets.push(stage_root);
+    cleanup_targets.push(log_dir);
+    if !mode.executes() {
+        cleanup_targets.clear();
+    }
+    finish(
+        &mode.command("plugin"),
+        PackageResult {
+            execution_id: id,
+            action: "plugin".to_string(),
+            workspace: name,
+            source: source.to_string(),
+            state,
+            exit_code: if mode.executes() { Some(0) } else { None },
+            commands: commands_as_argv(&commands),
+            artifacts: package_dirs.clone(),
+            outputs: package_dirs,
+            logs,
+            manifests,
+            cleanup_targets,
+            diagnostics,
+        },
+    )
+}
+
+pub fn engine(workspace: Option<String>, mode: PackageMode) -> Result<()> {
+    let config = Config::load()?;
+    let (name, workspace_config) = config.resolve_workspace(workspace.as_deref())?;
+    let output_dir = workspace_config
+        .default_project
+        .join("Saved")
+        .join("UnrealDevFlow")
+        .join("InstalledBuild");
+    let commands = installed_build_commands(&InstalledBuildOptions {
+        engine_root: workspace_config.engine_path,
+        output_dir: output_dir.clone(),
+        platform: UePlatform::Windows,
+    });
+    let id = execution_id("engine");
+    let log_dir = output_dir.join(".udf-logs").join(&id);
+    let logs = if mode.executes() {
+        run_package_commands(
+            &commands,
+            &log_dir,
+            &id,
+            "engine",
+            &name,
+            "workspace",
+            vec![output_dir.clone()],
+            vec![log_dir.clone()],
+        )?
+    } else {
+        Vec::new()
+    };
+    let manifests = if mode.executes() {
+        vec![write_manifest(&output_dir)?]
+    } else {
+        Vec::new()
+    };
+    let (state, diagnostics) = if mode == PackageMode::Check {
+        check_package_commands(&commands, None)
+    } else {
+        (mode.state().to_string(), Vec::new())
+    };
+    finish(
+        &mode.command("engine"),
+        PackageResult {
+            execution_id: id,
+            action: "engine".to_string(),
+            workspace: name,
+            source: "workspace".to_string(),
+            state,
+            exit_code: if mode.executes() { Some(0) } else { None },
+            commands: commands_as_argv(&commands),
+            artifacts: vec![output_dir.clone()],
+            outputs: vec![output_dir.clone()],
+            logs,
+            manifests,
+            cleanup_targets: if mode.executes() {
+                vec![output_dir]
+            } else {
+                Vec::new()
+            },
+            diagnostics,
+        },
+    )
+}
+
+pub fn build_engine(workspace: Option<String>, plan_only: bool) -> Result<()> {
+    let config = Config::load()?;
+    let (name, workspace_config) = config.resolve_workspace(workspace.as_deref())?;
+    let commands = engine_source_build_commands(&EngineSourceBuildOptions {
+        engine_root: workspace_config.engine_path.clone(),
+        platform: UePlatform::Windows,
+        configuration: Configuration::Development,
+        mutex: UbtMutexMode::Wait,
+        gitdeps_threads: 16,
+        gitdeps_cache: None,
+        editor_target: "UnrealEditor".to_string(),
+        extra_targets: Vec::new(),
+    });
+    let id = format!("build-engine-{}", Utc::now().format("%Y%m%dT%H%M%SZ"));
+    let log_dir = workspace_config
+        .default_project
+        .join("Saved/UnrealDevFlow")
+        .join(&id);
+    if !plan_only && !Path::new(&commands[0].executable).is_file() {
+        return Err(UdfError::Other(format!(
+            "workspace '{}' 使用的引擎不是源码引擎，缺少 {}。可先运行 `udf build plan --workspace {}` 查看完整计划",
+            name, commands[0].executable, name
+        )));
+    }
+    let logs = if plan_only {
+        Vec::new()
+    } else {
+        run_commands(&commands, &log_dir)?
+    };
+    finish(
+        if plan_only {
+            "build plan"
+        } else {
+            "build engine"
+        },
+        PackageResult {
+            execution_id: id,
+            action: "engine".to_string(),
+            workspace: name,
+            source: "workspace".to_string(),
+            state: if plan_only { "planned" } else { "succeeded" }.to_string(),
+            exit_code: if plan_only { None } else { Some(0) },
+            commands: commands_as_argv(&commands),
+            artifacts: vec![workspace_config.engine_path.clone()],
+            outputs: vec![workspace_config.engine_path],
+            logs,
+            manifests: Vec::new(),
+            cleanup_targets: Vec::new(),
+            diagnostics: Vec::new(),
+        },
+    )
+}
+
+fn load_result(execution_id: Option<&str>) -> Result<PackageResult> {
+    let root = execution_root()?;
+    let id = match execution_id {
+        Some(id) => id.to_string(),
+        None => fs::read_to_string(root.join("latest"))?.trim().to_string(),
+    };
+    let path = root.join(format!("{id}.json"));
+    let bytes = fs::read(&path).map_err(|error| {
+        UdfError::Other(format!(
+            "找不到 package 执行记录 {}：{}",
+            path.display(),
+            error
+        ))
+    })?;
+    Ok(serde_json::from_slice(&bytes)?)
+}
+
+pub fn status(execution_id: Option<String>) -> Result<()> {
+    let result = load_result(execution_id.as_deref())?;
+    output::emit("package status", result, render);
+    Ok(())
+}
+
+pub fn clean(execution_id: Option<String>) -> Result<()> {
+    let mut result = load_result(execution_id.as_deref())?;
+    if result.cleanup_targets.is_empty() {
+        return Err(UdfError::Other(format!(
+            "执行记录 '{}' 没有声明可清理目标",
+            result.execution_id
+        )));
+    }
+    for target in &result.cleanup_targets {
+        let resolved = dunce::canonicalize(target).unwrap_or_else(|_| target.clone());
+        let allowed = resolved
+            .components()
+            .any(|part| part.as_os_str() == "UnrealDevFlow");
+        if !allowed {
+            return Err(UdfError::Other(format!(
+                "拒绝清理未位于 UnrealDevFlow 制品目录内的路径：{}",
+                target.display()
+            )));
+        }
+        if target.is_dir() {
+            fs::remove_dir_all(target)?;
+        } else if target.is_file() {
+            fs::remove_file(target)?;
+        }
+    }
+    result.state = "cleaned".to_string();
+    save_result(&result)?;
+    output::emit("package clean", result, render);
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn isolated_plugin_matrix_never_takes_engine_global_mutex() {
+        let commands = direct_plugin_commands(
+            Path::new("C:/UE"),
+            Path::new("C:/stage/package-1"),
+            &["AesWorld".to_string()],
+        );
+
+        assert_eq!(commands.len(), 3);
+        for command in commands {
+            let argv = command.argv();
+            assert!(argv.contains(&"-NoMutex".to_string()));
+            assert!(!argv.contains(&"-WaitMutex".to_string()));
+        }
+    }
+}

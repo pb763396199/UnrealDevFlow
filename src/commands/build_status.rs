@@ -44,6 +44,9 @@ pub fn run(task_ref: Option<String>) -> Result<()> {
         .unwrap_or_default();
 
     let data = BuildStatusReport {
+        execution_id: task_id.to_string(),
+        action: "task",
+        source: "task",
         task_ref: task_id.to_string(),
         state: meta
             .build_status
@@ -65,6 +68,14 @@ pub fn run(task_ref: Option<String>) -> Result<()> {
             .map(|p| p.to_string_lossy().to_string()),
         last_built: meta.last_built.clone(),
         log_tail,
+        logs: meta
+            .build_log
+            .iter()
+            .chain(meta.console_log.iter())
+            .map(|path| path.to_string_lossy().to_string())
+            .collect(),
+        artifacts: Vec::new(),
+        diagnostics: Vec::new(),
     };
     output::emit("build status", data, render_status);
     Ok(())
@@ -74,6 +85,9 @@ pub fn run(task_ref: Option<String>) -> Result<()> {
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct BuildStatusReport {
+    execution_id: String,
+    action: &'static str,
+    source: &'static str,
     task_ref: String,
     state: Option<String>,
     started: Option<String>,
@@ -86,6 +100,9 @@ struct BuildStatusReport {
     console_log: Option<String>,
     last_built: Option<String>,
     log_tail: Vec<String>,
+    logs: Vec<String>,
+    artifacts: Vec<String>,
+    diagnostics: Vec<String>,
 }
 
 fn render_status(data: &BuildStatusReport) -> String {

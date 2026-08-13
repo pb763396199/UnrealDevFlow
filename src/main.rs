@@ -11,13 +11,16 @@ mod commands;
 mod config;
 mod editor;
 mod error;
+mod execution;
 mod git;
 mod host;
 mod junction;
 mod migration;
 mod output;
 mod plugin;
+mod source_context;
 mod state;
+mod ue_commands;
 
 use clap::FromArgMatches;
 use cli::{Cli, Commands};
@@ -91,6 +94,7 @@ fn command_name(command: &Commands) -> &'static str {
             cli::WorkspaceAction::Add { .. } => "workspace add",
             cli::WorkspaceAction::List => "workspace list",
             cli::WorkspaceAction::Doctor { .. } => "workspace doctor",
+            cli::WorkspaceAction::Inspect { .. } => "workspace inspect",
             cli::WorkspaceAction::Remove { .. } => "workspace remove",
             cli::WorkspaceAction::Status => "workspace status",
         },
@@ -107,9 +111,21 @@ fn command_name(command: &Commands) -> &'static str {
         Commands::Build { action } => match action {
             cli::BuildAction::Task { .. } => "build task",
             cli::BuildAction::Project { .. } => "build project",
+            cli::BuildAction::Engine { .. } => "build engine",
             cli::BuildAction::Check { .. } => "build check",
+            cli::BuildAction::Plan { .. } => "build plan",
             cli::BuildAction::Gate { .. } => "build gate",
             cli::BuildAction::Status { .. } => "build status",
+        },
+        Commands::Package { action } => match action {
+            cli::PackageAction::Project { .. } => "package project",
+            cli::PackageAction::Plugin { .. } => "package plugin",
+            cli::PackageAction::Engine { .. } => "package engine",
+            cli::PackageAction::Check { .. } => "package check",
+            cli::PackageAction::Plan { .. } => "package plan",
+            cli::PackageAction::Run { .. } => "package run",
+            cli::PackageAction::Status { .. } => "package status",
+            cli::PackageAction::Clean { .. } => "package clean",
         },
         Commands::Skill { action } => match action {
             cli::SkillAction::Install { .. } => "skill install",
@@ -188,6 +204,7 @@ fn run(cli: Cli) -> Result<()> {
             cli::WorkspaceAction::Doctor { name, deep } => {
                 commands::workspace::doctor(&name, deep)?
             }
+            cli::WorkspaceAction::Inspect { name } => commands::workspace_inspect::run(name)?,
             cli::WorkspaceAction::Remove { name, yes } => commands::workspace::remove(&name, yes)?,
             cli::WorkspaceAction::Status => commands::status::run()?,
         },
@@ -276,6 +293,9 @@ fn run(cli: Cli) -> Result<()> {
                 profile,
                 target,
             } => commands::build_policy::project(workspace, profile, target)?,
+            cli::BuildAction::Engine {
+                workspace, plan, ..
+            } => commands::package::build_engine(workspace, plan)?,
             cli::BuildAction::Check {
                 task_ref,
                 workspace,
@@ -285,8 +305,80 @@ fn run(cli: Cli) -> Result<()> {
             } => {
                 commands::build_policy::check(task_ref, workspace, profile, target, build_command)?
             }
+            cli::BuildAction::Plan {
+                task_ref,
+                workspace,
+                profile,
+            } => commands::build_policy::plan(task_ref, workspace, profile)?,
             cli::BuildAction::Gate { command } => commands::build_policy::gate(command)?,
             cli::BuildAction::Status { task_ref } => commands::build_status::run(task_ref)?,
+        },
+        Commands::Package { action } => match action {
+            cli::PackageAction::Project { workspace, task } => {
+                commands::package::project(workspace, task, commands::package::PackageMode::Run)?
+            }
+            cli::PackageAction::Plugin {
+                plugins,
+                task,
+                workspace,
+            } => commands::package::plugin(
+                plugins,
+                task,
+                workspace,
+                commands::package::PackageMode::Run,
+            )?,
+            cli::PackageAction::Engine { workspace } => {
+                commands::package::engine(workspace, commands::package::PackageMode::Run)?
+            }
+            cli::PackageAction::Plan {
+                target,
+                plugins,
+                task,
+                workspace,
+            } => match target {
+                cli::PackageTarget::Project => commands::package::project(
+                    workspace,
+                    task,
+                    commands::package::PackageMode::Plan,
+                )?,
+                cli::PackageTarget::Plugin => commands::package::plugin(
+                    plugins,
+                    task,
+                    workspace,
+                    commands::package::PackageMode::Plan,
+                )?,
+                cli::PackageTarget::Engine => {
+                    commands::package::engine(workspace, commands::package::PackageMode::Plan)?
+                }
+            },
+            cli::PackageAction::Check {
+                target,
+                plugins,
+                task,
+                workspace,
+            } => match target {
+                cli::PackageTarget::Project => commands::package::project(
+                    workspace,
+                    task,
+                    commands::package::PackageMode::Check,
+                )?,
+                cli::PackageTarget::Plugin => commands::package::plugin(
+                    plugins,
+                    task,
+                    workspace,
+                    commands::package::PackageMode::Check,
+                )?,
+                cli::PackageTarget::Engine => {
+                    commands::package::engine(workspace, commands::package::PackageMode::Check)?
+                }
+            },
+            cli::PackageAction::Run { workspace } => {
+                commands::package::project(workspace, None, commands::package::PackageMode::Run)?
+            }
+            cli::PackageAction::Status { execution_id } => commands::package::status(execution_id)?,
+            cli::PackageAction::Clean { execution_id } => {
+                commands::package::clean(Some(execution_id))?
+            }
         },
         Commands::Skill { action } => match action {
             cli::SkillAction::Install { global, project } => {

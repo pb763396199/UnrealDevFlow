@@ -16,6 +16,10 @@ pub const HELP_TEMPLATE: &str = "{about}
 
 {all-args}";
 
+const EXECUTION_CHECK_ABOUT: &str = "判断指定动作现在是否可执行";
+const EXECUTION_PLAN_ABOUT: &str = "展示实际会执行的阶段、参数和输出位置";
+const EXECUTION_STATUS_ABOUT: &str = "查看一次执行的当前状态和证据";
+
 #[derive(Parser)]
 #[command(name = "udf")]
 #[command(about = "UE 插件并行开发工作流工具")]
@@ -74,6 +78,7 @@ pub enum ChangeType {
 
 impl ChangeType {
     /// 分支前缀，跟取值同名。
+    #[allow(dead_code)]
     pub fn prefix(self) -> &'static str {
         match self {
             ChangeType::Feature => "feature",
@@ -120,6 +125,12 @@ pub enum Commands {
     Build {
         #[command(subcommand)]
         action: BuildAction,
+    },
+
+    /// 生成可保存、传递或发布的制品。
+    Package {
+        #[command(subcommand)]
+        action: PackageAction,
     },
 
     /// 给 AI 助手（opencode / copilot / codex / claude code）装、查、删
@@ -182,9 +193,25 @@ pub enum BuildAction {
         target: Option<String>,
     },
 
+    /// 编译解析出的 UE 源码引擎
+    Engine {
+        /// workspace 名。配了不止一个 workspace 时必须给。
+        #[arg(long)]
+        workspace: Option<String>,
+
+        /// 编译严格度档位。默认 light。
+        #[arg(long, value_enum, default_value = "light")]
+        profile: crate::build_profile::BuildProfile,
+
+        /// 只展示源码引擎构建步骤，不执行。
+        #[arg(long)]
+        plan: bool,
+    },
+
     /// 回答现在能不能启动一次受控编译（它自己永远不编）
     ///
     /// 结论是四个之一：ready / needsUserInput / blocked / deferred。
+    #[command(about = EXECUTION_CHECK_ABOUT)]
     Check {
         /// 任务引用，形如 workspace/task-id。不给就检查 workspace 的主项目，
         /// 而不是某个任务宿主。
@@ -207,6 +234,21 @@ pub enum BuildAction {
         build_command: Option<String>,
     },
 
+    /// 展示实际会执行的阶段、参数和输出位置
+    #[command(about = EXECUTION_PLAN_ABOUT)]
+    Plan {
+        /// 任务引用，形如 workspace/task-id。不给就为 workspace 主项目生成计划。
+        task_ref: Option<String>,
+
+        /// workspace 名。不给任务引用时用它定位项目。
+        #[arg(long)]
+        workspace: Option<String>,
+
+        /// 编译严格度档位。默认 light。
+        #[arg(long, value_enum, default_value = "light")]
+        profile: crate::build_profile::BuildProfile,
+    },
+
     /// 检查一条命令是不是绕过了受控编译路径
     ///
     /// 判定为拒绝时退出码非零。
@@ -215,10 +257,113 @@ pub enum BuildAction {
         command: String,
     },
 
-    /// 查一个任务的编译状态
+    /// 查看一次执行的当前状态和证据
+    #[command(about = EXECUTION_STATUS_ABOUT)]
     Status {
         /// 任务引用，形如 workspace/task-id。不给就按最近动过的任务。
         task_ref: Option<String>,
+    },
+}
+
+#[derive(Clone, Copy, Debug, clap::ValueEnum, PartialEq)]
+pub enum PackageTarget {
+    Project,
+    Plugin,
+    Engine,
+}
+
+#[derive(Subcommand)]
+pub enum PackageAction {
+    /// 对解析出的 UE 项目生成可运行项目包
+    Project {
+        /// workspace 名。不提供时只在唯一候选存在时自动选择。
+        #[arg(long)]
+        workspace: Option<String>,
+
+        /// 从任务 Host 解析源码来源。
+        #[arg(long)]
+        task: Option<String>,
+    },
+
+    /// 对解析出的插件集合生成可分发插件包
+    Plugin {
+        /// 要打包的插件名，按给定顺序作为 seed。
+        plugins: Vec<String>,
+
+        /// 从任务 Host 解析源码来源。
+        #[arg(long)]
+        task: Option<String>,
+
+        /// 从 workspace 主项目解析源码来源。
+        #[arg(long)]
+        workspace: Option<String>,
+    },
+
+    /// 对解析出的 UE 引擎生成 Installed Build
+    Engine {
+        /// workspace 名。不提供时只在唯一候选存在时自动选择。
+        #[arg(long)]
+        workspace: Option<String>,
+    },
+
+    /// 判断指定动作现在是否可执行
+    #[command(about = EXECUTION_CHECK_ABOUT)]
+    Check {
+        /// 要检查的制品对象。
+        #[arg(value_enum, default_value = "project")]
+        target: PackageTarget,
+
+        /// 插件对象的 seed 名称。
+        #[arg(long = "plugin")]
+        plugins: Vec<String>,
+
+        /// 从任务 Host 解析源码来源。
+        #[arg(long)]
+        task: Option<String>,
+
+        /// 从 workspace 主项目解析源码来源。
+        #[arg(long)]
+        workspace: Option<String>,
+    },
+
+    /// 展示实际会执行的阶段、参数和输出位置
+    #[command(about = EXECUTION_PLAN_ABOUT)]
+    Plan {
+        /// 要规划的制品对象。
+        #[arg(value_enum, default_value = "project")]
+        target: PackageTarget,
+
+        /// 插件对象的 seed 名称。
+        #[arg(long = "plugin")]
+        plugins: Vec<String>,
+
+        /// 从任务 Host 解析源码来源。
+        #[arg(long)]
+        task: Option<String>,
+
+        /// 从 workspace 主项目解析源码来源。
+        #[arg(long)]
+        workspace: Option<String>,
+    },
+
+    /// 执行配置中声明的多个阶段
+    Run {
+        /// workspace 名。不提供时只在唯一候选存在时自动选择。
+        #[arg(long)]
+        workspace: Option<String>,
+    },
+
+    /// 查看一次执行的当前状态和证据
+    #[command(about = EXECUTION_STATUS_ABOUT)]
+    Status {
+        /// execution ID。不提供时查看最近一次 package 执行。
+        execution_id: Option<String>,
+    },
+
+    /// 清理由 package 创建并记账的可再生文件
+    Clean {
+        /// 要清理的 execution ID。必须显式指定，避免误删最近一次制品。
+        execution_id: String,
     },
 }
 
@@ -461,6 +606,11 @@ pub enum WorkspaceAction {
         /// 把 plugins_root 底下每一个插件源都递归查一遍。
         #[arg(long)]
         deep: bool,
+    },
+    /// 检查 workspace 解析出的项目、引擎和插件路径。
+    Inspect {
+        /// 要检查的 workspace 名。不提供时只在唯一候选存在时自动选择。
+        name: Option<String>,
     },
     /// 注销一个 workspace。
     Remove {

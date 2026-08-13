@@ -70,6 +70,26 @@ pub fn check(
     Ok(())
 }
 
+/// Resolve the exact controlled task/workspace build command without starting it.
+pub fn plan(
+    task_ref: Option<String>,
+    workspace: Option<String>,
+    profile: BuildProfile,
+) -> Result<()> {
+    let mut request = BuildPolicyRequest {
+        build_profile: Some(profile.label().to_string()),
+        ..BuildPolicyRequest::default()
+    };
+    let subject = resolve_subject(task_ref, workspace, &mut request)?;
+    let report = build_policy::resolve_build_policy(&request);
+    let out = BuildCheckOutput {
+        subject,
+        build_policy: report,
+    };
+    output::emit("build plan", out, format_check);
+    Ok(())
+}
+
 /// Refuse a proposed command when it bypasses the controlled build path.
 ///
 /// Exits non-zero when the command is not allowed, so a hook or wrapper can
