@@ -78,6 +78,19 @@
       "type": "research"
     },
     {
+      "artifact_id": "ar_01KZYY96047Q0VEAXR9F36GVZ2",
+      "depends_on": [
+        "ar_01KZXE664C2F3T5YHVKBYWECNG",
+        "ar_01KZXF0RM7P1CG7JKN30BZ7C22",
+        "ar_01KZXF4RHVPCG94F66FPSNTEPY"
+      ],
+      "freshness": "fresh",
+      "outcome": "complete",
+      "path": "retrospective.md",
+      "stage": 90,
+      "type": "retrospective"
+    },
+    {
       "artifact_id": "ar_01KZXF0RH2HVF06V94H9JYM184",
       "depends_on": [
         "ar_01KZXE664C2F3T5YHVKBYWECNG"
@@ -103,8 +116,8 @@
   "computed_from": {
     "change_set": {
       "content_digest": "sha256:3d13fc82e5166b396e5d98a2ade107529797777faa244e8ce76e9b341bafdc41",
-      "revision": "df02180b3ec0e11d3584bde3214eb073f5b05316",
-      "tree": "af0bd4ffee4f0295817642cae110f872a093ef26"
+      "revision": "ea698720ab7c998a74ad3c736dc099182abc45c1",
+      "tree": "7141467ba03311d2b00b06c12ab193ea21fa0d27"
     },
     "documents": {
       "debug.md": "sha256:08df70eafb432310b36f70dc4f521eab499c2a403dbf53b3b87289f9ee856e3c",
@@ -114,12 +127,13 @@
       "manual-test.md": "sha256:4f6d9b8955946126716f3e8c7166da6d75bd02149cad77f0ef03ed2a9690f851",
       "plan.md": "sha256:b79c615a8c1f4b7cc531402d8cff57f7592a911bb153aedc7f3aa413bb293393",
       "research/ueb-capabilities-research.md": "sha256:0d02b6ea450a6ddea403d66b1480c38bcfbbfb32a709c8b371ef94652e276dc0",
+      "retrospective.md": "sha256:5489cd2a99c11f0461ab149221f1f8f54eb7bb006ce4537276e70dbc5c1d9554",
       "reviews/code-review.md": "sha256:288305ea8ff7bb923e4fc44997eef23515fbd968462abc158e0ca1ded6538632",
       "validation.md": "sha256:67988d901c1e3b2b5eb3492527b895e860eea65fc0f26d2440c0a497c5a8fa21",
       "work-item.md": "sha256:1f69ee2cd41daee0fa83f063fcb7b23575a976d58e9726e8817f6051b27f8d43"
     }
   },
-  "generated_at": "2026-08-13T11:47:10.269771Z",
+  "generated_at": "2026-08-14T01:32:08.707672Z",
   "generated_by": {
     "tool_revision": "sha256:49565cd5fb56"
   },
@@ -132,9 +146,9 @@
   "protocol": "1.3.0",
   "schema_version": 1,
   "stage": {
-    "next_skill": "aes-retrospect",
-    "reached": "delivery",
-    "reached_stage": 80,
+    "next_skill": "aes-finish",
+    "reached": "retrospective",
+    "reached_stage": 90,
     "waiting_on": null
   },
   "work_item": {
