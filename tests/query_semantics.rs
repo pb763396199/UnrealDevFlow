@@ -105,6 +105,21 @@ fn build_check_returns_readiness_without_plan_or_execution_fields() {
 }
 
 #[test]
+fn build_and_package_check_share_readiness_contract() {
+    let fixture = Fixture::new();
+    let build = fixture.run_json(&["build", "check", "--workspace", "test"]);
+    let package = fixture.run_json(&["package", "check", "project", "--workspace", "test"]);
+
+    for report in [&build["data"], &package["data"]] {
+        assert!(report["readiness"].is_string());
+        assert!(report["checks"].is_array());
+        assert!(report["diagnostics"].is_array());
+        assert!(report["nextCommand"].is_string());
+        assert!(report.get("executionId").is_none());
+    }
+}
+
+#[test]
 fn build_plan_returns_steps_outputs_and_digest_without_readiness_or_execution_fields() {
     let fixture = Fixture::new();
     let planned = fixture.run_json(&["build", "plan", "--workspace", "test"]);

@@ -58,7 +58,7 @@ fn top_level_contains_package() {
 }
 
 #[test]
-fn package_subcommands_parse_as_taxonomy_contract() {
+fn legacy_query_invocations_have_explicit_compatibility() {
     let parsed = Cli::parse_from(["udf", "package", "plugin", "AesWorld", "--task", "neon/fix"]);
     assert!(matches!(
         parsed.command,
@@ -85,7 +85,7 @@ fn package_subcommands_parse_as_taxonomy_contract() {
 }
 
 #[test]
-fn build_and_workspace_gain_planned_taxonomy_actions() {
+fn non_execution_queries_follow_the_shared_vocabulary() {
     let build_engine = Cli::parse_from(["udf", "build", "engine", "--workspace", "neon-dev"]);
     assert!(matches!(
         build_engine.command,

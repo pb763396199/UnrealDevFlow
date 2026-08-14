@@ -76,7 +76,7 @@ fn toml_path(path: &Path) -> String {
 }
 
 #[test]
-fn package_plan_returns_a_digest_without_creating_an_execution() {
+fn plans_do_not_replace_latest_execution() {
     let fixture = Fixture::new();
     let planned = fixture.run_json(&["package", "plan", "project", "--workspace", "test"]);
     assert_eq!(planned["command"], "package plan");
@@ -117,7 +117,7 @@ fn package_check_returns_readiness_without_creating_an_execution() {
 }
 
 #[test]
-fn default_status_skips_legacy_query_records_but_explicit_id_can_read_them() {
+fn status_reads_only_real_executions() {
     let fixture = Fixture::new();
     let root = fixture.config_dir.join("executions/package");
     fs::create_dir_all(&root).unwrap();
