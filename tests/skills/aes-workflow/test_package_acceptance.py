@@ -24,6 +24,12 @@ def cargo_test(test_name: str, test_target: str | None = None) -> None:
 
 
 class PackageAcceptance(unittest.TestCase):
+    def test_plugin_collection_expands_nested_uplugins_without_an_execution(self) -> None:
+        cargo_test(
+            "plugin_collection_expands_nested_uplugins_without_an_execution",
+            "package_lifecycle",
+        )
+
     def test_project_package_argv_matches_ueb_default_buildcookrun(self) -> None:
         cargo_test(
             "project_package_argv_matches_ueb_default_buildcookrun",
