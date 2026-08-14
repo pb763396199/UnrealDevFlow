@@ -1,3 +1,4 @@
+import json
 import subprocess
 import unittest
 from pathlib import Path
@@ -29,6 +30,49 @@ class PackageAcceptance(unittest.TestCase):
             "plugin_collection_expands_nested_uplugins_without_an_execution",
             "package_lifecycle",
         )
+
+    def test_real_unreal_mcp_collection_is_ready_and_plans_78_no_mutex_steps(self) -> None:
+        base = [
+            "udf",
+            "package",
+        ]
+        target = [
+            "plugin",
+            "--plugin",
+            "UnrealMCP",
+            "--task",
+            "neon-dev/unreal-mcp-functional-eval",
+            "--format",
+            "json",
+        ]
+
+        check = subprocess.run(
+            [*base, "check", *target],
+            cwd=REPO,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            capture_output=True,
+        )
+        self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
+        check_document = json.loads(check.stdout)
+        self.assertEqual(check_document["data"]["readiness"], "ready")
+        self.assertNotIn("executionId", check_document["data"])
+
+        plan = subprocess.run(
+            [*base, "plan", *target],
+            cwd=REPO,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            capture_output=True,
+        )
+        self.assertEqual(plan.returncode, 0, plan.stdout + plan.stderr)
+        plan_document = json.loads(plan.stdout)
+        steps = plan_document["data"]["steps"]
+        self.assertEqual(len(steps), 78)
+        self.assertTrue(all("-NoMutex" in step["argv"] for step in steps))
+        self.assertNotIn("executionId", plan_document["data"])
 
     def test_project_package_argv_matches_ueb_default_buildcookrun(self) -> None:
         cargo_test(
