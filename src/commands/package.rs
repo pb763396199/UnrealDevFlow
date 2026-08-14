@@ -406,7 +406,7 @@ fn run_package_commands(
 fn collect_plugin_descriptors(
     root: &Path,
     relative: &Path,
-    descriptors: &mut BTreeMap<String, PathBuf>,
+    descriptors: &mut BTreeMap<String, Vec<PathBuf>>,
 ) -> Result<()> {
     let directory = root.join(relative);
     for entry in fs::read_dir(&directory)? {
@@ -430,20 +430,13 @@ fn collect_plugin_descriptors(
                     UdfError::Other(format!("插件不在插件根目录内：{}", path.display()))
                 })?
                 .to_path_buf();
-            if let Some(existing) = descriptors.insert(name.clone(), plugin_dir.clone()) {
-                return Err(UdfError::Other(format!(
-                    "插件集合中存在重名插件 '{}'：{} 与 {}",
-                    name,
-                    existing.display(),
-                    plugin_dir.display()
-                )));
-            }
+            descriptors.entry(name).or_default().push(plugin_dir);
         }
     }
     Ok(())
 }
 
-fn plugin_index(plugins_root: &Path) -> Result<BTreeMap<String, PathBuf>> {
+fn plugin_index(plugins_root: &Path) -> Result<BTreeMap<String, Vec<PathBuf>>> {
     let mut descriptors = BTreeMap::new();
     collect_plugin_descriptors(plugins_root, Path::new(""), &mut descriptors)?;
     Ok(descriptors)
@@ -452,24 +445,35 @@ fn plugin_index(plugins_root: &Path) -> Result<BTreeMap<String, PathBuf>> {
 fn resolve_plugin_seeds(
     plugins_root: &Path,
     requested: &[String],
-    index: &BTreeMap<String, PathBuf>,
-) -> Result<Vec<String>> {
+    index: &BTreeMap<String, Vec<PathBuf>>,
+) -> Result<(Vec<String>, BTreeMap<String, PathBuf>)> {
     let mut resolved = BTreeSet::new();
+    let mut selected = BTreeMap::new();
     for request in requested {
         let direct = plugins_root
             .join(request)
             .join(format!("{request}.uplugin"));
         if direct.is_file() {
             resolved.insert(request.clone());
+            selected.insert(request.clone(), PathBuf::from(request));
             continue;
         }
         let collection = plugins_root.join(request);
         let prefix = Path::new(request);
-        let members = index
-            .iter()
-            .filter(|(_, relative)| relative.starts_with(prefix))
-            .map(|(name, _)| name.clone())
-            .collect::<Vec<_>>();
+        let mut members = Vec::new();
+        for (name, candidates) in index {
+            let matches = candidates
+                .iter()
+                .filter(|relative| relative.starts_with(prefix))
+                .collect::<Vec<_>>();
+            if matches.len() > 1 {
+                return Err(ambiguous_plugin_error(name, &matches));
+            }
+            if let Some(relative) = matches.first() {
+                members.push(name.clone());
+                selected.insert(name.clone(), (*relative).clone());
+            }
+        }
         if !collection.is_dir() || members.is_empty() {
             return Err(UdfError::Other(format!(
                 "找不到插件或插件集合：{}",
@@ -478,13 +482,23 @@ fn resolve_plugin_seeds(
         }
         resolved.extend(members);
     }
-    Ok(resolved.into_iter().collect())
+    Ok((resolved.into_iter().collect(), selected))
+}
+
+fn ambiguous_plugin_error(name: &str, candidates: &[&PathBuf]) -> UdfError {
+    let locations = candidates
+        .iter()
+        .map(|path| path.display().to_string())
+        .collect::<Vec<_>>()
+        .join(" 与 ");
+    UdfError::Other(format!("插件集合中存在重名插件 '{}'：{}", name, locations))
 }
 
 fn plugin_closure(
     plugins_root: &Path,
     seeds: &[String],
-    index: &BTreeMap<String, PathBuf>,
+    index: &BTreeMap<String, Vec<PathBuf>>,
+    selected: &mut BTreeMap<String, PathBuf>,
 ) -> Result<Vec<String>> {
     let mut closure = BTreeSet::new();
     let mut pending = seeds.to_vec();
@@ -492,14 +506,23 @@ fn plugin_closure(
         if !closure.insert(name.clone()) {
             continue;
         }
-        let Some(relative_dir) = index.get(&name) else {
+        let Some(relative_dir) = selected.get(&name) else {
             // Dependencies supplied by the engine are not staged.
             continue;
         };
         let plugin_dir = plugins_root.join(relative_dir);
         for dependency in crate::plugin::uplugin::read_dependencies(&plugin_dir)? {
-            if index.contains_key(&dependency) {
-                pending.push(dependency);
+            if let Some(candidates) = index.get(&dependency) {
+                if candidates.len() > 1 {
+                    return Err(ambiguous_plugin_error(
+                        &dependency,
+                        &candidates.iter().collect::<Vec<_>>(),
+                    ));
+                }
+                if let Some(relative) = candidates.first() {
+                    selected.insert(dependency.clone(), relative.clone());
+                    pending.push(dependency);
+                }
             }
         }
     }
@@ -745,7 +768,7 @@ pub fn plugin(
         )
     };
     let index = plugin_index(&plugins_root)?;
-    let seed_plugins = resolve_plugin_seeds(&plugins_root, &plugins, &index)?;
+    let (seed_plugins, mut selected_index) = resolve_plugin_seeds(&plugins_root, &plugins, &index)?;
     let id = if mode.executes() {
         execution_id("plugin")
     } else {
@@ -756,8 +779,9 @@ pub fn plugin(
     // build stage in the system temp directory and copy only final artifacts
     // back into the managed output directory.
     let stage_root = plugin_stage_root(&id);
-    let closure = plugin_closure(&plugins_root, &seed_plugins, &index)?;
-    let commands = direct_plugin_commands(&engine_root, &stage_root, &seed_plugins, &index);
+    let closure = plugin_closure(&plugins_root, &seed_plugins, &index, &mut selected_index)?;
+    let commands =
+        direct_plugin_commands(&engine_root, &stage_root, &seed_plugins, &selected_index);
     let log_dir = output_dir.join(".udf-logs").join(&id);
     let package_dirs = plugins
         .iter()
@@ -780,7 +804,7 @@ pub fn plugin(
         return emit_plan("plugin", source, &commands, package_dirs, diagnostics);
     }
     let logs = if mode.executes() {
-        prepare_plugin_stage(&plugins_root, &stage_root, &closure, &index)?;
+        prepare_plugin_stage(&plugins_root, &stage_root, &closure, &selected_index)?;
         let package_dirs = plugins
             .iter()
             .map(|plugin| output_dir.join(plugin))

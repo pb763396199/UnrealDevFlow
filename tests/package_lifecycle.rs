@@ -71,6 +71,21 @@ impl Fixture {
         );
         serde_json::from_slice(&output.stdout).expect("json output")
     }
+
+    fn run_failure_json(&self, args: &[&str]) -> Value {
+        let output = self
+            .command()
+            .args(["--format", "json"])
+            .args(args)
+            .output()
+            .expect("run udf");
+        assert!(
+            !output.status.success(),
+            "command unexpectedly succeeded: {}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+        serde_json::from_slice(&output.stdout).expect("failure json")
+    }
 }
 
 #[test]
@@ -101,6 +116,93 @@ fn plugin_collection_expands_nested_uplugins_without_an_execution() {
     assert!(serialized.contains("UnrealMCP\\\\Core\\\\Core.uplugin"));
     assert!(serialized.contains("UnrealMCP\\\\Tools\\\\Tools.uplugin"));
     assert!(planned["data"].get("executionId").is_none());
+}
+
+#[test]
+fn exact_plugin_package_ignores_unrelated_duplicate_named_descriptors() {
+    let fixture = Fixture::new();
+    for relative in [
+        "AesWorld/AesWorld.uplugin",
+        "UnrelatedBundle/AesWorld/AesWorld.uplugin",
+    ] {
+        let descriptor = fixture.plugins.join(relative);
+        fs::create_dir_all(descriptor.parent().unwrap()).unwrap();
+        fs::write(descriptor, r#"{"FileVersion":3,"Plugins":[]}"#).unwrap();
+    }
+
+    let planned = fixture.run_json(&[
+        "package",
+        "plan",
+        "plugin",
+        "--workspace",
+        "test",
+        "--plugin",
+        "AesWorld",
+    ]);
+
+    assert_eq!(planned["data"]["action"], "plugin");
+    let serialized = serde_json::to_string(&planned).unwrap();
+    assert!(serialized.contains("AesWorld\\\\AesWorld.uplugin"));
+    assert!(!serialized.contains("UnrelatedBundle\\\\AesWorld\\\\AesWorld.uplugin"));
+}
+
+#[test]
+fn plugin_collection_rejects_duplicate_names_inside_collection_subtree() {
+    let fixture = Fixture::new();
+    for relative in [
+        "UnrealMCP/Core/Core.uplugin",
+        "UnrealMCP/Alternate/Core/Core.uplugin",
+    ] {
+        let descriptor = fixture.plugins.join(relative);
+        fs::create_dir_all(descriptor.parent().unwrap()).unwrap();
+        fs::write(descriptor, r#"{"FileVersion":3,"Plugins":[]}"#).unwrap();
+    }
+
+    let failed = fixture.run_failure_json(&[
+        "package",
+        "plan",
+        "plugin",
+        "--workspace",
+        "test",
+        "--plugin",
+        "UnrealMCP",
+    ]);
+
+    assert_eq!(failed["ok"], false);
+    assert!(failed["error"].as_str().unwrap().contains("Core"));
+}
+
+#[test]
+fn plugin_package_rejects_dependency_names_with_multiple_project_candidates() {
+    let fixture = Fixture::new();
+    let plugin = fixture.plugins.join("AesWorld/AesWorld.uplugin");
+    fs::create_dir_all(plugin.parent().unwrap()).unwrap();
+    fs::write(
+        plugin,
+        r#"{"FileVersion":3,"Plugins":[{"Name":"SharedTool","Enabled":true}]}"#,
+    )
+    .unwrap();
+    for relative in [
+        "VendorA/SharedTool/SharedTool.uplugin",
+        "VendorB/SharedTool/SharedTool.uplugin",
+    ] {
+        let descriptor = fixture.plugins.join(relative);
+        fs::create_dir_all(descriptor.parent().unwrap()).unwrap();
+        fs::write(descriptor, r#"{"FileVersion":3,"Plugins":[]}"#).unwrap();
+    }
+
+    let failed = fixture.run_failure_json(&[
+        "package",
+        "plan",
+        "plugin",
+        "--workspace",
+        "test",
+        "--plugin",
+        "AesWorld",
+    ]);
+
+    assert_eq!(failed["ok"], false);
+    assert!(failed["error"].as_str().unwrap().contains("SharedTool"));
 }
 
 fn toml_path(path: &Path) -> String {
