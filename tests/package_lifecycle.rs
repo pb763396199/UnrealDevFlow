@@ -76,40 +76,85 @@ fn toml_path(path: &Path) -> String {
 }
 
 #[test]
-fn package_plan_status_share_one_persisted_lifecycle_and_plan_is_not_cleanable() {
+fn package_plan_returns_a_digest_without_creating_an_execution() {
     let fixture = Fixture::new();
     let planned = fixture.run_json(&["package", "plan", "project", "--workspace", "test"]);
     assert_eq!(planned["command"], "package plan");
     assert_eq!(planned["ok"], true);
+    assert_eq!(planned["data"]["domain"], "package");
     assert_eq!(planned["data"]["action"], "project");
-    assert_eq!(planned["data"]["state"], "planned");
-    assert_eq!(planned["data"]["source"], "workspace");
-    let execution_id = planned["data"]["executionId"]
-        .as_str()
-        .expect("execution id");
+    assert!(planned["data"]["planDigest"].as_str().is_some());
+    assert!(!planned["data"]["steps"].as_array().unwrap().is_empty());
+    assert!(!planned["data"]["outputs"].as_array().unwrap().is_empty());
+    assert!(planned["data"].get("executionId").is_none());
+    assert!(planned["data"].get("state").is_none());
+    assert!(
+        !fixture
+            .config_dir
+            .join("executions/package/latest")
+            .exists()
+    );
+}
 
-    let record = fixture
-        .config_dir
-        .join("executions/package")
-        .join(format!("{execution_id}.json"));
-    assert!(record.is_file(), "plan must persist its execution record");
+#[test]
+fn package_check_returns_readiness_without_creating_an_execution() {
+    let fixture = Fixture::new();
+    let checked = fixture.run_json(&["package", "check", "project", "--workspace", "test"]);
+    assert_eq!(checked["command"], "package check");
+    assert_eq!(checked["data"]["domain"], "package");
+    assert_eq!(checked["data"]["action"], "project");
+    assert_eq!(checked["data"]["readiness"], "blocked");
+    assert!(checked["data"]["checks"].as_array().is_some());
+    assert!(checked["data"]["nextCommand"].as_str().is_some());
+    assert!(checked["data"].get("executionId").is_none());
+    assert!(checked["data"].get("commands").is_none());
+    assert!(
+        !fixture
+            .config_dir
+            .join("executions/package/latest")
+            .exists()
+    );
+}
 
-    let status = fixture.run_json(&["package", "status", execution_id]);
-    assert_eq!(status["command"], "package status");
-    assert_eq!(status["data"]["executionId"], execution_id);
-    assert_eq!(status["data"]["state"], "planned");
+#[test]
+fn default_status_skips_legacy_query_records_but_explicit_id_can_read_them() {
+    let fixture = Fixture::new();
+    let root = fixture.config_dir.join("executions/package");
+    fs::create_dir_all(&root).unwrap();
+    write_record(&root, "package-project-20260101T000000Z", "failed");
+    write_record(&root, "package-project-20260102T000000Z", "planned");
+    fs::write(root.join("latest"), "package-project-20260102T000000Z").unwrap();
 
-    let output_dir = fixture.project.join("Saved/UnrealDevFlow/Packages/Win64");
-    fs::create_dir_all(&output_dir).expect("planned output fixture");
-    fs::write(output_dir.join("marker.txt"), "reproducible").expect("marker");
+    let latest = fixture.run_json(&["package", "status"]);
+    assert_eq!(
+        latest["data"]["executionId"],
+        "package-project-20260101T000000Z"
+    );
+    assert_eq!(latest["data"]["state"], "failed");
 
-    let clean = fixture
-        .command()
-        .args(["--format", "json", "package", "clean", execution_id])
-        .output()
-        .expect("run clean");
-    assert!(!clean.status.success(), "a plan owns no created artifacts");
-    assert!(output_dir.join("marker.txt").is_file());
+    let legacy = fixture.run_json(&["package", "status", "package-project-20260102T000000Z"]);
+    assert_eq!(legacy["data"]["state"], "planned");
+}
+
+fn write_record(root: &Path, execution_id: &str, state: &str) {
+    fs::write(
+        root.join(format!("{execution_id}.json")),
+        serde_json::to_vec_pretty(&json!({
+            "executionId": execution_id,
+            "action": "project",
+            "workspace": "test",
+            "source": "workspace",
+            "state": state,
+            "commands": [],
+            "outputs": [],
+            "logs": [],
+            "manifests": [],
+            "cleanupTargets": [],
+            "diagnostics": []
+        }))
+        .unwrap(),
+    )
+    .unwrap();
 }
 
 #[test]
@@ -185,7 +230,7 @@ fn package_check_blocks_when_unreal_tools_are_missing() {
     let fixture = Fixture::new();
     let checked = fixture.run_json(&["package", "check", "project", "--workspace", "test"]);
     assert_eq!(checked["command"], "package check");
-    assert_eq!(checked["data"]["state"], "blocked");
+    assert_eq!(checked["data"]["readiness"], "blocked");
     assert!(
         checked["data"]["diagnostics"][0]
             .as_str()
@@ -220,7 +265,7 @@ fn plugin_package_check_requires_the_ubt_dll_not_only_dotnet() {
         "--plugin",
         "AesWorld",
     ]);
-    assert_eq!(checked["data"]["state"], "blocked");
+    assert_eq!(checked["data"]["readiness"], "blocked");
     assert!(
         checked["data"]["diagnostics"][0]
             .as_str()

@@ -248,18 +248,18 @@ udf task finish neon-dev/prefab-save-bug
 | | `task delete` | 删除任务（不合并） |
 | build | `build task` | 编译任务宿主（可 `--primary-only`） |
 | | `build project` | 编译 workspace 的主项目 |
-| | `build check` | 只回答现在能不能编，永远不启动编译 |
+| | `build check` | 只回答现在能不能启动编译；不执行、不生成执行记录 |
 | | `build gate` | 检查一条命令有没有绕过受控构建；拦下时退出码 1 |
-| | `build status` | 查看编译状态 |
+| | `build status` | 查看已经启动的编译及其状态、日志和诊断 |
 | | `build engine` | 从源码构建 Unreal Engine；安装版引擎只能先查看计划 |
-| | `build plan` | 展示构建步骤、参数和输出位置，不执行构建 |
+| | `build plan` | 展示启动后会执行的步骤、参数和输出位置；不执行、不生成执行记录 |
 | package | `package project` | 对 workspace 主项目或任务 Host 执行 BuildCookRun，生成可运行项目包 |
 | | `package plugin` | 按插件依赖闭包暂存并构建可分发插件包 |
 | | `package engine` | 通过 BuildGraph 生成 Installed Build |
-| | `package check` | 解析目标并生成可执行性检查结果，不启动 UE 工具链 |
-| | `package plan` | 展示实际命令、阶段和输出位置，不执行打包 |
+| | `package check` | 只回答现在能不能启动打包；不执行、不生成执行记录 |
+| | `package plan` | 展示启动后会执行的命令、阶段和输出位置；不执行、不生成执行记录 |
 | | `package run` | 执行 workspace 的默认项目发布流程 |
-| | `package status` | 按 execution ID 查看记录；省略时查看最近一次 package 执行 |
+| | `package status` | 按 execution ID 查看真实执行；省略时查看最近一次真实 package 执行 |
 | | `package clean` | 仅清理由 package 记账且位于 `UnrealDevFlow` 制品目录内的输出 |
 | skill | `skill install/list/remove` | 管理装到四个 AI provider 的 skill |
 
@@ -268,7 +268,11 @@ udf task finish neon-dev/prefab-save-bug
 `package` 接受 workspace 或 task 作为源码来源；来源不同不会改变同名二级命令的含义、输出结构或生命周期。
 
 ```powershell
-# 先检查解析结果和完整命令，不启动 Unreal 工具链
+# check 只返回 readiness，不生成 execution ID
+udf --format json package check project --workspace neon-dev
+udf --format json package check plugin --workspace neon-dev --plugin AesWorld
+
+# plan 展示完整步骤、argv 和输出位置，不生成 execution ID
 udf --format json package plan project --workspace neon-dev
 udf --format json package plan plugin --workspace neon-dev --plugin AesWorld
 udf --format json package plan project --task neon-dev/prefab-save-bug
@@ -284,6 +288,8 @@ udf --format json package clean <execution-id>
 ```
 
 项目包默认输出到项目或 Host 的 `Saved/UnrealDevFlow/Packages/Win64`。插件包输出到相邻的 `Artifacts/UnrealDevFlow/Plugins`；任务来源则输出到任务 Host 内。每次执行都会记录命令、日志、输出与 manifest，`clean` 不会删除未记账或不在 `UnrealDevFlow` 制品目录内的路径。
+
+`check`、`plan` 和 `status` 对 Build 与 Package 使用同一组词义：`check` 检查当前能否启动，`plan` 展示未来步骤，`status` 只读取已经启动的执行。运行 `check` 或 `plan` 不会改变 `status` 默认指向的最近执行。
 
 ## 发布流程
 

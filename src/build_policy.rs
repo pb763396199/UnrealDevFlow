@@ -21,6 +21,7 @@ use md5::{Digest, Md5};
 use serde::{Serialize, Serializer};
 
 use crate::build_profile::BuildProfile;
+use crate::execution::ExecutionStep;
 
 /// Overrides the engine root that would otherwise come from `EngineAssociation`.
 pub const ENGINE_ROOT_ENV: &str = "UNREALDEVFLOW_UE_ENGINE_ROOT";
@@ -112,6 +113,29 @@ impl BuildPolicyReport {
     pub fn to_json(&self) -> String {
         to_json(self)
     }
+}
+
+pub fn build_execution_step(report: &BuildPolicyReport) -> Option<ExecutionStep> {
+    let build_bat = report.build_bat.as_ref()?;
+    let target = report.target.as_ref()?;
+    let project = report.uproject_path.as_ref()?;
+    let profile = project_build_profile(Some(&report.build_profile)).ok()?;
+    let project_arg = format!("-Project={}", project.display());
+    let args = std::iter::once(target.as_str())
+        .chain([
+            "Win64",
+            "Development",
+            project_arg.as_str(),
+            "-NoHotReloadFromIDE",
+        ])
+        .chain(profile.flags().iter().copied())
+        .collect::<Vec<_>>();
+    Some(ExecutionStep::new(
+        "ubt-build",
+        "Run controlled UnrealBuildTool build",
+        build_bat.to_string_lossy(),
+        args,
+    ))
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]

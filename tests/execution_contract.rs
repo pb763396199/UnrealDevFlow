@@ -4,8 +4,8 @@ mod execution;
 mod source_context;
 
 use execution::{
-    CheckState, ExecutionAction, ExecutionDomain, ExecutionRecord, ExecutionState, StepState,
-    build_plan, package_plan,
+    CheckState, ExecutionAction, ExecutionDomain, ExecutionRecord, ExecutionState, PlanReport,
+    ReadinessCheck, ReadinessReport, StepState, build_plan, package_plan,
 };
 use serde_json::Value;
 use source_context::{
@@ -15,6 +15,46 @@ use std::path::PathBuf;
 
 fn project() -> PathBuf {
     PathBuf::from(r"F:\ShanghaiP4\neon\UGA\DEV_1")
+}
+
+#[test]
+fn check_and_plan_have_distinct_non_execution_contracts() {
+    let source = workspace_source();
+    let check = ReadinessReport {
+        domain: ExecutionDomain::Package,
+        action: ExecutionAction::Plugin,
+        source: source.clone(),
+        readiness: CheckState::Ready,
+        checks: vec![ReadinessCheck {
+            name: "ubt".to_string(),
+            state: CheckState::Ready,
+            summary: "UnrealBuildTool is available".to_string(),
+        }],
+        diagnostics: Vec::new(),
+        next_command: Some("udf package plugin AesWorld --workspace neon-dev1".to_string()),
+    };
+    let plan = PlanReport::new(
+        ExecutionDomain::Package,
+        ExecutionAction::Plugin,
+        source,
+        execution::plugin_package_steps("AesWorld", ["Win64"]),
+        vec![PathBuf::from(r"F:\Artifacts\AesWorld")],
+        Vec::new(),
+    );
+
+    let check_json = serde_json::to_value(check).expect("check json");
+    let plan_json = serde_json::to_value(plan).expect("plan json");
+    assert_eq!(check_json["readiness"], "ready");
+    assert!(check_json.get("executionId").is_none());
+    assert!(check_json.get("steps").is_none());
+    assert!(
+        plan_json["planDigest"]
+            .as_str()
+            .unwrap()
+            .starts_with("md5:")
+    );
+    assert!(plan_json.get("executionId").is_none());
+    assert!(plan_json.get("readiness").is_none());
 }
 
 fn engine() -> PathBuf {

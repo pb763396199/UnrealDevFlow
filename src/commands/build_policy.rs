@@ -7,6 +7,7 @@
 
 use std::path::PathBuf;
 
+use md5::{Digest, Md5};
 use serde::Serialize;
 
 use crate::build_policy::{
@@ -32,8 +33,25 @@ struct BuildSubject {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct BuildCheckOutput {
-    subject: BuildSubject,
-    build_policy: BuildPolicyReport,
+    domain: &'static str,
+    action: &'static str,
+    source: BuildSubject,
+    readiness: BuildPolicyStatus,
+    checks: Vec<String>,
+    diagnostics: Vec<String>,
+    next_command: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BuildPlanOutput {
+    domain: &'static str,
+    action: &'static str,
+    source: BuildSubject,
+    plan_digest: String,
+    steps: Vec<crate::execution::ExecutionStep>,
+    outputs: Vec<PathBuf>,
+    diagnostics: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -63,8 +81,13 @@ pub fn check(
     let subject = resolve_subject(task_ref, workspace, &mut request)?;
     let report = build_policy::resolve_build_policy(&request);
     let out = BuildCheckOutput {
-        subject,
-        build_policy: report,
+        domain: "build",
+        action: action_for(&subject),
+        next_command: next_command_for(&subject),
+        source: subject,
+        readiness: report.status,
+        checks: readiness_checks(&report),
+        diagnostics: report.diagnostics,
     };
     output::emit("build check", out, format_check);
     Ok(())
@@ -82,11 +105,21 @@ pub fn plan(
     };
     let subject = resolve_subject(task_ref, workspace, &mut request)?;
     let report = build_policy::resolve_build_policy(&request);
-    let out = BuildCheckOutput {
-        subject,
-        build_policy: report,
+    let steps = build_policy::build_execution_step(&report)
+        .into_iter()
+        .collect::<Vec<_>>();
+    let outputs = plan_outputs(&report);
+    let normalized = serde_json::to_vec(&(&steps, &outputs, &report.diagnostics))?;
+    let out = BuildPlanOutput {
+        domain: "build",
+        action: action_for(&subject),
+        source: subject,
+        plan_digest: format!("md5:{:x}", Md5::digest(normalized)),
+        steps,
+        outputs,
+        diagnostics: report.diagnostics,
     };
-    output::emit("build plan", out, format_check);
+    output::emit("build plan", out, format_plan);
     Ok(())
 }
 
@@ -187,7 +220,8 @@ fn resolve_subject(
     }
 }
 
-fn format_check(out: &BuildCheckOutput) -> String {
+#[cfg(any())]
+fn format_check_legacy(out: &BuildCheckOutput) -> String {
     let report = &out.build_policy;
     let mut lines = vec![
         format!(
@@ -215,6 +249,105 @@ fn format_check(out: &BuildCheckOutput) -> String {
         lines.push(format!("提示：{}", diagnostic));
     }
     lines.join("\n")
+}
+
+fn format_check(out: &BuildCheckOutput) -> String {
+    let mut lines = vec![
+        format!(
+            "Build readiness: {} ({})",
+            out.readiness.as_str(),
+            verdict_hint(out.readiness)
+        ),
+        format!("Subject: {} {}", out.source.kind, out.source.name),
+        format!("Project: {}", out.source.project_path.display()),
+        format!("Engine: {}", out.source.engine_root.display()),
+    ];
+    for check in &out.checks {
+        lines.push(format!("Check: {check}"));
+    }
+    for diagnostic in &out.diagnostics {
+        lines.push(format!("Diagnostic: {diagnostic}"));
+    }
+    lines.push(format!("Next: {}", out.next_command));
+    lines.join("\n")
+}
+
+fn format_plan(out: &BuildPlanOutput) -> String {
+    let mut lines = vec![
+        format!("Build plan: {}", out.plan_digest),
+        format!("Subject: {} {}", out.source.kind, out.source.name),
+    ];
+    for step in &out.steps {
+        lines.push(format!("Step: {} {}", step.id, step.executable));
+    }
+    for output in &out.outputs {
+        lines.push(format!("Output: {}", output.display()));
+    }
+    lines.join("\n")
+}
+
+fn action_for(subject: &BuildSubject) -> &'static str {
+    if subject.kind == "task" {
+        "task"
+    } else {
+        "project"
+    }
+}
+
+fn next_command_for(subject: &BuildSubject) -> String {
+    if subject.kind == "task" {
+        format!("udf build task {}", subject.name)
+    } else {
+        format!("udf build project --workspace {}", subject.name)
+    }
+}
+
+fn readiness_checks(report: &BuildPolicyReport) -> Vec<String> {
+    vec![
+        format!(
+            "project={}",
+            report
+                .uproject_path
+                .as_ref()
+                .map_or_else(|| "missing".into(), |path| path.display().to_string())
+        ),
+        format!(
+            "engine={}",
+            report
+                .engine_root
+                .as_ref()
+                .map_or_else(|| "missing".into(), |path| path.display().to_string())
+        ),
+        format!(
+            "buildBat={}",
+            report
+                .build_bat
+                .as_ref()
+                .map_or_else(|| "missing".into(), |path| path.display().to_string())
+        ),
+        format!(
+            "ubt={}",
+            report
+                .ubt_dll
+                .as_ref()
+                .map_or_else(|| "missing".into(), |path| path.display().to_string())
+        ),
+        format!("mutex={}", report.mutex_status),
+    ]
+}
+
+fn plan_outputs(report: &BuildPolicyReport) -> Vec<PathBuf> {
+    report
+        .uproject_path
+        .as_ref()
+        .and_then(|project| project.parent())
+        .map(|project_dir| {
+            vec![
+                project_dir.join("Binaries"),
+                project_dir.join("Intermediate"),
+            ]
+        })
+        .unwrap_or_default()
 }
 
 fn format_gate(report: &BuildGateReport) -> String {

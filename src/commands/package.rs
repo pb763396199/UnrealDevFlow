@@ -7,6 +7,7 @@ use crate::ue_commands::{
     project_package_commands,
 };
 use chrono::Utc;
+use md5::{Digest, Md5};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::fs;
@@ -24,22 +25,38 @@ impl PackageMode {
     fn executes(self) -> bool {
         self == Self::Run
     }
+}
 
-    fn state(self) -> &'static str {
-        match self {
-            Self::Run => "succeeded",
-            Self::Plan => "planned",
-            Self::Check => "blocked",
-        }
-    }
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PackageCheckReport {
+    domain: &'static str,
+    action: String,
+    source: String,
+    readiness: String,
+    checks: Vec<String>,
+    diagnostics: Vec<String>,
+    next_command: String,
+}
 
-    fn command(self, action: &str) -> String {
-        match self {
-            Self::Run => format!("package {action}"),
-            Self::Plan => "package plan".to_string(),
-            Self::Check => "package check".to_string(),
-        }
-    }
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PackagePlanStep {
+    name: String,
+    executable: String,
+    argv: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PackagePlanReport {
+    domain: &'static str,
+    action: String,
+    source: String,
+    plan_digest: String,
+    steps: Vec<PackagePlanStep>,
+    outputs: Vec<PathBuf>,
+    diagnostics: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -189,6 +206,76 @@ fn commands_as_argv(commands: &[UeCommand]) -> Vec<Vec<String>> {
     commands.iter().map(UeCommand::argv).collect()
 }
 
+fn emit_check(
+    action: &str,
+    source: &str,
+    commands: &[UeCommand],
+    mutex_project: Option<(&Path, &Path)>,
+    next_command: String,
+) -> Result<()> {
+    let (readiness, diagnostics) = check_package_commands(commands, mutex_project);
+    let checks = if diagnostics.is_empty() {
+        vec!["toolchainAvailable".to_string()]
+    } else {
+        diagnostics
+            .iter()
+            .map(|diagnostic| {
+                diagnostic
+                    .split('：')
+                    .next()
+                    .unwrap_or(diagnostic)
+                    .to_string()
+            })
+            .collect()
+    };
+    let report = PackageCheckReport {
+        domain: "package",
+        action: action.to_string(),
+        source: source.to_string(),
+        readiness,
+        checks,
+        diagnostics,
+        next_command,
+    };
+    output::emit("package check", report, |report| {
+        format!("package {}: {}", report.action, report.readiness)
+    });
+    Ok(())
+}
+
+fn emit_plan(
+    action: &str,
+    source: &str,
+    commands: &[UeCommand],
+    outputs: Vec<PathBuf>,
+    diagnostics: Vec<String>,
+) -> Result<()> {
+    let steps = commands
+        .iter()
+        .enumerate()
+        .map(|(index, command)| PackagePlanStep {
+            name: format!("step-{:02}", index + 1),
+            executable: command.executable.clone(),
+            argv: command.argv(),
+        })
+        .collect::<Vec<_>>();
+    let normalized = serde_json::to_vec(&(&steps, &outputs, &diagnostics))?;
+    let plan_digest = format!("md5:{:x}", Md5::digest(normalized));
+    let report = PackagePlanReport {
+        domain: "package",
+        action: action.to_string(),
+        source: source.to_string(),
+        plan_digest,
+        steps,
+        outputs,
+        diagnostics,
+    };
+    output::emit("package plan", report, |report| {
+        format!("package {} plan: {}", report.action, report.plan_digest)
+    });
+    Ok(())
+}
+
 fn render(result: &PackageResult) -> String {
     let mut lines = vec![format!(
         "package {}: {} ({})",
@@ -218,7 +305,7 @@ fn save_result(result: &PackageResult) -> Result<()> {
     Ok(())
 }
 
-fn finish(command: &str, result: PackageResult) -> Result<()> {
+fn finish_execution(command: &str, result: PackageResult) -> Result<()> {
     save_result(&result)?;
     output::emit(command, result, render);
     Ok(())
@@ -422,6 +509,7 @@ fn direct_plugin_commands(
 
 pub fn project(workspace: Option<String>, task: Option<String>, mode: PackageMode) -> Result<()> {
     let config = Config::load()?;
+    let requested_task = task.clone();
     let (name, project_root, engine_root, source) = if let Some(task_ref) = task {
         let (host_dir, _, context) = crate::host::resolve_task(&config, &task_ref)?;
         (context.workspace, host_dir, context.engine_path, "task")
@@ -450,6 +538,22 @@ pub fn project(workspace: Option<String>, task: Option<String>, mode: PackageMod
         package_args: None,
         clean: false,
     });
+    if mode == PackageMode::Check {
+        let next = requested_task
+            .map(|task| format!("udf package project --task {task}"))
+            .unwrap_or_else(|| format!("udf package project --workspace {name}"));
+        return emit_check(
+            "project",
+            source,
+            &commands,
+            Some((&project, &engine_root)),
+            next,
+        );
+    }
+    if mode == PackageMode::Plan {
+        let (_, diagnostics) = check_package_commands(&commands, None);
+        return emit_plan("project", source, &commands, vec![archive_dir], diagnostics);
+    }
     let id = execution_id("project");
     let log_dir = project_root.join("Saved").join("UnrealDevFlow").join(&id);
     let logs = if mode.executes() {
@@ -471,31 +575,22 @@ pub fn project(workspace: Option<String>, task: Option<String>, mode: PackageMod
     } else {
         Vec::new()
     };
-    let (state, diagnostics) = if mode == PackageMode::Check {
-        check_package_commands(&commands, Some((&project, &engine_root)))
-    } else {
-        (mode.state().to_string(), Vec::new())
-    };
-    finish(
-        &mode.command("project"),
+    finish_execution(
+        "package project",
         PackageResult {
             execution_id: id,
             action: "project".to_string(),
             workspace: name,
             source: source.to_string(),
-            state,
-            exit_code: if mode.executes() { Some(0) } else { None },
+            state: "succeeded".to_string(),
+            exit_code: Some(0),
             commands: commands_as_argv(&commands),
             artifacts: vec![archive_dir.clone()],
             outputs: vec![archive_dir.clone()],
             logs,
             manifests,
-            cleanup_targets: if mode.executes() {
-                vec![archive_dir, log_dir]
-            } else {
-                Vec::new()
-            },
-            diagnostics,
+            cleanup_targets: vec![archive_dir, log_dir],
+            diagnostics: Vec::new(),
         },
     )
 }
@@ -510,6 +605,7 @@ pub fn plugin(
         return Err(UdfError::Other("至少指定一个插件名".to_string()));
     }
     let config = Config::load()?;
+    let requested_task = task.clone();
     let (name, plugins_root, engine_root, output_dir, source) = if let Some(task_ref) = task {
         let (host_dir, _, context) = crate::host::resolve_task(&config, &task_ref)?;
         (
@@ -551,11 +647,35 @@ pub fn plugin(
             )));
         }
     }
-    let id = execution_id("plugin");
+    let id = if mode.executes() {
+        execution_id("plugin")
+    } else {
+        "package-plugin-query".to_string()
+    };
     let stage_root = output_dir.join(".udf-stage").join(&id);
     let closure = plugin_closure(&plugins_root, &plugins)?;
     let commands = direct_plugin_commands(&engine_root, &stage_root, &plugins);
     let log_dir = output_dir.join(".udf-logs").join(&id);
+    let package_dirs = plugins
+        .iter()
+        .map(|plugin| output_dir.join(plugin))
+        .collect::<Vec<_>>();
+    if mode == PackageMode::Check {
+        let selector = requested_task
+            .map(|task| format!("--task {task}"))
+            .unwrap_or_else(|| format!("--workspace {name}"));
+        return emit_check(
+            "plugin",
+            source,
+            &commands,
+            None,
+            format!("udf package plugin {} {selector}", plugins.join(" ")),
+        );
+    }
+    if mode == PackageMode::Plan {
+        let (_, diagnostics) = check_package_commands(&commands, None);
+        return emit_plan("plugin", source, &commands, package_dirs, diagnostics);
+    }
     let logs = if mode.executes() {
         prepare_plugin_stage(&plugins_root, &stage_root, &closure)?;
         let package_dirs = plugins
@@ -597,11 +717,6 @@ pub fn plugin(
     } else {
         Vec::new()
     };
-    let (state, diagnostics) = if mode == PackageMode::Check {
-        check_package_commands(&commands, None)
-    } else {
-        (mode.state().to_string(), Vec::new())
-    };
     let package_dirs = plugins
         .iter()
         .map(|plugin| output_dir.join(plugin))
@@ -612,22 +727,22 @@ pub fn plugin(
     if !mode.executes() {
         cleanup_targets.clear();
     }
-    finish(
-        &mode.command("plugin"),
+    finish_execution(
+        "package plugin",
         PackageResult {
             execution_id: id,
             action: "plugin".to_string(),
             workspace: name,
             source: source.to_string(),
-            state,
-            exit_code: if mode.executes() { Some(0) } else { None },
+            state: "succeeded".to_string(),
+            exit_code: Some(0),
             commands: commands_as_argv(&commands),
             artifacts: package_dirs.clone(),
             outputs: package_dirs,
             logs,
             manifests,
             cleanup_targets,
-            diagnostics,
+            diagnostics: Vec::new(),
         },
     )
 }
@@ -645,6 +760,25 @@ pub fn engine(workspace: Option<String>, mode: PackageMode) -> Result<()> {
         output_dir: output_dir.clone(),
         platform: UePlatform::Windows,
     });
+    if mode == PackageMode::Check {
+        return emit_check(
+            "engine",
+            "workspace",
+            &commands,
+            None,
+            format!("udf package engine --workspace {name}"),
+        );
+    }
+    if mode == PackageMode::Plan {
+        let (_, diagnostics) = check_package_commands(&commands, None);
+        return emit_plan(
+            "engine",
+            "workspace",
+            &commands,
+            vec![output_dir],
+            diagnostics,
+        );
+    }
     let id = execution_id("engine");
     let log_dir = output_dir.join(".udf-logs").join(&id);
     let logs = if mode.executes() {
@@ -666,31 +800,22 @@ pub fn engine(workspace: Option<String>, mode: PackageMode) -> Result<()> {
     } else {
         Vec::new()
     };
-    let (state, diagnostics) = if mode == PackageMode::Check {
-        check_package_commands(&commands, None)
-    } else {
-        (mode.state().to_string(), Vec::new())
-    };
-    finish(
-        &mode.command("engine"),
+    finish_execution(
+        "package engine",
         PackageResult {
             execution_id: id,
             action: "engine".to_string(),
             workspace: name,
             source: "workspace".to_string(),
-            state,
-            exit_code: if mode.executes() { Some(0) } else { None },
+            state: "succeeded".to_string(),
+            exit_code: Some(0),
             commands: commands_as_argv(&commands),
             artifacts: vec![output_dir.clone()],
             outputs: vec![output_dir.clone()],
             logs,
             manifests,
-            cleanup_targets: if mode.executes() {
-                vec![output_dir]
-            } else {
-                Vec::new()
-            },
-            diagnostics,
+            cleanup_targets: vec![output_dir],
+            diagnostics: Vec::new(),
         },
     )
 }
@@ -724,36 +849,34 @@ pub fn build_engine(workspace: Option<String>, plan_only: bool) -> Result<()> {
     } else {
         run_commands(&commands, &log_dir)?
     };
-    finish(
+    let result = PackageResult {
+        execution_id: id,
+        action: "engine".to_string(),
+        workspace: name,
+        source: "workspace".to_string(),
+        state: if plan_only { "planned" } else { "succeeded" }.to_string(),
+        exit_code: if plan_only { None } else { Some(0) },
+        commands: commands_as_argv(&commands),
+        artifacts: vec![workspace_config.engine_path.clone()],
+        outputs: vec![workspace_config.engine_path],
+        logs,
+        manifests: Vec::new(),
+        cleanup_targets: Vec::new(),
+        diagnostics: Vec::new(),
+    };
+    output::emit(
         if plan_only {
             "build plan"
         } else {
             "build engine"
         },
-        PackageResult {
-            execution_id: id,
-            action: "engine".to_string(),
-            workspace: name,
-            source: "workspace".to_string(),
-            state: if plan_only { "planned" } else { "succeeded" }.to_string(),
-            exit_code: if plan_only { None } else { Some(0) },
-            commands: commands_as_argv(&commands),
-            artifacts: vec![workspace_config.engine_path.clone()],
-            outputs: vec![workspace_config.engine_path],
-            logs,
-            manifests: Vec::new(),
-            cleanup_targets: Vec::new(),
-            diagnostics: Vec::new(),
-        },
-    )
+        result,
+        render,
+    );
+    Ok(())
 }
 
-fn load_result(execution_id: Option<&str>) -> Result<PackageResult> {
-    let root = execution_root()?;
-    let id = match execution_id {
-        Some(id) => id.to_string(),
-        None => fs::read_to_string(root.join("latest"))?.trim().to_string(),
-    };
+fn read_result(root: &Path, id: &str) -> Result<PackageResult> {
     let path = root.join(format!("{id}.json"));
     let bytes = fs::read(&path).map_err(|error| {
         UdfError::Other(format!(
@@ -763,6 +886,38 @@ fn load_result(execution_id: Option<&str>) -> Result<PackageResult> {
         ))
     })?;
     Ok(serde_json::from_slice(&bytes)?)
+}
+
+fn is_real_execution_state(state: &str) -> bool {
+    !matches!(state, "planned" | "ready" | "blocked" | "deferred")
+}
+
+fn load_result(execution_id: Option<&str>) -> Result<PackageResult> {
+    let root = execution_root()?;
+    if let Some(id) = execution_id {
+        return read_result(&root, id);
+    }
+
+    if let Ok(latest_id) = fs::read_to_string(root.join("latest"))
+        && let Ok(result) = read_result(&root, latest_id.trim())
+        && is_real_execution_state(&result.state)
+    {
+        return Ok(result);
+    }
+
+    let mut candidates = fs::read_dir(&root)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "json"))
+        .filter_map(|entry| fs::read(entry.path()).ok())
+        .filter_map(|bytes| serde_json::from_slice::<PackageResult>(&bytes).ok())
+        .filter(|result| is_real_execution_state(&result.state))
+        .collect::<Vec<_>>();
+    candidates.sort_by(|left, right| left.execution_id.cmp(&right.execution_id));
+    candidates.pop().ok_or_else(|| {
+        UdfError::Other("找不到真实的 package 执行记录；check 和 plan 不属于执行状态".to_string())
+    })
 }
 
 pub fn status(execution_id: Option<String>) -> Result<()> {

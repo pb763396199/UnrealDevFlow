@@ -16,9 +16,9 @@ pub const HELP_TEMPLATE: &str = "{about}
 
 {all-args}";
 
-const EXECUTION_CHECK_ABOUT: &str = "判断指定动作现在是否可执行";
-const EXECUTION_PLAN_ABOUT: &str = "展示实际会执行的阶段、参数和输出位置";
-const EXECUTION_STATUS_ABOUT: &str = "查看一次执行的当前状态和证据";
+const EXECUTION_CHECK_ABOUT: &str = "判断指定动作现在能否启动；不执行、不生成执行记录";
+const EXECUTION_PLAN_ABOUT: &str = "展示启动后会执行的阶段、参数和输出位置；不执行、不生成执行记录";
+const EXECUTION_STATUS_ABOUT: &str = "查看已经启动的执行及其状态、日志和制品";
 
 #[derive(Parser)]
 #[command(name = "udf")]

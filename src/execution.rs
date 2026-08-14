@@ -5,6 +5,7 @@
 //! shape instead of each command inventing its own output contract.
 
 use crate::source_context::SourceContext;
+use md5::{Digest, Md5};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -140,6 +141,63 @@ pub struct DiagnosticRef {
     pub summary: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub path: Option<PathBuf>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadinessCheck {
+    pub name: String,
+    pub state: CheckState,
+    pub summary: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadinessReport {
+    pub domain: ExecutionDomain,
+    pub action: ExecutionAction,
+    pub source: SourceContext,
+    pub readiness: CheckState,
+    pub checks: Vec<ReadinessCheck>,
+    pub diagnostics: Vec<DiagnosticRef>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_command: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanReport {
+    pub domain: ExecutionDomain,
+    pub action: ExecutionAction,
+    pub source: SourceContext,
+    pub plan_digest: String,
+    pub steps: Vec<ExecutionStep>,
+    pub outputs: Vec<PathBuf>,
+    pub diagnostics: Vec<DiagnosticRef>,
+}
+
+impl PlanReport {
+    pub fn new(
+        domain: ExecutionDomain,
+        action: ExecutionAction,
+        source: SourceContext,
+        steps: Vec<ExecutionStep>,
+        outputs: Vec<PathBuf>,
+        diagnostics: Vec<DiagnosticRef>,
+    ) -> Self {
+        let canonical = serde_json::to_vec(&(domain, action, &steps, &outputs))
+            .expect("execution plans contain only serializable fields");
+        let plan_digest = format!("md5:{:x}", Md5::digest(canonical));
+        Self {
+            domain,
+            action,
+            source,
+            plan_digest,
+            steps,
+            outputs,
+            diagnostics,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
