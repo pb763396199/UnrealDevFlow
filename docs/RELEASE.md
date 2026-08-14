@@ -11,7 +11,7 @@ preflight 通过 -> release notes 生成 -> tag 触发 CI -> 产物齐全 -> ins
 普通用户安装命令固定为：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -c "irm https://github.com/pb763396199/UnrealDevFlow/releases/latest/download/unrealdevflow-installer.ps1 | iex"
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/pb763396199/UnrealDevFlow/releases/latest/download/unrealdevflow-installer.ps1 | Out-String | iex"
 ```
 
 这个入口必须满足：

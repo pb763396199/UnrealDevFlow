@@ -162,7 +162,7 @@ if (-not $commits) {
 }
 $commitText = $commits -join "`n"
 
-$installCommand = 'powershell -ExecutionPolicy Bypass -c "irm https://github.com/' + $Repo + '/releases/latest/download/unrealdevflow-installer.ps1 | iex"'
+$installCommand = 'powershell -ExecutionPolicy Bypass -c "irm https://github.com/' + $Repo + '/releases/latest/download/unrealdevflow-installer.ps1 | Out-String | iex"'
 
 $curatedPath = Join-Path $RepoRoot "docs\releases\$releaseTag.md"
 if (Test-Path -LiteralPath $curatedPath) {

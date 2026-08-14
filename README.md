@@ -18,7 +18,7 @@ UE 插件多任务并行开发工具。基于 Git Worktree + NTFS Junction，实
 普通用户只需要一条命令，不需要安装 Rust，不需要 clone 仓库：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -c "irm https://github.com/pb763396199/UnrealDevFlow/releases/latest/download/unrealdevflow-installer.ps1 | iex"
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/pb763396199/UnrealDevFlow/releases/latest/download/unrealdevflow-installer.ps1 | Out-String | iex"
 ```
 
 安装器会自动：

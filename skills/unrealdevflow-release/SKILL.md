@@ -85,7 +85,7 @@ git push origin v<version>
 13. Smoke-test the installer from the draft/latest release URL when available:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -c "irm https://github.com/pb763396199/UnrealDevFlow/releases/latest/download/unrealdevflow-installer.ps1 | iex"
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/pb763396199/UnrealDevFlow/releases/latest/download/unrealdevflow-installer.ps1 | Out-String | iex"
 ```
 
 14. Only after assets, release body, and installer are correct, publish the draft release.

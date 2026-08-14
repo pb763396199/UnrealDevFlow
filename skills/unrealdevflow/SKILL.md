@@ -28,7 +28,7 @@ if (-not $udf) {
 两个都没有就先装：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -c "irm https://github.com/pb763396199/UnrealDevFlow/releases/latest/download/unrealdevflow-installer.ps1 | iex"
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/pb763396199/UnrealDevFlow/releases/latest/download/unrealdevflow-installer.ps1 | Out-String | iex"
 ```
 
 ## 小白入口（优先走这条）

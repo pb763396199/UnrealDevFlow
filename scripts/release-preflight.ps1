@@ -152,6 +152,26 @@ Invoke-CheckedStep "Installer parses the way iex would see it" {
     Write-Host "install.ps1 parses cleanly as a piped string"
 }
 
+Invoke-CheckedStep "Documented installer command aggregates the response" {
+    # Windows PowerShell 5.1 can enumerate a GitHub .ps1 response line by line.
+    # Out-String must aggregate it before iex or multiline syntax is split apart.
+    $requiredPipeline = "| Out-String | iex"
+    $surfaces = @(
+        "README.md",
+        "docs/RELEASE.md",
+        "skills/unrealdevflow/SKILL.md",
+        "skills/unrealdevflow-release/SKILL.md",
+        "scripts/generate-release-notes.ps1"
+    )
+    foreach ($surface in $surfaces) {
+        $content = Get-Content -Raw -LiteralPath $surface
+        if (-not $content.Contains($requiredPipeline)) {
+            throw "$surface must aggregate the installer response with '$requiredPipeline'"
+        }
+    }
+    Write-Host "All documented installer commands aggregate the response before iex"
+}
+
 Invoke-CheckedStep "Generate release notes (dry run)" {
     # Checking that the generator file exists proves nothing. It has to run,
     # against the curated notes for this very version, or a missing section or
