@@ -9,7 +9,7 @@ use crate::ue_commands::{
 use chrono::Utc;
 use md5::{Digest, Md5};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -384,20 +384,102 @@ fn run_package_commands(
     }
 }
 
-fn plugin_closure(plugins_root: &Path, seeds: &[String]) -> Result<Vec<String>> {
+fn collect_plugin_descriptors(
+    root: &Path,
+    relative: &Path,
+    descriptors: &mut BTreeMap<String, PathBuf>,
+) -> Result<()> {
+    let directory = root.join(relative);
+    for entry in fs::read_dir(&directory)? {
+        let entry = entry?;
+        let path = entry.path();
+        if entry.file_type()?.is_dir() {
+            collect_plugin_descriptors(root, &relative.join(entry.file_name()), descriptors)?;
+        } else if path
+            .extension()
+            .is_some_and(|extension| extension == "uplugin")
+        {
+            let name = path
+                .file_stem()
+                .and_then(|value| value.to_str())
+                .ok_or_else(|| UdfError::Other(format!("无效插件描述文件：{}", path.display())))?
+                .to_string();
+            let plugin_dir = path
+                .parent()
+                .and_then(|parent| parent.strip_prefix(root).ok())
+                .ok_or_else(|| {
+                    UdfError::Other(format!("插件不在插件根目录内：{}", path.display()))
+                })?
+                .to_path_buf();
+            if let Some(existing) = descriptors.insert(name.clone(), plugin_dir.clone()) {
+                return Err(UdfError::Other(format!(
+                    "插件集合中存在重名插件 '{}'：{} 与 {}",
+                    name,
+                    existing.display(),
+                    plugin_dir.display()
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn plugin_index(plugins_root: &Path) -> Result<BTreeMap<String, PathBuf>> {
+    let mut descriptors = BTreeMap::new();
+    collect_plugin_descriptors(plugins_root, Path::new(""), &mut descriptors)?;
+    Ok(descriptors)
+}
+
+fn resolve_plugin_seeds(
+    plugins_root: &Path,
+    requested: &[String],
+    index: &BTreeMap<String, PathBuf>,
+) -> Result<Vec<String>> {
+    let mut resolved = BTreeSet::new();
+    for request in requested {
+        let direct = plugins_root
+            .join(request)
+            .join(format!("{request}.uplugin"));
+        if direct.is_file() {
+            resolved.insert(request.clone());
+            continue;
+        }
+        let collection = plugins_root.join(request);
+        let prefix = Path::new(request);
+        let members = index
+            .iter()
+            .filter(|(_, relative)| relative.starts_with(prefix))
+            .map(|(name, _)| name.clone())
+            .collect::<Vec<_>>();
+        if !collection.is_dir() || members.is_empty() {
+            return Err(UdfError::Other(format!(
+                "找不到插件或插件集合：{}",
+                collection.display()
+            )));
+        }
+        resolved.extend(members);
+    }
+    Ok(resolved.into_iter().collect())
+}
+
+fn plugin_closure(
+    plugins_root: &Path,
+    seeds: &[String],
+    index: &BTreeMap<String, PathBuf>,
+) -> Result<Vec<String>> {
     let mut closure = BTreeSet::new();
     let mut pending = seeds.to_vec();
     while let Some(name) = pending.pop() {
         if !closure.insert(name.clone()) {
             continue;
         }
-        let plugin_dir = plugins_root.join(&name);
-        if !plugin_dir.is_dir() {
+        let Some(relative_dir) = index.get(&name) else {
             // Dependencies supplied by the engine are not staged.
             continue;
-        }
+        };
+        let plugin_dir = plugins_root.join(relative_dir);
         for dependency in crate::plugin::uplugin::read_dependencies(&plugin_dir)? {
-            if plugins_root.join(&dependency).is_dir() {
+            if index.contains_key(&dependency) {
                 pending.push(dependency);
             }
         }
@@ -437,15 +519,24 @@ fn copy_tree(source: &Path, destination: &Path, include_source: bool) -> Result<
     Ok(())
 }
 
-fn prepare_plugin_stage(plugins_root: &Path, stage_root: &Path, closure: &[String]) -> Result<()> {
+fn prepare_plugin_stage(
+    plugins_root: &Path,
+    stage_root: &Path,
+    closure: &[String],
+    index: &BTreeMap<String, PathBuf>,
+) -> Result<()> {
     if stage_root.exists() {
         fs::remove_dir_all(stage_root)?;
     }
     fs::create_dir_all(stage_root.join("Plugins"))?;
     for plugin in closure {
-        let source = plugins_root.join(plugin);
-        if source.is_dir() {
-            copy_tree(&source, &stage_root.join("Plugins").join(plugin), true)?;
+        if let Some(relative_dir) = index.get(plugin) {
+            let source = plugins_root.join(relative_dir);
+            copy_tree(
+                &source,
+                &stage_root.join("Plugins").join(relative_dir),
+                true,
+            )?;
         }
     }
     let enabled = closure
@@ -463,15 +554,17 @@ fn direct_plugin_commands(
     engine_root: &Path,
     stage_root: &Path,
     seeds: &[String],
+    index: &BTreeMap<String, PathBuf>,
 ) -> Vec<UeCommand> {
     let dotnet = engine_root.join("Engine/Binaries/ThirdParty/DotNet/8.0.300/win-x64/dotnet.exe");
     let ubt = engine_root.join("Engine/Binaries/DotNET/UnrealBuildTool/UnrealBuildTool.dll");
     let project = stage_root.join("HostProject.uproject");
     let mut commands = Vec::new();
     for seed in seeds {
+        let relative_dir = index.get(seed).expect("resolved plugin seed");
         let plugin = stage_root
             .join("Plugins")
-            .join(seed)
+            .join(relative_dir)
             .join(format!("{seed}.uplugin"));
         for (target, configuration) in [
             ("UnrealEditor", "Development"),
@@ -632,29 +725,16 @@ pub fn plugin(
             "workspace",
         )
     };
-    for plugin in &plugins {
-        if !plugins_root
-            .join(plugin)
-            .join(format!("{plugin}.uplugin"))
-            .is_file()
-        {
-            return Err(UdfError::Other(format!(
-                "找不到插件描述文件：{}",
-                plugins_root
-                    .join(plugin)
-                    .join(format!("{plugin}.uplugin"))
-                    .display()
-            )));
-        }
-    }
+    let index = plugin_index(&plugins_root)?;
+    let seed_plugins = resolve_plugin_seeds(&plugins_root, &plugins, &index)?;
     let id = if mode.executes() {
         execution_id("plugin")
     } else {
         "package-plugin-query".to_string()
     };
     let stage_root = output_dir.join(".udf-stage").join(&id);
-    let closure = plugin_closure(&plugins_root, &plugins)?;
-    let commands = direct_plugin_commands(&engine_root, &stage_root, &plugins);
+    let closure = plugin_closure(&plugins_root, &seed_plugins, &index)?;
+    let commands = direct_plugin_commands(&engine_root, &stage_root, &seed_plugins, &index);
     let log_dir = output_dir.join(".udf-logs").join(&id);
     let package_dirs = plugins
         .iter()
@@ -677,7 +757,7 @@ pub fn plugin(
         return emit_plan("plugin", source, &commands, package_dirs, diagnostics);
     }
     let logs = if mode.executes() {
-        prepare_plugin_stage(&plugins_root, &stage_root, &closure)?;
+        prepare_plugin_stage(&plugins_root, &stage_root, &closure, &index)?;
         let package_dirs = plugins
             .iter()
             .map(|plugin| output_dir.join(plugin))
@@ -967,6 +1047,7 @@ mod tests {
             Path::new("C:/UE"),
             Path::new("C:/stage/package-1"),
             &["AesWorld".to_string()],
+            &BTreeMap::from([("AesWorld".to_string(), PathBuf::from("AesWorld"))]),
         );
 
         assert_eq!(commands.len(), 3);

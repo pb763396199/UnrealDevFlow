@@ -9,6 +9,7 @@ struct Fixture {
     _temp: TempDir,
     config_dir: PathBuf,
     project: PathBuf,
+    plugins: PathBuf,
 }
 
 impl Fixture {
@@ -46,6 +47,7 @@ impl Fixture {
             _temp: temp,
             config_dir,
             project,
+            plugins,
         }
     }
 
@@ -69,6 +71,36 @@ impl Fixture {
         );
         serde_json::from_slice(&output.stdout).expect("json output")
     }
+}
+
+#[test]
+fn plugin_collection_expands_nested_uplugins_without_an_execution() {
+    let fixture = Fixture::new();
+    for relative in [
+        "UnrealMCP/Core/Core.uplugin",
+        "UnrealMCP/Tools/Tools.uplugin",
+    ] {
+        let descriptor = fixture.plugins.join(relative);
+        fs::create_dir_all(descriptor.parent().unwrap()).unwrap();
+        fs::write(descriptor, r#"{"FileVersion":3,"Plugins":[]}"#).unwrap();
+    }
+
+    let planned = fixture.run_json(&[
+        "package",
+        "plan",
+        "plugin",
+        "--workspace",
+        "test",
+        "--plugin",
+        "UnrealMCP",
+    ]);
+
+    assert_eq!(planned["data"]["action"], "plugin");
+    assert_eq!(planned["data"]["steps"].as_array().unwrap().len(), 6);
+    let serialized = serde_json::to_string(&planned).unwrap();
+    assert!(serialized.contains("UnrealMCP\\\\Core\\\\Core.uplugin"));
+    assert!(serialized.contains("UnrealMCP\\\\Tools\\\\Tools.uplugin"));
+    assert!(planned["data"].get("executionId").is_none());
 }
 
 fn toml_path(path: &Path) -> String {
