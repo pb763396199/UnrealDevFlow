@@ -220,37 +220,6 @@ fn resolve_subject(
     }
 }
 
-#[cfg(any())]
-fn format_check_legacy(out: &BuildCheckOutput) -> String {
-    let report = &out.build_policy;
-    let mut lines = vec![
-        format!(
-            "构建策略：{}（{}）",
-            report.status.as_str(),
-            verdict_hint(report.status)
-        ),
-        format!("原因：{}", report.reason),
-        format!("对象：{} {}", out.subject.kind, out.subject.name),
-        format!("项目：{}", out.subject.project_path.display()),
-        format!("引擎：{}", out.subject.engine_root.display()),
-    ];
-    if let Some(target) = &report.target {
-        lines.push(format!("目标：{}", target));
-    }
-    lines.push(format!(
-        "UBT 互斥锁：{}（{}）",
-        report.mutex_name.as_deref().unwrap_or("未解析"),
-        report.mutex_status
-    ));
-    if let Some(command) = &report.validation_command {
-        lines.push(format!("受控命令：{}", command));
-    }
-    for diagnostic in &report.diagnostics {
-        lines.push(format!("提示：{}", diagnostic));
-    }
-    lines.join("\n")
-}
-
 fn format_check(out: &BuildCheckOutput) -> String {
     let mut lines = vec![
         format!(
