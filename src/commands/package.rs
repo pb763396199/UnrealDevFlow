@@ -14,6 +14,25 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+fn plugin_stage_root(execution_id: &str) -> PathBuf {
+    let mut hasher = Md5::new();
+    hasher.update(execution_id.as_bytes());
+    let digest = format!("{:x}", hasher.finalize());
+    std::env::temp_dir().join("UDF").join(&digest[..12])
+}
+
+fn is_managed_cleanup_target(path: &Path) -> bool {
+    if path
+        .components()
+        .any(|part| part.as_os_str() == "UnrealDevFlow")
+    {
+        return true;
+    }
+
+    let temp_stage_root = std::env::temp_dir().join("UDF");
+    path.starts_with(temp_stage_root) && path != std::env::temp_dir().join("UDF")
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PackageMode {
     Run,
@@ -732,7 +751,11 @@ pub fn plugin(
     } else {
         "package-plugin-query".to_string()
     };
-    let stage_root = output_dir.join(".udf-stage").join(&id);
+    // UBT still rejects action paths longer than 260 characters on Windows.
+    // Host/task artifact paths are often already deep, so keep the disposable
+    // build stage in the system temp directory and copy only final artifacts
+    // back into the managed output directory.
+    let stage_root = plugin_stage_root(&id);
     let closure = plugin_closure(&plugins_root, &seed_plugins, &index)?;
     let commands = direct_plugin_commands(&engine_root, &stage_root, &seed_plugins, &index);
     let log_dir = output_dir.join(".udf-logs").join(&id);
@@ -1016,9 +1039,7 @@ pub fn clean(execution_id: Option<String>) -> Result<()> {
     }
     for target in &result.cleanup_targets {
         let resolved = dunce::canonicalize(target).unwrap_or_else(|_| target.clone());
-        let allowed = resolved
-            .components()
-            .any(|part| part.as_os_str() == "UnrealDevFlow");
+        let allowed = is_managed_cleanup_target(&resolved);
         if !allowed {
             return Err(UdfError::Other(format!(
                 "拒绝清理未位于 UnrealDevFlow 制品目录内的路径：{}",
@@ -1056,5 +1077,19 @@ mod tests {
             assert!(argv.contains(&"-NoMutex".to_string()));
             assert!(!argv.contains(&"-WaitMutex".to_string()));
         }
+    }
+
+    #[test]
+    fn plugin_stage_uses_short_managed_temp_root() {
+        let stage = plugin_stage_root("package-plugin-1");
+
+        assert_eq!(
+            stage.parent(),
+            Some(std::env::temp_dir().join("UDF").as_path())
+        );
+        assert_eq!(stage.file_name().unwrap().to_string_lossy().len(), 12);
+        assert!(!stage.to_string_lossy().contains("Artifacts"));
+        assert!(is_managed_cleanup_target(&stage));
+        assert!(!is_managed_cleanup_target(&std::env::temp_dir()));
     }
 }
