@@ -32,7 +32,7 @@ class PackageAcceptance(unittest.TestCase):
 
     def test_build_and_workspace_gain_planned_taxonomy_actions(self) -> None:
         cargo_test(
-            "build_and_workspace_gain_planned_taxonomy_actions",
+            "non_execution_queries_follow_the_shared_vocabulary",
             "cli_taxonomy",
         )
 
