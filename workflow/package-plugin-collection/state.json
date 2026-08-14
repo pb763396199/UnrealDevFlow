@@ -1,0 +1,132 @@
+{
+  "artifacts": [
+    {
+      "artifact_id": "ar_01KZZHWBYPVS1PASP4NYKEXY1G",
+      "depends_on": [
+        "ar_01KZZHM5HM5Y977WQG2K5MMY7X",
+        "ar_01KZZHM55XBV2MGP3K5X3FQQQY",
+        "ar_01KZZHM5AKNNYMJPM4QZB00EMR"
+      ],
+      "freshness": "fresh",
+      "outcome": "delivered",
+      "path": "delivery.md",
+      "stage": 80,
+      "type": "delivery"
+    },
+    {
+      "artifact_id": "ar_01KZZ8HKF8BM9SEN2S6VEJ7KP3",
+      "depends_on": [],
+      "freshness": "fresh",
+      "outcome": "accepted",
+      "path": "design.md",
+      "stage": 20,
+      "type": "design"
+    },
+    {
+      "artifact_id": "ar_01KZZHM51RTCWJ7ZZ6HZNT8D7K",
+      "depends_on": [
+        "ar_01KZZ8HKKWZC79ZE6B0EYN61K9"
+      ],
+      "freshness": "fresh",
+      "outcome": "complete",
+      "path": "implementation.md",
+      "stage": 50,
+      "type": "implementation"
+    },
+    {
+      "artifact_id": "ar_01KZZHM5AKNNYMJPM4QZB00EMR",
+      "depends_on": [
+        "ar_01KZZHM55XBV2MGP3K5X3FQQQY"
+      ],
+      "freshness": "fresh",
+      "outcome": "passed",
+      "path": "manual-test.md",
+      "stage": 70,
+      "type": "manual-test"
+    },
+    {
+      "artifact_id": "ar_01KZZ8HKKWZC79ZE6B0EYN61K9",
+      "depends_on": [
+        "ar_01KZZ8HKF8BM9SEN2S6VEJ7KP3"
+      ],
+      "freshness": "fresh",
+      "outcome": "ready",
+      "path": "plan.md",
+      "stage": 30,
+      "type": "plan"
+    },
+    {
+      "artifact_id": "ar_01KZZHM5HM5Y977WQG2K5MMY7X",
+      "depends_on": [
+        "ar_01KZZHM51RTCWJ7ZZ6HZNT8D7K"
+      ],
+      "freshness": "fresh",
+      "outcome": "approved",
+      "path": "reviews/code-review.md",
+      "stage": 60,
+      "type": "review"
+    },
+    {
+      "artifact_id": "ar_01KZZHM55XBV2MGP3K5X3FQQQY",
+      "depends_on": [
+        "ar_01KZZHM51RTCWJ7ZZ6HZNT8D7K"
+      ],
+      "freshness": "fresh",
+      "outcome": "passed",
+      "path": "validation.md",
+      "stage": 70,
+      "type": "validation"
+    }
+  ],
+  "computed_from": {
+    "change_set": {
+      "content_digest": "sha256:b74370087a12fdc4a314956d1ebc01bc1a58b37cab97d9eeb18dca653f4f3e6a",
+      "revision": "4cc5030a285b85dc058c1b42ba10a3cb5bca8da7",
+      "tree": "70aa4adf1b80324a4463516d7d7525efb5fd9ac9"
+    },
+    "documents": {
+      "delivery.md": "sha256:eb0090d0340e2c837c66f0b0ad91f19fa5c1357ff49db7f437cf3ed4f0ae8122",
+      "design.md": "sha256:793dc4f606f3a304d1fb8aaeb165efb327ff9ae887b27f3740ec49a555e0edb0",
+      "implementation.md": "sha256:94b2e5321f83a16abcee78964c9067e0febda7c7905ef75a0f8647ec7930953f",
+      "manual-test.md": "sha256:9491f6990db0013ec35dd8e14b889cfa2219d98019d3e89e36b9f2c909fe1a10",
+      "plan.md": "sha256:205db059e40e828470a35bd3f996d90e96663a6d1dfd9c13c2eeaa512055b38b",
+      "reviews/code-review.md": "sha256:b9ba6ed6c74dccb991f804081c1fb7b024e82d3f2763e6c5c473f58c34b57cf6",
+      "validation.md": "sha256:94dbe8dd0c61bf2d4256ccf5d6c59c0cf4eb25a524c5ece3f24451f3830a50a7",
+      "work-item.md": "sha256:24e7ace8499c5075ca15a42eaacb487df6a65f1f194ba59cdec181a790c5b807"
+    }
+  },
+  "generated_at": "2026-08-14T07:13:36.523578Z",
+  "generated_by": {
+    "tool_revision": "sha256:49565cd5fb56"
+  },
+  "manual_test": {
+    "failed": 0,
+    "open": 0,
+    "passed": 0
+  },
+  "next": "已收口",
+  "protocol": "1.3.0",
+  "schema_version": 1,
+  "stage": {
+    "next_skill": "aes-retrospect",
+    "reached": "delivery",
+    "reached_stage": 80,
+    "waiting_on": null
+  },
+  "work_item": {
+    "acceptance_ids": [
+      "AC-001",
+      "AC-002",
+      "AC-003"
+    ],
+    "branch": "fix/package-plugin-collection",
+    "contract_digest": "sha256:dc9921869990a1b73089b132507e40c0d18751a799265e8f3a0a9b327aead7ab",
+    "home_repository": "https://github.com/pb763396199/UnrealDevFlow.git",
+    "id": "wi_01KZZ8HKAQ08JBV7YZ9NG6SF35",
+    "kind": "fix",
+    "short_id": "bt0cwcve",
+    "slug": "package-plugin-collection",
+    "status": "done",
+    "title": "支持打包 Host 中的插件集合目录"
+  }
+}
