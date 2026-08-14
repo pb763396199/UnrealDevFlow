@@ -1,14 +1,14 @@
 {
   "artifacts": [
     {
-      "artifact_id": "ar_01KZZ5FBY8MFV49DH743XGV8RK",
+      "artifact_id": "ar_01KZZ5VMZGCENEECD84VGSQXS1",
       "depends_on": [
         "ar_01KZZ4ZMP8FP236HJH40TA1M61",
         "ar_01KZZ4ZMT5FVCBS2WQCD347690",
         "ar_01KZZ4ZMXA6G4QNMY6THDCDB06"
       ],
       "freshness": "fresh",
-      "outcome": "ready_to_land",
+      "outcome": "delivered",
       "path": "delivery.md",
       "stage": 80,
       "type": "delivery"
@@ -93,11 +93,11 @@
   "computed_from": {
     "change_set": {
       "content_digest": "sha256:06c8256ad6b1e4f25ca682c86630cebe1a1f3184ff61409a7d6087f5f04c6a38",
-      "revision": "7765b7bebb54b28e04d49d177b854cb2c44878d3",
-      "tree": "2cb4f276017f1bfe2de7777d1c5e3501491dfd38"
+      "revision": "577053b8e22796f09b619dce4e04a16bce96ed23",
+      "tree": "d84c9b93a4b2384c8a333ace72971fa3274a462d"
     },
     "documents": {
-      "delivery.md": "sha256:8b2faaae438946052262726f15f2f2292850edc5f0765b03d451abdd1afd2891",
+      "delivery.md": "sha256:55beede1f806851d73be0f725cfb0d88df2d34f2d59066edc0292ef90a9253bc",
       "design.md": "sha256:1a6eac70db6f3ede35d1287ce559c4616c81a2b94036adc7c941e7d76d7e77c4",
       "implementation.md": "sha256:37c3191ab70c0d32346a4f5f04d1154961252ba74fe87ca3508aca89cd823321",
       "manual-test.md": "sha256:c8a41c4fb1c1e03724ea24dbb103325a75b798d5b6074dd586736042759d3d73",
@@ -105,10 +105,10 @@
       "retrospective.md": "sha256:b787f5e2d7391d0758734fa3dd08e2313973879ee3c067661daab39c8964fbbf",
       "reviews/code-review.md": "sha256:a63e788d011fe8f2a942e8633cb8bbdc1ed36ddbb04b55cda361059f0f17eb8e",
       "validation.md": "sha256:03ad409a3756d1564c0b33e81ba02a21d3e7b8eb5a4b8d4dffc64602c1017fa1",
-      "work-item.md": "sha256:5b7e889d670290045ee9cc4b0e5f3233d604956f60a3dfbc1b5ccae1b84bdad6"
+      "work-item.md": "sha256:c3b6cbdbc362e3ad4a2c6b06c6c820f0d70b5dc20cab0c0512261e3baf6787c4"
     }
   },
-  "generated_at": "2026-08-14T03:42:25.782460Z",
+  "generated_at": "2026-08-14T03:43:40.522318Z",
   "generated_by": {
     "tool_revision": "sha256:49565cd5fb56"
   },
@@ -117,7 +117,7 @@
     "open": 0,
     "passed": 0
   },
-  "next": "落地后用 aes-finish 收口，这时才把任务记录一次性提交",
+  "next": "已收口",
   "protocol": "1.3.0",
   "schema_version": 1,
   "stage": {
@@ -141,7 +141,7 @@
     "kind": "refactor",
     "short_id": "bdph4ehb",
     "slug": "unify-execution-query-semantics",
-    "status": "in_review",
+    "status": "done",
     "title": "统一 CLI 检查、计划和状态命令的职责"
   }
 }

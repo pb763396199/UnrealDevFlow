@@ -2,13 +2,13 @@
 schema_version: 1
 protocol: 1.3.0
 artifact: delivery
-artifact_id: ar_01KZZ5FBY8MFV49DH743XGV8RK
+artifact_id: ar_01KZZ5VMZGCENEECD84VGSQXS1
 work_item_id: wi_01KZZ3WP75XMDZYJ25DBT1DF9R
-created_at: 2026-08-14T03:36:30Z
+created_at: 2026-08-14T03:43:09Z
 producer: aes-finish
-outcome: ready_to_land
-supersedes: null
-landing_revision: 7765b7bebb54b28e04d49d177b854cb2c44878d3
+outcome: delivered
+supersedes: ar_01KZZ5FBY8MFV49DH743XGV8RK
+landing_revision: 577053b8e22796f09b619dce4e04a16bce96ed23
 landing_branch: dev
 dependencies:
   work_item_contract_digest: sha256:eaca9f43850bcae5352d32568c68ea2d6aa58a0fea1f8a1d180814ec0701177e
@@ -34,7 +34,7 @@ dependencies:
     workflow_excluded: true
 ---
 
-# 交付准备
+# 交付完成
 
 ## 要落地的内容
 
@@ -55,4 +55,4 @@ dependencies:
 
 ## 落地判断
 
-变更集、评审、验收和全局安装证据一致，可以快进落地到 dev。
+变更集已等价快进落地到 dev，落地版本为 `577053b8e22796f09b619dce4e04a16bce96ed23`。

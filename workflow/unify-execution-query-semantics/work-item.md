@@ -4,7 +4,7 @@ protocol: 1.3.0
 id: wi_01KZZ3WP75XMDZYJ25DBT1DF9R
 short_id: bdph4ehb
 title: 统一 CLI 检查、计划和状态命令的职责
-status: in_review
+status: done
 kind: refactor
 created_at: 2026-08-14T03:08:46Z
 created_by: Codex
