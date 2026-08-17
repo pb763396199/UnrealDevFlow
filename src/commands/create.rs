@@ -717,7 +717,7 @@ fn prepare_primary_plans(
                     name, current_branch, CREATE_BASE_BRANCH
                 )));
             }
-            let status = git::status_porcelain(&source_repo)?;
+            let status = git::status_porcelain_tracked(&source_repo)?;
             if !status.is_empty() {
                 return Err(UdfError::Other(format!(
                     "主插件 '{}' 的主仓工作区不干净，不能创建任务：\n{}",

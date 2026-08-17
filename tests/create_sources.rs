@@ -205,6 +205,107 @@ fn setup_main_plugin_repo(root: &Path) -> PathBuf {
 }
 
 #[test]
+fn create_allows_untracked_files_in_primary_source_without_copying_them() {
+    let temp = TempDir::new().expect("temp dir");
+    let root = temp.path();
+    let config_dir = root.join("config");
+    let main_repo = setup_main_plugin_repo(root);
+    let temporary_file = main_repo.join("workflow").join("session.md");
+    fs::create_dir_all(temporary_file.parent().expect("temporary parent"))
+        .expect("temporary directory");
+    fs::write(&temporary_file, "local-only\n").expect("temporary file");
+    let source_status_before = git_stdout(&main_repo, &["status", "--porcelain"]);
+    let project = root.join("UGA").join("DEV");
+    let plugins_root = main_repo.parent().expect("plugins root");
+    write_workspace_config(&config_dir, root, &project, plugins_root);
+
+    Command::cargo_bin("udf")
+        .expect("binary")
+        .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
+        .args([
+            "task",
+            "create",
+            "untracked source",
+            "--workspace",
+            "bad",
+            "--id",
+            "untracked-source",
+            "--primary",
+            "AesWorld",
+            "--yes",
+        ])
+        .assert()
+        .success();
+
+    let worktree = root
+        .join("Hosts")
+        .join("W-bad")
+        .join("T-untracked-source_Host")
+        .join("Plugins")
+        .join("AesWorld");
+    assert!(!worktree.join("workflow").exists());
+    assert_eq!(
+        git_stdout(&main_repo, &["status", "--porcelain"]),
+        source_status_before
+    );
+    assert!(temporary_file.exists());
+
+    Command::cargo_bin("udf")
+        .expect("binary")
+        .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
+        .args(["task", "delete", "bad/untracked-source", "--yes", "--force"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn create_still_rejects_tracked_changes_when_untracked_files_are_present() {
+    let temp = TempDir::new().expect("temp dir");
+    let root = temp.path();
+    let config_dir = root.join("config");
+    let main_repo = setup_main_plugin_repo(root);
+    fs::write(main_repo.join("AesWorld.uplugin"), "tracked change\n").expect("tracked change");
+    git(&main_repo, &["add", "AesWorld.uplugin"]);
+    fs::write(main_repo.join("editor-temp.txt"), "local-only\n").expect("temporary file");
+    let source_status_before = git_stdout(&main_repo, &["status", "--porcelain"]);
+    let project = root.join("UGA").join("DEV");
+    let plugins_root = main_repo.parent().expect("plugins root");
+    write_workspace_config(&config_dir, root, &project, plugins_root);
+
+    Command::cargo_bin("udf")
+        .expect("binary")
+        .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
+        .args([
+            "task",
+            "create",
+            "tracked source",
+            "--workspace",
+            "bad",
+            "--id",
+            "tracked-source",
+            "--primary",
+            "AesWorld",
+            "--yes",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("工作区不干净"))
+        .stderr(predicate::str::contains("AesWorld.uplugin"));
+
+    assert_eq!(
+        git_stdout(&main_repo, &["status", "--porcelain"]),
+        source_status_before
+    );
+    assert!(
+        !root
+            .join("Hosts")
+            .join("W-bad")
+            .join("T-tracked-source_Host")
+            .exists()
+    );
+}
+
+#[test]
 fn create_rejects_primary_source_that_resolves_to_linked_worktree() {
     let temp = TempDir::new().expect("temp dir");
     let root = temp.path();

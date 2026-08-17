@@ -181,6 +181,18 @@ pub fn status_porcelain(repo_path: &Path) -> Result<String> {
     git_stdout(repo_path, &["status", "--porcelain"])
 }
 
+/// Return only tracked/index/conflict changes, excluding untracked files.
+///
+/// Task creation uses this boundary because untracked files are not part of
+/// the commit from which a new worktree is created, and moving them would
+/// introduce destructive stash/restore behavior.
+pub fn status_porcelain_tracked(repo_path: &Path) -> Result<String> {
+    git_stdout(
+        repo_path,
+        &["status", "--porcelain=v1", "--untracked-files=no"],
+    )
+}
+
 pub fn branch_exists(repo_path: &Path, branch: &str) -> Result<bool> {
     git_success(
         repo_path,
