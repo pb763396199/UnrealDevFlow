@@ -397,6 +397,16 @@ fn merge_single_plugin(
         }
     }
 
+    if matches!(strategy, &crate::cli::MergeStrategy::Rebase) {
+        let target_status = git::status_porcelain_tracked(&source_repo)?;
+        if !target_status.is_empty() {
+            return Err(UdfError::Other(format!(
+                "Cannot rebase task branch '{}': target worktree is not clean.\n{}",
+                primary.branch, target_status
+            )));
+        }
+    }
+
     // === Fetch latest from origin before merge ===
     if let Err(e) = git::fetch_origin(&source_repo) {
         output::print_warning(&format!("Failed to fetch from origin: {}", e));
