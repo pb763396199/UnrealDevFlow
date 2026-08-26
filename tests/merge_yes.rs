@@ -1023,6 +1023,104 @@ fn rebase_merge_restores_target_tip_after_replay_conflict() {
 }
 
 #[test]
+fn rebase_refuses_dirty_target_before_upstream_fast_forward() {
+    let temp = TempDir::new().expect("temp dir");
+    let root = temp.path();
+    let config_dir = root.join("config");
+    let hosts_root = root.join("Hosts");
+    let plugins_root = root.join("Plugins");
+    let source_repo = plugins_root.join("AesWorld");
+    let remote_repo = root.join("origin.git");
+    let host_dir = hosts_root.join("W-test").join("T-dirty-target_Host");
+    let worktree = host_dir.join("Plugins").join("AesWorld");
+    fs::create_dir_all(&config_dir).expect("config dir");
+    fs::create_dir_all(host_dir.join("Plugins")).expect("host plugin dir");
+    fs::create_dir_all(&remote_repo).expect("remote repo dir");
+
+    let based_on = setup_repo_with_base(&source_repo);
+    git(
+        &source_repo,
+        &[
+            "worktree",
+            "add",
+            "-b",
+            "task-dirty-target",
+            worktree.to_str().expect("worktree path"),
+            &based_on,
+        ],
+    );
+    fs::write(worktree.join("task.txt"), "task\n").expect("task file");
+    git(&worktree, &["add", "task.txt"]);
+    git(&worktree, &["commit", "-m", "task commit"]);
+
+    git(&remote_repo, &["init", "--bare"]);
+    git(
+        &source_repo,
+        &[
+            "remote",
+            "add",
+            "origin",
+            remote_repo.to_str().expect("remote path"),
+        ],
+    );
+    git(&source_repo, &["push", "-u", "origin", "dev"]);
+
+    fs::write(source_repo.join("upstream.txt"), "upstream\n").expect("upstream file");
+    git(&source_repo, &["add", "upstream.txt"]);
+    git(&source_repo, &["commit", "-m", "upstream target commit"]);
+    git(&source_repo, &["push", "origin", "dev"]);
+    git(&source_repo, &["reset", "--hard", &based_on]);
+
+    fs::write(source_repo.join("base.txt"), "local dirty\n").expect("dirty target");
+    assert_eq!(
+        git_stdout(&source_repo, &["status", "--porcelain"]),
+        "M base.txt",
+        "前提：目标仓库只有已跟踪未提交改动"
+    );
+
+    write_test_config(root, &config_dir, &hosts_root, &plugins_root);
+    write_test_meta(
+        &host_dir,
+        TestContext {
+            root,
+            hosts_root: &hosts_root,
+            plugins_root: &plugins_root,
+        },
+        &source_repo,
+        "dirty-target",
+        "task-dirty-target",
+        &based_on,
+    );
+
+    Command::cargo_bin("udf")
+        .expect("binary")
+        .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
+        .args([
+            "task",
+            "merge",
+            "test/dirty-target",
+            "--plugin",
+            "AesWorld",
+            "--strategy",
+            "rebase",
+            "--yes",
+        ])
+        .assert()
+        .failure();
+
+    assert_eq!(
+        git_stdout(&source_repo, &["rev-parse", "dev"]),
+        based_on,
+        "拒绝 rebase 时目标分支不能先被 upstream 快进"
+    );
+    assert_eq!(
+        git_stdout(&source_repo, &["status", "--porcelain"]),
+        "M base.txt",
+        "拒绝 rebase 时目标工作树和 index 必须保持原样"
+    );
+    assert!(!source_repo.join("upstream.txt").exists());
+}
+#[test]
 fn cleanup_finds_an_orphan_branch_whose_name_says_nothing_about_the_task() {
     let temp = TempDir::new().expect("temp dir");
     let root = temp.path();

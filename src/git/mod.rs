@@ -181,6 +181,14 @@ pub fn status_porcelain(repo_path: &Path) -> Result<String> {
     git_stdout(repo_path, &["status", "--porcelain"])
 }
 
+/// Return tracked, index and conflict changes while excluding untracked files.
+pub fn status_porcelain_tracked(repo_path: &Path) -> Result<String> {
+    git_stdout(
+        repo_path,
+        &["status", "--porcelain=v1", "--untracked-files=no"],
+    )
+}
+
 pub fn branch_exists(repo_path: &Path, branch: &str) -> Result<bool> {
     git_success(
         repo_path,
