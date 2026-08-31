@@ -69,6 +69,17 @@ fn package_contains_configure() {
 }
 
 #[test]
+fn package_contains_recover() {
+    let parsed = Cli::parse_from(["udf", "package", "recover", "package-project-test"]);
+    assert!(matches!(
+        parsed.command,
+        Commands::Package {
+            action: PackageAction::Recover { .. }
+        }
+    ));
+}
+
+#[test]
 fn legacy_query_invocations_have_explicit_compatibility() {
     let parsed = Cli::parse_from(["udf", "package", "plugin", "AesWorld", "--task", "neon/fix"]);
     assert!(matches!(

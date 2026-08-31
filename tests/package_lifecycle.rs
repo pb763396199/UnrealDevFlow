@@ -360,6 +360,25 @@ fn failed_package_persists_execution_id_and_logs_for_status() {
 }
 
 #[test]
+fn recover_refuses_without_a_verified_delivery_journal() {
+    let fixture = Fixture::new();
+    let output = fixture
+        .command()
+        .args([
+            "--format",
+            "json",
+            "package",
+            "recover",
+            "package-project-missing",
+        ])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let response: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(response["error"].as_str().unwrap().contains("执行记录"));
+}
+
+#[test]
 fn package_check_blocks_when_unreal_tools_are_missing() {
     let fixture = Fixture::new();
     let checked = fixture.run_json(&["package", "check", "project", "--workspace", "test"]);

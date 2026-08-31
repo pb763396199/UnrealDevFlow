@@ -301,6 +301,12 @@ pub enum PackageAction {
         #[arg(long)]
         reason: Option<String>,
     },
+
+    /// 恢复一次未完成的交付事务，不重新打包。
+    Recover {
+        /// 已记录的 package execution ID。
+        execution_id: String,
+    },
     /// 对解析出的 UE 项目生成可运行项目包
     Project {
         /// workspace 名。不提供时只在唯一候选存在时自动选择。

@@ -119,6 +119,7 @@ fn command_name(command: &Commands) -> &'static str {
             cli::BuildAction::Status { .. } => "build status",
         },
         Commands::Package { action } => match action {
+            cli::PackageAction::Recover { .. } => "package recover",
             cli::PackageAction::Configure { .. } => "package configure",
             cli::PackageAction::Project { .. } => "package project",
             cli::PackageAction::Plugin { .. } => "package plugin",
@@ -335,6 +336,9 @@ fn run(cli: Cli) -> Result<()> {
                 file,
                 reason,
             )?,
+            cli::PackageAction::Recover { execution_id } => {
+                commands::package::recover(execution_id)?
+            }
             cli::PackageAction::Project { workspace, task } => {
                 commands::package::project(workspace, task, commands::package::PackageMode::Run)?
             }

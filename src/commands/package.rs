@@ -1209,6 +1209,32 @@ pub fn clean(execution_id: Option<String>) -> Result<()> {
     Ok(())
 }
 
+pub fn recover(execution_id: String) -> Result<()> {
+    let result = load_result(Some(&execution_id))?;
+    let journal_path = result
+        .outputs
+        .iter()
+        .map(|output| output.join(".udf-delivery-journal.json"))
+        .find(|path| path.is_file())
+        .ok_or_else(|| {
+            UdfError::Other(format!(
+                "执行 '{}' 没有可验证的交付事务日志，拒绝猜测并修改输出目录",
+                result.execution_id
+            ))
+        })?;
+    let journal_text = fs::read_to_string(&journal_path)?;
+    let journal: serde_json::Value = serde_json::from_str(&journal_text)?;
+    if journal["executionId"] != result.execution_id || journal["state"] != "delivering" {
+        return Err(UdfError::Other(format!(
+            "交付事务日志不匹配或已不是 delivering：{}",
+            journal_path.display()
+        )));
+    }
+    Err(UdfError::Other(
+        "交付事务缺少完整恢复清单，拒绝执行回退；请保留当前目录并人工核对".into(),
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
