@@ -352,7 +352,7 @@ fn collect_manifest_entries(
     Ok(())
 }
 
-fn write_manifest(root: &Path) -> Result<PathBuf> {
+fn write_manifest(root: &Path, reported_root: &Path) -> Result<PathBuf> {
     let mut files = Vec::new();
     collect_manifest_entries(root, root, &mut files)?;
     files.sort_by(|left, right| left.path.cmp(&right.path));
@@ -362,7 +362,7 @@ fn write_manifest(root: &Path) -> Result<PathBuf> {
         serde_json::to_vec_pretty(&serde_json::json!({
             "schemaVersion": 1,
             "generatedAt": Utc::now().to_rfc3339(),
-            "root": root,
+            "root": reported_root,
             "files": files,
         }))?,
     )?;
@@ -1040,6 +1040,7 @@ pub fn project(workspace: Option<String>, task: Option<String>, mode: PackageMod
     };
     let manifests = if mode.executes() {
         if profile_output {
+            write_manifest(&execution_archive_dir, &archive_dir)?;
             publish_directory(&execution_archive_dir, &archive_dir, &id, &log_dir).map_err(
                 |error| {
                     let mut failed = PackageResult {
@@ -1063,7 +1064,11 @@ pub fn project(workspace: Option<String>, task: Option<String>, mode: PackageMod
                 },
             )?;
         }
-        vec![write_manifest(&archive_dir)?]
+        if profile_output {
+            vec![archive_dir.join(".udf-manifest.json")]
+        } else {
+            vec![write_manifest(&archive_dir, &archive_dir)?]
+        }
     } else {
         Vec::new()
     };
@@ -1200,7 +1205,7 @@ pub fn plugin(
     let manifests = if mode.executes() {
         plugins
             .iter()
-            .map(|plugin| write_manifest(&output_dir.join(plugin)))
+            .map(|plugin| write_manifest(&output_dir.join(plugin), &output_dir.join(plugin)))
             .collect::<Result<Vec<_>>>()?
     } else {
         Vec::new()
@@ -1284,7 +1289,7 @@ pub fn engine(workspace: Option<String>, mode: PackageMode) -> Result<()> {
         Vec::new()
     };
     let manifests = if mode.executes() {
-        vec![write_manifest(&output_dir)?]
+        vec![write_manifest(&output_dir, &output_dir)?]
     } else {
         Vec::new()
     };
