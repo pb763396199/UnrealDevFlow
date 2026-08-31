@@ -550,6 +550,14 @@ fn copy_tree(source: &Path, destination: &Path, include_source: bool) -> Result<
         }
         let source_path = entry.path();
         let destination_path = destination.join(&name);
+        if crate::junction::exists(&source_path).unwrap_or(false) {
+            let target = crate::junction::get_target(&source_path)?;
+            if let Some(parent) = destination_path.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            crate::junction::create(&target, &destination_path)?;
+            continue;
+        }
         if entry.file_type()?.is_dir() {
             copy_tree(&source_path, &destination_path, include_source)?;
         } else if entry.file_type()?.is_file() {
@@ -560,6 +568,54 @@ fn copy_tree(source: &Path, destination: &Path, include_source: bool) -> Result<
         }
     }
     Ok(())
+}
+
+fn prepare_project_stage(
+    project: &Path,
+    stage_root: &Path,
+    disabled_plugins: &[String],
+    plugin_overlays: &[(String, PathBuf)],
+) -> Result<PathBuf> {
+    if stage_root.exists() {
+        fs::remove_dir_all(stage_root)?;
+    }
+    let source_root = project
+        .parent()
+        .ok_or_else(|| UdfError::Other(format!("项目路径没有父目录：{}", project.display())))?;
+    copy_tree(source_root, stage_root, true)?;
+    let staged_project = stage_root.join(
+        project
+            .file_name()
+            .ok_or_else(|| UdfError::Other("项目文件名为空".into()))?,
+    );
+    let mut descriptor: serde_json::Value = serde_json::from_slice(&fs::read(&staged_project)?)?;
+    if let Some(plugins) = descriptor
+        .get_mut("Plugins")
+        .and_then(serde_json::Value::as_array_mut)
+    {
+        for plugin in plugins {
+            let Some(name) = plugin.get("Name").and_then(serde_json::Value::as_str) else {
+                continue;
+            };
+            if disabled_plugins
+                .iter()
+                .any(|disabled| disabled.eq_ignore_ascii_case(name))
+            {
+                plugin["Enabled"] = serde_json::Value::Bool(false);
+            }
+        }
+    }
+    fs::write(&staged_project, serde_json::to_vec_pretty(&descriptor)?)?;
+    for (name, source) in plugin_overlays {
+        let destination = stage_root.join("Plugins").join(name);
+        if crate::junction::exists(&destination).unwrap_or(false) {
+            crate::junction::delete(&destination)?;
+        } else if destination.exists() {
+            fs::remove_dir_all(&destination)?;
+        }
+        copy_tree(source, &destination, true)?;
+    }
+    Ok(staged_project)
 }
 
 fn prepare_plugin_stage(
@@ -689,6 +745,29 @@ pub fn project(workspace: Option<String>, task: Option<String>, mode: PackageMod
             package_profile::Container::Iostore => PackageContainer::Iostore,
         })
         .unwrap_or(PackageContainer::Pak);
+    let execution_id = execution_id("project");
+    let staged_project = if mode.executes() {
+        if let (Some(profile), Some(task_ref)) = (saved_profile.as_ref(), requested_task.as_deref())
+        {
+            let (host_dir, meta, _) = crate::host::resolve_task(&config, task_ref)?;
+            let overlays = meta
+                .primary_plugins
+                .iter()
+                .map(|plugin| (plugin.name.clone(), host_dir.join(&plugin.worktree)))
+                .collect::<Vec<_>>();
+            Some(prepare_project_stage(
+                &project,
+                &std::env::temp_dir().join("UDF").join(&execution_id),
+                &profile.disabled_plugins,
+                &overlays,
+            )?)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    let project = staged_project.unwrap_or(project);
     let commands = project_package_commands(&ProjectPackageOptions {
         engine_root: engine_root.clone(),
         project: project.clone(),
@@ -716,7 +795,7 @@ pub fn project(workspace: Option<String>, task: Option<String>, mode: PackageMod
         let (_, diagnostics) = check_package_commands(&commands, None);
         return emit_plan("project", source, &commands, vec![archive_dir], diagnostics);
     }
-    let id = execution_id("project");
+    let id = execution_id;
     let log_dir = project_root.join("Saved").join("UnrealDevFlow").join(&id);
     let logs = if mode.executes() {
         run_package_commands(
@@ -1142,5 +1221,31 @@ mod tests {
         assert!(!stage.to_string_lossy().contains("Artifacts"));
         assert!(is_managed_cleanup_target(&stage));
         assert!(!is_managed_cleanup_target(&std::env::temp_dir()));
+    }
+
+    #[test]
+    fn project_stage_disables_plugins_without_mutating_source() {
+        let root = tempfile::tempdir().unwrap();
+        let source = root.path().join("SourceProject");
+        let stage = root.path().join("Stage");
+        fs::create_dir_all(source.join("Plugins/AesWorld")).unwrap();
+        fs::write(
+            source.join("Game.uproject"),
+            br#"{"FileVersion":3,"Plugins":[{"Name":"ModelContextProtocol","Enabled":true},{"Name":"AesWorld","Enabled":true}]}"#,
+        ).unwrap();
+        fs::write(source.join("Plugins/AesWorld/AesWorld.uplugin"), b"{} ").unwrap();
+        let original = fs::read(source.join("Game.uproject")).unwrap();
+        let staged = prepare_project_stage(
+            &source.join("Game.uproject"),
+            &stage,
+            &["ModelContextProtocol".to_string()],
+            &[],
+        )
+        .unwrap();
+        let descriptor: serde_json::Value =
+            serde_json::from_slice(&fs::read(staged).unwrap()).unwrap();
+        assert_eq!(descriptor["Plugins"][0]["Enabled"], false);
+        assert_eq!(descriptor["Plugins"][1]["Enabled"], true);
+        assert_eq!(fs::read(source.join("Game.uproject")).unwrap(), original);
     }
 }
