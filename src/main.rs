@@ -326,7 +326,7 @@ fn run(cli: Cli) -> Result<()> {
                 disable_plugin,
                 file,
                 reason,
-            } => commands::package_profile::configure(
+            } => commands::package_profile::configure(crate::package_profile::ConfigureOptions {
                 workspace,
                 task,
                 configuration,
@@ -335,7 +335,7 @@ fn run(cli: Cli) -> Result<()> {
                 disable_plugin,
                 file,
                 reason,
-            )?,
+            })?,
             cli::PackageAction::Recover { execution_id } => {
                 commands::package::recover(execution_id)?
             }

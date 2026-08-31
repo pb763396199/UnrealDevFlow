@@ -187,3 +187,50 @@ fn package_plan_exposes_the_saved_profile_without_a_second_show_command() {
     );
     assert!(text.contains("Development"), "{text}");
 }
+
+#[test]
+fn configure_writes_nested_profile_and_rejects_direct_edits() {
+    let fixture = Fixture::new();
+    let configured = fixture
+        .command()
+        .args([
+            "package",
+            "configure",
+            "--workspace",
+            "test",
+            "--configuration",
+            "Shipping",
+            "--reason",
+            "固定 Shipping 配方",
+        ])
+        .output()
+        .unwrap();
+    assert!(configured.status.success());
+    let profile = fixture
+        .config_dir
+        .join("package/profiles/workspace_test.toml");
+    let text = fs::read_to_string(&profile).unwrap();
+    assert!(text.contains("[build]"), "{text}");
+    assert!(text.contains("configuration = \"Shipping\""), "{text}");
+
+    fs::write(
+        &profile,
+        text.replace(
+            "configuration = \"Shipping\"",
+            "configuration = \"Development\"",
+        ),
+    )
+    .unwrap();
+    let plan = fixture
+        .command()
+        .args(["package", "plan", "project", "--workspace", "test"])
+        .output()
+        .unwrap();
+    assert!(!plan.status.success());
+    let diagnostics = format!(
+        "{}{}",
+        String::from_utf8_lossy(&plan.stdout),
+        String::from_utf8_lossy(&plan.stderr)
+    );
+    assert!(diagnostics.contains("直接修改"), "{diagnostics}");
+}

@@ -254,6 +254,7 @@ udf task finish neon-dev/prefab-save-bug
 | | `build engine` | 从源码构建 Unreal Engine；安装版引擎只能先查看计划 |
 | | `build plan` | 展示启动后会执行的步骤、参数和输出位置；不执行、不生成执行记录 |
 | package | `package project` | 对 workspace 主项目或任务 Host 执行 BuildCookRun，生成可运行项目包 |
+| | `package configure` | 首次保存或更新 task 的固定项目打包配置 |
 | | `package plugin` | 按插件依赖闭包暂存并构建可分发插件包 |
 | | `package engine` | 通过 BuildGraph 生成 Installed Build |
 | | `package check` | 只回答现在能不能启动打包；不执行、不生成执行记录 |
@@ -261,11 +262,25 @@ udf task finish neon-dev/prefab-save-bug
 | | `package run` | 执行 workspace 的默认项目发布流程 |
 | | `package status` | 按 execution ID 查看真实执行；省略时查看最近一次真实 package 执行 |
 | | `package clean` | 仅清理由 package 记账且位于 `UnrealDevFlow` 制品目录内的输出 |
+| | `package recover` | 只恢复有完整事务日志的未完成交付，不重新 Cook |
 | skill | `skill install/list/remove` | 管理装到四个 AI provider 的 skill |
 
 ## Package 使用
 
 `package` 接受 workspace 或 task 作为源码来源；来源不同不会改变同名二级命令的含义、输出结构或生命周期。
+
+项目首次需要打包时，先保存配置。之后 `project`、`plan` 和 `check` 使用同一份配置，不再临时拼接
+Shipping 或 Cook 参数。MCP 等不能参与打包的插件可以显式加入禁用列表。
+
+~~~powershell
+udf package configure --task neon-dev/my-task --configuration Shipping --container pak --output "D:/Packages/my-task" --disable-plugin ModelContextProtocol --reason "验证 Shipping 包"
+udf package plan project --task neon-dev/my-task
+udf package project --task neon-dev/my-task
+~~~
+
+高级地图、数据映射和既有文件接管使用 `package configure --file <候选.toml> --reason <原因>`。
+候选文件中的 `disabled_plugins = []` 才表示清空禁用列表，省略 `--disable-plugin` 表示保持原列表。
+交付中断时使用 `package recover <execution-id>`；没有完整事务日志时工具会拒绝修改输出目录。
 
 ```powershell
 # check 只返回 readiness，不生成 execution ID

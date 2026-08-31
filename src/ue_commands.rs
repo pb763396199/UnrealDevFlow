@@ -46,6 +46,7 @@ pub enum Configuration {
 }
 
 impl Configuration {
+    #[allow(dead_code)]
     pub fn parse(value: &str) -> Self {
         match value.to_ascii_lowercase().as_str() {
             "development" => Self::Development,

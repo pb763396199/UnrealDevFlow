@@ -158,6 +158,177 @@ struct ManifestEntry {
     bytes: u64,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DeliveryEntry {
+    relative: PathBuf,
+    existed: bool,
+    backup: Option<PathBuf>,
+    old_digest: Option<String>,
+    new_digest: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DeliveryJournal {
+    schema_version: u32,
+    execution_id: String,
+    state: String,
+    output: PathBuf,
+    backup_root: PathBuf,
+    entries: Vec<DeliveryEntry>,
+}
+
+struct DeliveryLock(PathBuf);
+
+impl Drop for DeliveryLock {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir(&self.0);
+    }
+}
+
+fn acquire_delivery_lock(output: &Path) -> Result<DeliveryLock> {
+    let lock_root = Config::config_dir()?.join("locks").join("package-output");
+    fs::create_dir_all(&lock_root)?;
+    let digest = format!("{:x}", Md5::digest(output.to_string_lossy().as_bytes()));
+    let lock = lock_root.join(digest);
+    fs::create_dir(&lock).map_err(|error| {
+        if error.kind() == std::io::ErrorKind::AlreadyExists {
+            UdfError::Other(format!(
+                "固定输出目录正在被另一个 package 交付占用：{}",
+                output.display()
+            ))
+        } else {
+            error.into()
+        }
+    })?;
+    Ok(DeliveryLock(lock))
+}
+
+fn file_digest(path: &Path) -> Result<String> {
+    Ok(format!("md5:{:x}", Md5::digest(fs::read(path)?)))
+}
+
+fn safe_relative(path: &Path) -> Result<()> {
+    if path.is_absolute()
+        || path
+            .components()
+            .any(|part| matches!(part, std::path::Component::ParentDir))
+    {
+        return Err(UdfError::Other(format!(
+            "交付清单包含越界相对路径：{}",
+            path.display()
+        )));
+    }
+    Ok(())
+}
+
+fn collect_files(root: &Path, current: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
+    for entry in fs::read_dir(current)? {
+        let entry = entry?;
+        let path = entry.path();
+        if crate::junction::exists(&path).unwrap_or(false) {
+            return Err(UdfError::Other(format!(
+                "交付源包含 Junction，拒绝递归接管：{}",
+                path.display()
+            )));
+        }
+        if entry.file_type()?.is_dir() {
+            collect_files(root, &path, files)?;
+        } else if entry.file_type()?.is_file() {
+            files.push(path.strip_prefix(root).unwrap_or(&path).to_path_buf());
+        }
+    }
+    Ok(())
+}
+
+fn write_journal(path: &Path, journal: &DeliveryJournal) -> Result<()> {
+    fs::write(path, serde_json::to_vec_pretty(journal)?)?;
+    Ok(())
+}
+
+fn publish_directory(
+    source: &Path,
+    output: &Path,
+    execution_id: &str,
+    log_dir: &Path,
+) -> Result<()> {
+    let _lock = acquire_delivery_lock(output)?;
+    if crate::junction::exists(output).unwrap_or(false) {
+        return Err(UdfError::Other(format!(
+            "拒绝向 Junction 交付：{}",
+            output.display()
+        )));
+    }
+    if !source.is_dir() {
+        return Err(UdfError::Other(format!(
+            "交付源目录不存在：{}",
+            source.display()
+        )));
+    }
+    let backup_root = log_dir.join("delivery-backup");
+    let journal_path = log_dir.join(".udf-delivery-journal.json");
+    fs::create_dir_all(output)?;
+    fs::create_dir_all(&backup_root)?;
+    let mut relative_files = Vec::new();
+    collect_files(source, source, &mut relative_files)?;
+    relative_files.sort();
+    let mut entries = Vec::new();
+    for relative in relative_files {
+        safe_relative(&relative)?;
+        let from = source.join(&relative);
+        let to = output.join(&relative);
+        if crate::junction::exists(&to).unwrap_or(false) {
+            return Err(UdfError::Other(format!(
+                "交付目标是受保护 Junction：{}",
+                to.display()
+            )));
+        }
+        let (existed, backup, old_digest) = if to.is_file() {
+            let backup = backup_root.join(&relative);
+            if let Some(parent) = backup.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            fs::copy(&to, &backup)?;
+            (true, Some(backup), Some(file_digest(&to)?))
+        } else if to.exists() {
+            return Err(UdfError::Other(format!(
+                "交付目标不是普通文件，拒绝覆盖：{}",
+                to.display()
+            )));
+        } else {
+            (false, None, None)
+        };
+        entries.push(DeliveryEntry {
+            relative,
+            existed,
+            backup,
+            old_digest,
+            new_digest: file_digest(&from)?,
+        });
+    }
+    let mut journal = DeliveryJournal {
+        schema_version: 1,
+        execution_id: execution_id.to_string(),
+        state: "delivering".into(),
+        output: output.to_path_buf(),
+        backup_root,
+        entries,
+    };
+    write_journal(&journal_path, &journal)?;
+    for entry in &journal.entries {
+        let from = source.join(&entry.relative);
+        let to = output.join(&entry.relative);
+        if let Some(parent) = to.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::copy(from, to)?;
+    }
+    journal.state = "delivered".into();
+    write_journal(&journal_path, &journal)?;
+    Ok(())
+}
+
 fn collect_manifest_entries(
     root: &Path,
     current: &Path,
@@ -200,6 +371,13 @@ fn write_manifest(root: &Path) -> Result<PathBuf> {
 
 fn execution_id(action: &str) -> String {
     format!("package-{action}-{}", Utc::now().format("%Y%m%dT%H%M%SZ"))
+}
+
+fn log_dir_for_execution(project_root: &Path, execution_id: &str) -> PathBuf {
+    project_root
+        .join("Saved")
+        .join("UnrealDevFlow")
+        .join(execution_id)
 }
 
 fn project_file(project_dir: &Path) -> Result<PathBuf> {
@@ -597,6 +775,12 @@ fn prepare_project_stage(
     disabled_plugins: &[String],
     plugin_overlays: &[(String, PathBuf)],
 ) -> Result<PathBuf> {
+    if crate::junction::exists(stage_root).unwrap_or(false) {
+        return Err(UdfError::Other(format!(
+            "拒绝覆盖受管副本路径上的 Junction：{}",
+            stage_root.display()
+        )));
+    }
     if stage_root.exists() {
         fs::remove_dir_all(stage_root)?;
     }
@@ -767,18 +951,26 @@ pub fn project(workspace: Option<String>, task: Option<String>, mode: PackageMod
         })
         .unwrap_or(PackageContainer::Pak);
     let execution_id = execution_id("project");
+    let execution_stage_root = std::env::temp_dir().join("UDF").join(&execution_id);
+    let profile_output = saved_profile.is_some();
     let staged_project = if mode.executes() {
-        if let (Some(profile), Some(task_ref)) = (saved_profile.as_ref(), requested_task.as_deref())
-        {
-            let (host_dir, meta, _) = crate::host::resolve_task(&config, task_ref)?;
-            let overlays = meta
-                .primary_plugins
-                .iter()
-                .map(|plugin| (plugin.name.clone(), host_dir.join(&plugin.worktree)))
-                .collect::<Vec<_>>();
+        if let Some(profile) = saved_profile.as_ref() {
+            let overlays = requested_task
+                .as_deref()
+                .map(|task_ref| {
+                    let (host_dir, meta, _) = crate::host::resolve_task(&config, task_ref)?;
+                    Ok::<_, UdfError>(
+                        meta.primary_plugins
+                            .iter()
+                            .map(|plugin| (plugin.name.clone(), host_dir.join(&plugin.worktree)))
+                            .collect::<Vec<_>>(),
+                    )
+                })
+                .transpose()?
+                .unwrap_or_default();
             Some(prepare_project_stage(
                 &project,
-                &std::env::temp_dir().join("UDF").join(&execution_id),
+                &execution_stage_root,
                 &profile.disabled_plugins,
                 &overlays,
             )?)
@@ -789,10 +981,19 @@ pub fn project(workspace: Option<String>, task: Option<String>, mode: PackageMod
         None
     };
     let project = staged_project.unwrap_or(project);
+    let execution_archive_dir = if profile_output {
+        execution_stage_root.join("Archive")
+    } else {
+        archive_dir.clone()
+    };
     let commands = project_package_commands(&ProjectPackageOptions {
         engine_root: engine_root.clone(),
         project: project.clone(),
-        archive_dir: archive_dir.clone(),
+        archive_dir: if mode == PackageMode::Plan {
+            archive_dir.clone()
+        } else {
+            execution_archive_dir.clone()
+        },
         platform: UePlatform::Windows,
         configuration,
         mutex: UbtMutexMode::Wait,
@@ -800,6 +1001,12 @@ pub fn project(workspace: Option<String>, task: Option<String>, mode: PackageMod
         container,
         clean: false,
     });
+    let log_dir = log_dir_for_execution(&project_root, &execution_id);
+    let cleanup_targets = if profile_output {
+        vec![log_dir.clone(), execution_stage_root.clone()]
+    } else {
+        vec![archive_dir.clone(), log_dir.clone()]
+    };
     if mode == PackageMode::Check {
         let next = requested_task
             .map(|task| format!("udf package project --task {task}"))
@@ -817,7 +1024,6 @@ pub fn project(workspace: Option<String>, task: Option<String>, mode: PackageMod
         return emit_plan("project", source, &commands, vec![archive_dir], diagnostics);
     }
     let id = execution_id;
-    let log_dir = project_root.join("Saved").join("UnrealDevFlow").join(&id);
     let logs = if mode.executes() {
         run_package_commands(
             &commands,
@@ -827,12 +1033,36 @@ pub fn project(workspace: Option<String>, task: Option<String>, mode: PackageMod
             &name,
             source,
             vec![archive_dir.clone()],
-            vec![log_dir.clone()],
+            cleanup_targets.clone(),
         )?
     } else {
         Vec::new()
     };
     let manifests = if mode.executes() {
+        if profile_output {
+            publish_directory(&execution_archive_dir, &archive_dir, &id, &log_dir).map_err(
+                |error| {
+                    let mut failed = PackageResult {
+                        execution_id: id.clone(),
+                        action: "project".to_string(),
+                        workspace: name.clone(),
+                        source: source.to_string(),
+                        state: "failed".to_string(),
+                        exit_code: Some(0),
+                        commands: commands_as_argv(&commands),
+                        artifacts: vec![execution_archive_dir.clone()],
+                        outputs: vec![archive_dir.clone()],
+                        logs: logs.clone(),
+                        manifests: Vec::new(),
+                        cleanup_targets: cleanup_targets.clone(),
+                        diagnostics: vec![format!("交付失败：{error}")],
+                    };
+                    let _ = save_result(&failed);
+                    failed.diagnostics.push(format!("execution ID: {id}"));
+                    UdfError::Other(failed.diagnostics.join("；"))
+                },
+            )?;
+        }
         vec![write_manifest(&archive_dir)?]
     } else {
         Vec::new()
@@ -847,11 +1077,15 @@ pub fn project(workspace: Option<String>, task: Option<String>, mode: PackageMod
             state: "succeeded".to_string(),
             exit_code: Some(0),
             commands: commands_as_argv(&commands),
-            artifacts: vec![archive_dir.clone()],
+            artifacts: vec![if profile_output {
+                execution_archive_dir
+            } else {
+                archive_dir.clone()
+            }],
             outputs: vec![archive_dir.clone()],
             logs,
             manifests,
-            cleanup_targets: vec![archive_dir, log_dir],
+            cleanup_targets,
             diagnostics: Vec::new(),
         },
     )
@@ -1212,9 +1446,10 @@ pub fn clean(execution_id: Option<String>) -> Result<()> {
 pub fn recover(execution_id: String) -> Result<()> {
     let result = load_result(Some(&execution_id))?;
     let journal_path = result
-        .outputs
+        .logs
         .iter()
-        .map(|output| output.join(".udf-delivery-journal.json"))
+        .filter_map(|log| log.parent())
+        .map(|dir| dir.join(".udf-delivery-journal.json"))
         .find(|path| path.is_file())
         .ok_or_else(|| {
             UdfError::Other(format!(
@@ -1223,16 +1458,67 @@ pub fn recover(execution_id: String) -> Result<()> {
             ))
         })?;
     let journal_text = fs::read_to_string(&journal_path)?;
-    let journal: serde_json::Value = serde_json::from_str(&journal_text)?;
-    if journal["executionId"] != result.execution_id || journal["state"] != "delivering" {
+    let mut journal: DeliveryJournal = serde_json::from_str(&journal_text)?;
+    if journal.execution_id != result.execution_id || journal.state != "delivering" {
         return Err(UdfError::Other(format!(
             "交付事务日志不匹配或已不是 delivering：{}",
             journal_path.display()
         )));
     }
-    Err(UdfError::Other(
-        "交付事务缺少完整恢复清单，拒绝执行回退；请保留当前目录并人工核对".into(),
-    ))
+    if crate::junction::exists(&journal.output).unwrap_or(false) {
+        return Err(UdfError::Other(format!(
+            "恢复目标已变成 Junction，拒绝修改：{}",
+            journal.output.display()
+        )));
+    }
+    for entry in &journal.entries {
+        safe_relative(&entry.relative)?;
+        let target = journal.output.join(&entry.relative);
+        if crate::junction::exists(&target).unwrap_or(false) {
+            return Err(UdfError::Other(format!(
+                "恢复目标包含 Junction，拒绝修改：{}",
+                target.display()
+            )));
+        }
+        if target.exists() && (!target.is_file() || file_digest(&target)? != entry.new_digest) {
+            return Err(UdfError::Other(format!(
+                "恢复前发现外部修改，未回退：{}",
+                target.display()
+            )));
+        }
+        if entry.existed {
+            let backup = entry.backup.as_ref().ok_or_else(|| {
+                UdfError::Other(format!(
+                    "恢复清单缺少旧文件备份：{}",
+                    entry.relative.display()
+                ))
+            })?;
+            if !backup.is_file() {
+                return Err(UdfError::Other(format!(
+                    "恢复清单中的备份不存在：{}",
+                    backup.display()
+                )));
+            }
+        }
+    }
+    for entry in &journal.entries {
+        let target = journal.output.join(&entry.relative);
+        if entry.existed {
+            fs::copy(entry.backup.as_ref().expect("validated backup"), &target)?;
+        } else if target.is_file() {
+            fs::remove_file(target)?;
+        }
+    }
+    journal.state = "rolled_back".into();
+    write_journal(&journal_path, &journal)?;
+    let mut recovered = result;
+    recovered.state = "delivery_rolled_back".into();
+    recovered
+        .diagnostics
+        .push("未完成交付已按事务清单回退".into());
+    save_result(&recovered)?;
+    output::emit("package recover", recovered, render);
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1294,5 +1580,29 @@ mod tests {
         assert_eq!(descriptor["Plugins"][0]["Enabled"], false);
         assert_eq!(descriptor["Plugins"][1]["Enabled"], true);
         assert_eq!(fs::read(source.join("Game.uproject")).unwrap(), original);
+    }
+
+    #[test]
+    fn delivery_journal_preserves_existing_files_and_records_new_files() {
+        let root = tempfile::tempdir().unwrap();
+        let source = root.path().join("archive");
+        let output = root.path().join("output");
+        let logs = root.path().join("logs");
+        fs::create_dir_all(source.join("Binaries")).unwrap();
+        fs::create_dir_all(output.join("Binaries")).unwrap();
+        fs::write(source.join("Binaries/Game.exe"), b"new").unwrap();
+        fs::write(output.join("Binaries/Game.exe"), b"old").unwrap();
+        fs::write(output.join("user.sav"), b"user data").unwrap();
+
+        publish_directory(&source, &output, "package-test", &logs).unwrap();
+
+        assert_eq!(fs::read(output.join("Binaries/Game.exe")).unwrap(), b"new");
+        assert_eq!(fs::read(output.join("user.sav")).unwrap(), b"user data");
+        let journal: DeliveryJournal =
+            serde_json::from_slice(&fs::read(logs.join(".udf-delivery-journal.json")).unwrap())
+                .unwrap();
+        assert_eq!(journal.state, "delivered");
+        assert_eq!(journal.entries.len(), 1);
+        assert!(journal.entries[0].backup.is_some());
     }
 }

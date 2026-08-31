@@ -152,6 +152,25 @@ udf build project [--workspace <名字>] [--profile light|medium|heavy]
 引擎根目录的解析顺序：workspace 的 `engine_path` → 环境变量
 `UNREALDEVFLOW_UE_ENGINE_ROOT` → `.uproject` 里的 `EngineAssociation`。
 
+### 项目打包配置
+
+项目 task 首次需要打包时，先保存固定配置。之后 `package plan`、`check` 和 `project` 使用同一份配置。
+常用配置只包含 `--configuration`、`--container`、`--output` 和重复的 `--disable-plugin`。
+MCP 等不能打包的插件可以按用户要求加入禁用列表，修改必须带 `--reason`。
+
+```powershell
+udf package configure --task <workspace/task-id> --configuration Shipping --container pak `
+  --output "D:\Packages\task" --disable-plugin ModelContextProtocol --reason "验证 Shipping 包"
+udf package plan project --task <workspace/task-id>
+udf package project --task <workspace/task-id>
+udf package recover <execution-id>
+```
+
+高级地图、数据映射和既有文件接管使用严格候选文件：
+`udf package configure --task <workspace/task-id> --file <profile.toml> --reason "..."`。
+`disabled_plugins = []` 才表示清空禁用列表，省略 `--disable-plugin` 表示保持原列表。
+`recover` 只处理有完整事务日志的未完成交付，不重新 Cook，也不会凭目录内容猜测删除文件。
+
 ### 4. SWITCH — 没有用户明确授权，绝不执行
 
 **⛔ 硬规则：用户没明确说要切，你就不许跑 `udf task switch`。**
