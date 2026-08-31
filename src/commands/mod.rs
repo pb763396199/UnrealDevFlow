@@ -12,6 +12,7 @@ pub mod init;
 pub mod list;
 pub mod merge;
 pub mod package;
+pub mod package_profile;
 pub mod simple;
 pub mod skills;
 pub mod status;

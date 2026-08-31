@@ -274,6 +274,33 @@ pub enum PackageTarget {
 
 #[derive(Subcommand)]
 pub enum PackageAction {
+    /// 创建或更新任务的固定项目打包配置
+    Configure {
+        /// workspace 名，与 --task 互斥。
+        #[arg(long, conflicts_with = "task")]
+        workspace: Option<String>,
+        /// 任务引用，与 --workspace 互斥。
+        #[arg(long, conflicts_with = "workspace")]
+        task: Option<String>,
+        /// Game 配置，例如 Development 或 Shipping。
+        #[arg(long)]
+        configuration: Option<String>,
+        /// loose、pak 或 iostore。
+        #[arg(long)]
+        container: Option<String>,
+        /// 最终游戏目录。
+        #[arg(long)]
+        output: Option<PathBuf>,
+        /// 添加一个打包时禁用的插件，可重复。
+        #[arg(long = "disable-plugin")]
+        disable_plugin: Vec<String>,
+        /// 使用完整的严格候选配置。
+        #[arg(long, conflicts_with_all = ["configuration", "container", "output", "disable_plugin"])]
+        file: Option<PathBuf>,
+        /// 更新配置时的原因。
+        #[arg(long)]
+        reason: Option<String>,
+    },
     /// 对解析出的 UE 项目生成可运行项目包
     Project {
         /// workspace 名。不提供时只在唯一候选存在时自动选择。

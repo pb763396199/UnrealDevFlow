@@ -58,6 +58,17 @@ fn top_level_contains_package() {
 }
 
 #[test]
+fn package_contains_configure() {
+    let parsed = Cli::parse_from(["udf", "package", "configure", "--task", "test/task"]);
+    assert!(matches!(
+        parsed.command,
+        Commands::Package {
+            action: PackageAction::Configure { .. }
+        }
+    ));
+}
+
+#[test]
 fn legacy_query_invocations_have_explicit_compatibility() {
     let parsed = Cli::parse_from(["udf", "package", "plugin", "AesWorld", "--task", "neon/fix"]);
     assert!(matches!(

@@ -17,6 +17,7 @@ mod host;
 mod junction;
 mod migration;
 mod output;
+mod package_profile;
 mod plugin;
 mod source_context;
 mod state;
@@ -118,6 +119,7 @@ fn command_name(command: &Commands) -> &'static str {
             cli::BuildAction::Status { .. } => "build status",
         },
         Commands::Package { action } => match action {
+            cli::PackageAction::Configure { .. } => "package configure",
             cli::PackageAction::Project { .. } => "package project",
             cli::PackageAction::Plugin { .. } => "package plugin",
             cli::PackageAction::Engine { .. } => "package engine",
@@ -314,6 +316,25 @@ fn run(cli: Cli) -> Result<()> {
             cli::BuildAction::Status { task_ref } => commands::build_status::run(task_ref)?,
         },
         Commands::Package { action } => match action {
+            cli::PackageAction::Configure {
+                workspace,
+                task,
+                configuration,
+                container,
+                output,
+                disable_plugin,
+                file,
+                reason,
+            } => commands::package_profile::configure(
+                workspace,
+                task,
+                configuration,
+                container,
+                output,
+                disable_plugin,
+                file,
+                reason,
+            )?,
             cli::PackageAction::Project { workspace, task } => {
                 commands::package::project(workspace, task, commands::package::PackageMode::Run)?
             }
