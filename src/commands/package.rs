@@ -1,10 +1,11 @@
 use crate::config::Config;
 use crate::error::{Result, UdfError};
 use crate::output;
+use crate::package_profile;
 use crate::ue_commands::{
-    Configuration, EngineSourceBuildOptions, InstalledBuildOptions, ProjectPackageOptions,
-    UbtMutexMode, UeCommand, UePlatform, engine_source_build_commands, installed_build_commands,
-    project_package_commands,
+    Configuration, EngineSourceBuildOptions, InstalledBuildOptions, PackageContainer,
+    ProjectPackageOptions, UbtMutexMode, UeCommand, UePlatform, engine_source_build_commands,
+    installed_build_commands, project_package_commands,
 };
 use chrono::Utc;
 use md5::{Digest, Md5};
@@ -657,20 +658,46 @@ pub fn project(workspace: Option<String>, task: Option<String>, mode: PackageMod
             "workspace",
         )
     };
-    let project = project_file(&project_root)?;
-    let archive_dir = project_root
-        .join("Saved")
-        .join("UnrealDevFlow")
-        .join("Packages")
-        .join("Win64");
+    let saved_profile = package_profile::load_for_project(
+        &config,
+        workspace.as_deref(),
+        requested_task.as_deref(),
+    )?;
+    let project = project_file(
+        saved_profile
+            .as_ref()
+            .map(|p| &p.project)
+            .unwrap_or(&project_root),
+    )?;
+    let archive_dir = saved_profile
+        .as_ref()
+        .map(|p| p.output.clone())
+        .unwrap_or_else(|| project_root.join("Saved/UnrealDevFlow/Packages/Win64"));
+    let engine_root = saved_profile
+        .as_ref()
+        .map(|p| p.engine.clone())
+        .unwrap_or(engine_root);
+    let configuration = saved_profile
+        .as_ref()
+        .map(|p| Configuration::parse(&p.configuration))
+        .unwrap_or(Configuration::Development);
+    let container = saved_profile
+        .as_ref()
+        .map(|p| match p.container {
+            package_profile::Container::Loose => PackageContainer::Loose,
+            package_profile::Container::Pak => PackageContainer::Pak,
+            package_profile::Container::Iostore => PackageContainer::Iostore,
+        })
+        .unwrap_or(PackageContainer::Pak);
     let commands = project_package_commands(&ProjectPackageOptions {
         engine_root: engine_root.clone(),
         project: project.clone(),
         archive_dir: archive_dir.clone(),
         platform: UePlatform::Windows,
-        configuration: Configuration::Development,
+        configuration,
         mutex: UbtMutexMode::Wait,
         package_args: None,
+        container,
         clean: false,
     });
     if mode == PackageMode::Check {

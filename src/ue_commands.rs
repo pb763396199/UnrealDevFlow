@@ -46,6 +46,25 @@ pub enum Configuration {
 }
 
 impl Configuration {
+    pub fn parse(value: &str) -> Self {
+        match value.to_ascii_lowercase().as_str() {
+            "development" => Self::Development,
+            "shipping" => Self::Shipping,
+            "debug" => Self::Debug,
+            "test" => Self::Test,
+            _ => Self::Custom(value.to_string()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PackageContainer {
+    Loose,
+    Pak,
+    Iostore,
+}
+
+impl Configuration {
     pub fn as_unreal_value(&self) -> &str {
         match self {
             Configuration::Development => "Development",
@@ -109,6 +128,7 @@ pub struct ProjectPackageOptions {
     pub configuration: Configuration,
     pub mutex: UbtMutexMode,
     pub package_args: Option<Vec<String>>,
+    pub container: PackageContainer,
     pub clean: bool,
 }
 
@@ -221,6 +241,18 @@ fn resolved_package_args(options: &ProjectPackageOptions) -> Vec<String> {
             .map(|arg| (*arg).to_string())
             .collect()
     });
+    let mut package_args = package_args;
+    if matches!(options.container, PackageContainer::Loose) {
+        package_args.retain(|arg| {
+            !arg.eq_ignore_ascii_case("-pak") && !arg.eq_ignore_ascii_case("-iostore")
+        });
+    } else if matches!(options.container, PackageContainer::Iostore)
+        && !package_args
+            .iter()
+            .any(|arg| arg.eq_ignore_ascii_case("-iostore"))
+    {
+        package_args.push("-iostore".to_string());
+    }
     if has_client_config(&package_args) {
         package_args
     } else {

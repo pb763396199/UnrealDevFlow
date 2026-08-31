@@ -110,6 +110,27 @@ fn configure_creates_a_task_profile_and_preserves_shipping() {
     assert_eq!(response["data"]["configuration"], "Shipping");
     assert_eq!(response["data"]["container"], "loose");
     assert!(response["data"]["profilePath"].as_str().is_some());
+
+    let plan = fixture
+        .command()
+        .args([
+            "--format", "json", "package", "plan", "project", "--task", "shipping",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        plan.status.success(),
+        "{}",
+        String::from_utf8_lossy(&plan.stdout)
+    );
+    let plan: Value = serde_json::from_slice(&plan.stdout).unwrap();
+    let command = plan["data"]["steps"][0]["argv"].as_array().unwrap();
+    assert!(
+        command
+            .iter()
+            .any(|value| value == "-clientconfig=Shipping")
+    );
+    assert!(!command.iter().any(|value| value == "-pak"));
 }
 
 #[test]

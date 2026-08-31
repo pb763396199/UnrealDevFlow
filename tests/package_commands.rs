@@ -4,9 +4,9 @@ mod ue_commands;
 use std::path::PathBuf;
 
 use ue_commands::{
-    Configuration, EngineSourceBuildOptions, InstalledBuildOptions, ProjectPackageOptions,
-    UbtMutexMode, UePlatform, engine_source_build_commands, installed_build_commands,
-    project_package_commands,
+    Configuration, EngineSourceBuildOptions, InstalledBuildOptions, PackageContainer,
+    ProjectPackageOptions, UbtMutexMode, UePlatform, engine_source_build_commands,
+    installed_build_commands, project_package_commands,
 };
 
 fn argv(commands: &[ue_commands::UeCommand]) -> Vec<Vec<String>> {
@@ -23,6 +23,7 @@ fn project_package_argv_matches_ueb_default_buildcookrun() {
         configuration: Configuration::Development,
         mutex: UbtMutexMode::NoMutex,
         package_args: None,
+        container: PackageContainer::Pak,
         clean: false,
     };
 
@@ -66,6 +67,7 @@ fn project_package_derives_platform_configuration_mutex_and_clean() {
         configuration: Configuration::Shipping,
         mutex: UbtMutexMode::Wait,
         package_args: None,
+        container: PackageContainer::Iostore,
         clean: true,
     };
     let command = project_package_commands(&options)[0].argv();
@@ -90,6 +92,7 @@ fn project_package_preserves_explicit_package_args_ubtargs() {
             "-cook".into(),
             "-ubtargs=-Custom".into(),
         ]),
+        container: PackageContainer::Pak,
         clean: false,
     };
     let command = project_package_commands(&options)[0].argv();
