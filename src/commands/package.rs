@@ -370,6 +370,21 @@ fn run_package_commands(
     outputs: Vec<PathBuf>,
     cleanup_targets: Vec<PathBuf>,
 ) -> Result<Vec<PathBuf>> {
+    save_result(&PackageResult {
+        execution_id: execution_id.to_string(),
+        action: action.to_string(),
+        workspace: workspace.to_string(),
+        source: source.to_string(),
+        state: "running".to_string(),
+        exit_code: None,
+        commands: commands_as_argv(commands),
+        outputs: outputs.clone(),
+        artifacts: outputs.clone(),
+        logs: Vec::new(),
+        manifests: Vec::new(),
+        cleanup_targets: cleanup_targets.clone(),
+        diagnostics: Vec::new(),
+    })?;
     match run_commands(commands, log_dir) {
         Ok(logs) => Ok(logs),
         Err(error) => {
@@ -387,7 +402,7 @@ fn run_package_commands(
                 workspace: workspace.to_string(),
                 source: source.to_string(),
                 state: "failed".to_string(),
-                exit_code: None,
+                exit_code: extract_exit_code(&error.to_string()),
                 commands: commands_as_argv(commands),
                 artifacts: outputs.clone(),
                 outputs,
@@ -402,6 +417,12 @@ fn run_package_commands(
             )))
         }
     }
+}
+
+fn extract_exit_code(message: &str) -> Option<i32> {
+    let start = message.find("Some(")? + "Some(".len();
+    let end = message[start..].find(')')? + start;
+    message[start..end].parse().ok()
 }
 
 fn collect_plugin_descriptors(
