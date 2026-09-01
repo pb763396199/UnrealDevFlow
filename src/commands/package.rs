@@ -23,10 +23,10 @@ fn plugin_stage_root(execution_id: &str) -> PathBuf {
 }
 
 fn is_managed_cleanup_target(path: &Path) -> bool {
-    if path
-        .components()
-        .any(|part| part.as_os_str() == "UnrealDevFlow")
-    {
+    if path.components().any(|part| {
+        let name = part.as_os_str().to_string_lossy();
+        name.eq_ignore_ascii_case("UnrealDevFlow") || name.eq_ignore_ascii_case(".unrealdevflow")
+    }) {
         return true;
     }
 
@@ -681,8 +681,17 @@ fn run_package_commands(
     }
 }
 
-fn engine_failure_cleanup_targets(output_dir: &Path, log_dir: &Path) -> Vec<PathBuf> {
-    vec![output_dir.to_path_buf(), log_dir.to_path_buf()]
+fn engine_failure_cleanup_targets(
+    output_dir: &Path,
+    log_dir: &Path,
+    output_preexisted: bool,
+) -> Vec<PathBuf> {
+    let mut targets = Vec::new();
+    if !output_preexisted {
+        targets.push(output_dir.to_path_buf());
+    }
+    targets.push(log_dir.to_path_buf());
+    targets
 }
 
 fn extract_exit_code(message: &str) -> Option<i32> {
@@ -1431,6 +1440,7 @@ pub fn engine(
     }
     let id = execution_id("engine");
     let log_dir = execution_root()?.join(&id);
+    let output_preexisted = output_dir.exists();
     let logs = if mode.executes() {
         run_package_commands(
             &commands,
@@ -1440,7 +1450,7 @@ pub fn engine(
             &name,
             "workspace",
             vec![output_dir.clone()],
-            engine_failure_cleanup_targets(&output_dir, &log_dir),
+            engine_failure_cleanup_targets(&output_dir, &log_dir, output_preexisted),
         )?
     } else {
         Vec::new()
@@ -1771,10 +1781,11 @@ mod tests {
     }
 
     #[test]
-    fn engine_failure_cleanup_includes_output_and_log_roots() {
+    fn engine_failure_cleanup_only_removes_new_output_and_own_logs() {
         let targets = engine_failure_cleanup_targets(
             Path::new("C:/Package/InstalledBuild-Win64"),
             Path::new("C:/udf/executions/package/package-engine-1"),
+            false,
         );
 
         assert_eq!(
@@ -1784,5 +1795,25 @@ mod tests {
                 PathBuf::from("C:/udf/executions/package/package-engine-1"),
             ]
         );
+
+        let existing_output_targets = engine_failure_cleanup_targets(
+            Path::new("C:/Package/InstalledBuild-Win64"),
+            Path::new("C:/udf/executions/package/package-engine-2"),
+            true,
+        );
+        assert_eq!(
+            existing_output_targets,
+            vec![PathBuf::from("C:/udf/executions/package/package-engine-2")]
+        );
+    }
+
+    #[test]
+    fn cleanup_guard_accepts_user_package_execution_logs_but_not_external_output() {
+        assert!(is_managed_cleanup_target(Path::new(
+            "C:/Users/YUMEI/.unrealdevflow/executions/package/package-engine-1"
+        )));
+        assert!(!is_managed_cleanup_target(Path::new(
+            "C:/Package/UE55-InstalledBuild-Win64"
+        )));
     }
 }
