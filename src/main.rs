@@ -322,6 +322,7 @@ fn run(cli: Cli) -> Result<()> {
                 task,
                 configuration,
                 container,
+                name,
                 output,
                 disable_plugin,
                 file,
@@ -331,6 +332,7 @@ fn run(cli: Cli) -> Result<()> {
                 task,
                 configuration,
                 container,
+                name,
                 output,
                 disable_plugin,
                 file,
@@ -346,20 +348,31 @@ fn run(cli: Cli) -> Result<()> {
                 plugins,
                 task,
                 workspace,
+                output,
             } => commands::package::plugin(
                 plugins,
                 task,
                 workspace,
+                output,
                 commands::package::PackageMode::Run,
             )?,
-            cli::PackageAction::Engine { workspace } => {
-                commands::package::engine(workspace, commands::package::PackageMode::Run)?
-            }
+            cli::PackageAction::Engine {
+                workspace,
+                output,
+                name,
+            } => commands::package::engine(
+                workspace,
+                output,
+                name,
+                commands::package::PackageMode::Run,
+            )?,
             cli::PackageAction::Plan {
                 target,
                 plugins,
                 task,
                 workspace,
+                output,
+                name,
             } => match target {
                 cli::PackageTarget::Project => commands::package::project(
                     workspace,
@@ -370,17 +383,23 @@ fn run(cli: Cli) -> Result<()> {
                     plugins,
                     task,
                     workspace,
+                    output,
                     commands::package::PackageMode::Plan,
                 )?,
-                cli::PackageTarget::Engine => {
-                    commands::package::engine(workspace, commands::package::PackageMode::Plan)?
-                }
+                cli::PackageTarget::Engine => commands::package::engine(
+                    workspace,
+                    output,
+                    name,
+                    commands::package::PackageMode::Plan,
+                )?,
             },
             cli::PackageAction::Check {
                 target,
                 plugins,
                 task,
                 workspace,
+                output,
+                name,
             } => match target {
                 cli::PackageTarget::Project => commands::package::project(
                     workspace,
@@ -391,11 +410,15 @@ fn run(cli: Cli) -> Result<()> {
                     plugins,
                     task,
                     workspace,
+                    output,
                     commands::package::PackageMode::Check,
                 )?,
-                cli::PackageTarget::Engine => {
-                    commands::package::engine(workspace, commands::package::PackageMode::Check)?
-                }
+                cli::PackageTarget::Engine => commands::package::engine(
+                    workspace,
+                    output,
+                    name,
+                    commands::package::PackageMode::Check,
+                )?,
             },
             cli::PackageAction::Run { workspace } => {
                 commands::package::project(workspace, None, commands::package::PackageMode::Run)?

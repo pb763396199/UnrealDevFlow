@@ -89,6 +89,7 @@ fn legacy_query_invocations_have_explicit_compatibility() {
                 plugins,
                 task,
                 workspace: None,
+                ..
             }
         } if plugins == vec!["AesWorld".to_string()] && task.as_deref() == Some("neon/fix")
     ));

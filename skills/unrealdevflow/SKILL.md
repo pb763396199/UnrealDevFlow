@@ -155,21 +155,23 @@ udf build project [--workspace <名字>] [--profile light|medium|heavy]
 ### 项目打包配置
 
 项目 task 首次需要打包时，先保存固定配置。之后 `package plan`、`check` 和 `project` 使用同一份配置。
-常用配置只包含 `--configuration`、`--container`、`--output` 和重复的 `--disable-plugin`。
+常用配置只包含 `--configuration`、`--container`、`--output`、`--name` 和重复的 `--disable-plugin`。
 MCP 等不能打包的插件可以按用户要求加入禁用列表，修改必须带 `--reason`。
 
 ```powershell
 udf package configure --task <workspace/task-id> --configuration Shipping --container pak `
-  --output "D:\Packages\task" --disable-plugin ModelContextProtocol --reason "验证 Shipping 包"
+  --output "C:\Package" --name "UGA-task-Win64-Shipping" --disable-plugin ModelContextProtocol --reason "验证 Shipping 包"
 udf package plan project --task <workspace/task-id>
 udf package project --task <workspace/task-id>
 udf package recover <execution-id>
 ```
 
-高级地图、数据映射和既有文件接管使用严格候选文件：
+`--output` 指包根目录，`--name` 指包目录名；省略 name 时自动生成项目、任务、平台和配置组合名。高级地图、数据映射和既有文件接管使用严格候选文件：
 `udf package configure --task <workspace/task-id> --file <profile.toml> --reason "..."`。
 `disabled_plugins = []` 才表示清空禁用列表，省略 `--disable-plugin` 表示保持原列表。
 `recover` 只处理有完整事务日志的未完成交付，不重新 Cook，也不会凭目录内容猜测删除文件。
+
+插件包可用 `udf package plugin <插件> --output <包根目录>`，多个插件按插件名分目录；Installed Build 可用 `udf package engine --output <包根目录> --name <目录名>`。省略 Installed Build 的 name 时使用 `InstalledBuild-Win64`，避免平台默认目录重名。
 
 ### 4. SWITCH — 没有用户明确授权，绝不执行
 

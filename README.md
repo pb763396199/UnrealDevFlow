@@ -273,14 +273,16 @@ udf task finish neon-dev/prefab-save-bug
 Shipping 或 Cook 参数。MCP 等不能参与打包的插件可以显式加入禁用列表。
 
 ~~~powershell
-udf package configure --task neon-dev/my-task --configuration Shipping --container pak --output "D:/Packages/my-task" --disable-plugin ModelContextProtocol --reason "验证 Shipping 包"
+udf package configure --task neon-dev/my-task --configuration Shipping --container pak --output "C:/Package" --name "UGA-my-task-Win64-Shipping" --disable-plugin ModelContextProtocol --reason "验证 Shipping 包"
 udf package plan project --task neon-dev/my-task
 udf package project --task neon-dev/my-task
 ~~~
 
-高级地图、数据映射和既有文件接管使用 `package configure --file <候选.toml> --reason <原因>`。
+`--output` 是包根目录，`--name` 是包目录名；省略 name 时自动生成项目、任务、平台和配置组合名，避免默认平台目录冲突。高级地图、数据映射和既有文件接管使用 `package configure --file <候选.toml> --reason <原因>`。
 候选文件中的 `disabled_plugins = []` 才表示清空禁用列表，省略 `--disable-plugin` 表示保持原列表。
 交付中断时使用 `package recover <execution-id>`；没有完整事务日志时工具会拒绝修改输出目录。
+
+插件包可用 `package plugin <插件> --output C:/Package`，每个插件按插件名分目录；Installed Build 可用 `package engine --output C:/Package --name UE55-InstalledBuild-Win64`。`plan` 和 `check` 也接受这两个输出选项。
 
 ```powershell
 # check 只返回 readiness，不生成 execution ID

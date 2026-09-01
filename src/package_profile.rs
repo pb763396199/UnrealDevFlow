@@ -38,6 +38,7 @@ pub struct PackageProfile {
     pub engine: PathBuf,
     pub configuration: String,
     pub container: Container,
+    pub name: String,
     pub output: PathBuf,
     #[serde(default)]
     pub disabled_plugins: Vec<String>,
@@ -54,6 +55,7 @@ pub struct ConfigureResult {
     pub profile_path: PathBuf,
     pub configuration: String,
     pub container: Container,
+    pub name: String,
     pub output: PathBuf,
     pub disabled_plugins: Vec<String>,
     pub revision: u64,
@@ -66,6 +68,7 @@ pub struct ConfigureOptions {
     pub task: Option<String>,
     pub configuration: Option<String>,
     pub container: Option<String>,
+    pub name: Option<String>,
     pub output: Option<PathBuf>,
     pub disable_plugin: Vec<String>,
     pub file: Option<PathBuf>,
@@ -121,6 +124,7 @@ pub fn profile_path(binding: &Binding) -> Result<PathBuf> {
 }
 
 fn defaults(binding: &Binding) -> PackageProfile {
+    let name = default_name(binding, "Development");
     PackageProfile {
         schema_version: 1,
         task_uid: binding.task_uid.clone(),
@@ -130,12 +134,39 @@ fn defaults(binding: &Binding) -> PackageProfile {
         engine: binding.engine.clone(),
         configuration: "Development".into(),
         container: Container::Pak,
-        output: binding.host.join("Saved/UnrealDevFlow/Packages/Win64"),
+        name: name.clone(),
+        output: binding.host.join("Saved/UnrealDevFlow/Packages").join(name),
         disabled_plugins: Vec::new(),
         revision: 0,
         last_reason: String::new(),
         content_digest: String::new(),
     }
+}
+
+fn default_name(binding: &Binding, configuration: &str) -> String {
+    let project = binding
+        .project
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("project");
+    let scope = binding.task_uid.rsplit('/').next().unwrap_or("workspace");
+    format!("{project}-{scope}-Win64-{configuration}")
+}
+
+fn normalize_name(name: &str) -> Result<String> {
+    let name = name.trim();
+    if name.is_empty() || name == "." || name == ".." {
+        return Err(UdfError::Other("package name 不能为空或为 . / ..".into()));
+    }
+    if name
+        .chars()
+        .any(|ch| !(ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.')))
+    {
+        return Err(UdfError::Other(
+            "package name 只能包含英文、数字、连字符、下划线和点".into(),
+        ));
+    }
+    Ok(name.to_string())
 }
 
 fn reject_unknown(value: &toml::Value) -> Result<()> {
@@ -185,6 +216,7 @@ fn profile_digest(profile: &PackageProfile) -> String {
         &profile.engine,
         &profile.configuration,
         &profile.container,
+        &profile.name,
         &profile.output,
         &profile.disabled_plugins,
         profile.revision,
@@ -210,7 +242,7 @@ fn load_profile(
     reject_unknown(&value)?;
     reject_nested(&value, "source", &["project"])?;
     reject_nested(&value, "build", &["configuration"])?;
-    reject_nested(&value, "package", &["container", "output"])?;
+    reject_nested(&value, "package", &["container", "name", "output"])?;
     reject_nested(&value, "plugins", &["disabled"])?;
     let mut profile = defaults(binding);
     if let Some(table) = value.as_table() {
@@ -234,6 +266,13 @@ fn load_profile(
             .and_then(toml::Value::as_str)
         {
             profile.container = Container::parse(v)?;
+        }
+        if let Some(v) = table
+            .get("package")
+            .and_then(|v| v.get("name"))
+            .and_then(toml::Value::as_str)
+        {
+            profile.name = normalize_name(v)?;
         }
         if let Some(v) = table
             .get("package")
@@ -347,6 +386,7 @@ fn serialized_profile(profile: &PackageProfile) -> Result<String> {
                     .to_ascii_lowercase()
                     .into(),
             ),
+            ("name".into(), profile.name.clone().into()),
             (
                 "output".into(),
                 profile.output.to_string_lossy().to_string().into(),
@@ -408,6 +448,7 @@ pub fn configure(options: ConfigureOptions) -> Result<()> {
     if options.file.is_some()
         && (options.configuration.is_some()
             || options.container.is_some()
+            || options.name.is_some()
             || options.output.is_some()
             || !options.disable_plugin.is_empty())
     {
@@ -435,8 +476,22 @@ pub fn configure(options: ConfigureOptions) -> Result<()> {
         if let Some(value) = options.container {
             profile.container = Container::parse(&value)?;
         }
+        if let Some(value) = options.name.as_deref() {
+            let name = normalize_name(value)?;
+            let base = options
+                .output
+                .as_deref()
+                .or_else(|| profile.output.parent())
+                .ok_or_else(|| UdfError::Other("无法确定 package 输出根目录".into()))?;
+            profile.name = name.clone();
+            profile.output = base.join(name);
+        }
         if let Some(value) = options.output {
-            profile.output = value;
+            profile.output = if !was_existing || options.name.is_some() {
+                value.join(&profile.name)
+            } else {
+                value
+            };
         }
         for plugin in options.disable_plugin {
             if !profile.disabled_plugins.contains(&plugin) {
@@ -463,6 +518,7 @@ pub fn configure(options: ConfigureOptions) -> Result<()> {
             profile_path: path,
             configuration: profile.configuration,
             container: profile.container,
+            name: profile.name,
             output: profile.output,
             disabled_plugins: profile.disabled_plugins,
             revision: profile.revision,

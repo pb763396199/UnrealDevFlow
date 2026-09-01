@@ -31,7 +31,14 @@ fn is_managed_cleanup_target(path: &Path) -> bool {
     }
 
     let temp_stage_root = std::env::temp_dir().join("UDF");
-    path.starts_with(temp_stage_root) && path != std::env::temp_dir().join("UDF")
+    if path.starts_with(temp_stage_root) && path != std::env::temp_dir().join("UDF") {
+        return true;
+    }
+    // Older package executions kept their logs below the configured output
+    // root. They are still safe to remove because the recorded target must
+    // be inside this dedicated hidden log directory.
+    path.components()
+        .any(|part| part.as_os_str() == ".udf-logs")
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -122,6 +129,28 @@ fn check_package_commands(
             })
             .map(PathBuf::from)
             .filter(|path| !path.is_file()),
+    );
+    missing.extend(
+        commands
+            .iter()
+            .flat_map(|command| {
+                let argument = command
+                    .arguments
+                    .iter()
+                    .find(|argument| argument.to_ascii_lowercase().starts_with("-script="))?;
+                let script = PathBuf::from(argument.trim_start_matches("-script="));
+                if script.is_absolute() {
+                    Some(script)
+                } else {
+                    PathBuf::from(&command.executable)
+                        .parent()
+                        .and_then(Path::parent)
+                        .and_then(Path::parent)
+                        .and_then(Path::parent)
+                        .map(|engine_root| engine_root.join(script))
+                }
+            })
+            .filter(|path: &PathBuf| !path.is_file()),
     );
     missing.sort();
     missing.dedup();
@@ -340,6 +369,10 @@ fn collect_manifest_entries(
     for entry in fs::read_dir(current)? {
         let entry = entry?;
         let path = entry.path();
+        if crate::junction::exists(&path).unwrap_or(false) {
+            // Manifests describe files owned by this directory only.
+            continue;
+        }
         if entry.file_type()?.is_dir() {
             collect_manifest_entries(root, &path, entries)?;
         } else if entry.file_type()?.is_file() {
@@ -370,7 +403,12 @@ fn write_manifest(root: &Path, reported_root: &Path) -> Result<PathBuf> {
 }
 
 fn execution_id(action: &str) -> String {
-    format!("package-{action}-{}", Utc::now().format("%Y%m%dT%H%M%SZ"))
+    let now = Utc::now();
+    format!(
+        "package-{action}-{}-{:03}",
+        now.format("%Y%m%dT%H%M%SZ"),
+        now.timestamp_subsec_millis()
+    )
 }
 
 fn log_dir_for_execution(project_root: &Path, execution_id: &str) -> PathBuf {
@@ -410,8 +448,18 @@ fn emit_check(
     commands: &[UeCommand],
     mutex_project: Option<(&Path, &Path)>,
     next_command: String,
+    additional_diagnostics: Vec<String>,
 ) -> Result<()> {
-    let (readiness, diagnostics) = check_package_commands(commands, mutex_project);
+    let (readiness, mut diagnostics) = check_package_commands(commands, mutex_project);
+    diagnostics.extend(additional_diagnostics);
+    let readiness = if diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.starts_with("broken junction"))
+    {
+        "blocked".to_string()
+    } else {
+        readiness
+    };
     let checks = if diagnostics.is_empty() {
         vec!["toolchainAvailable".to_string()]
     } else {
@@ -439,6 +487,42 @@ fn emit_check(
         format!("package {}: {}", report.action, report.readiness)
     });
     Ok(())
+}
+
+fn validate_project_links(root: &Path) -> Result<Vec<String>> {
+    let mut broken = Vec::new();
+    fn visit(current: &Path, broken: &mut Vec<String>) -> Result<()> {
+        for entry in fs::read_dir(current)? {
+            let entry = entry?;
+            let name = entry.file_name().to_string_lossy().to_string();
+            if excluded_entry(&name) {
+                continue;
+            }
+            let path = entry.path();
+            if crate::junction::exists(&path).unwrap_or(false) {
+                let target = crate::junction::get_target(&path)?;
+                if !target.exists() {
+                    broken.push(format!(
+                        "broken junction：{} -> {}",
+                        path.display(),
+                        target.display()
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+    // A full Content scan is prohibitively expensive on real projects. The
+    // execution copier remains authoritative; preflight checks the project
+    // root and the immediate children of the two usual external-data roots.
+    visit(root, &mut broken)?;
+    for child in ["Content", "Plugins"] {
+        let path = root.join(child);
+        if path.is_dir() && !crate::junction::exists(&path).unwrap_or(false) {
+            visit(&path, &mut broken)?;
+        }
+    }
+    Ok(broken)
 }
 
 fn emit_plan(
@@ -611,12 +695,34 @@ fn collect_plugin_descriptors(
     let directory = root.join(relative);
     for entry in fs::read_dir(&directory)? {
         let entry = entry?;
+        let entry_name = entry.file_name().to_string_lossy().to_string();
+        if matches!(
+            entry_name.to_ascii_lowercase().as_str(),
+            ".git" | "binaries" | "content" | "config" | "intermediate" | "saved" | "source"
+        ) {
+            continue;
+        }
         let path = entry.path();
-        if entry.file_type()?.is_dir() {
-            collect_plugin_descriptors(root, &relative.join(entry.file_name()), descriptors)?;
-        } else if path
-            .extension()
-            .is_some_and(|extension| extension == "uplugin")
+        let file_type = entry.file_type()?;
+        if file_type.is_dir() && crate::junction::exists(&path).unwrap_or(false) {
+            // Discovery must never recurse through project or task links.
+            // The selected source is staged explicitly after discovery.
+            continue;
+        }
+        if file_type.is_dir() {
+            let direct_descriptor = path.join(format!("{entry_name}.uplugin"));
+            if direct_descriptor.is_file() {
+                descriptors
+                    .entry(entry_name)
+                    .or_default()
+                    .push(relative.join(entry.file_name()));
+            } else {
+                collect_plugin_descriptors(root, &relative.join(entry.file_name()), descriptors)?;
+            }
+        } else if file_type.is_file()
+            && path
+                .extension()
+                .is_some_and(|extension| extension == "uplugin")
         {
             let name = path
                 .file_stem()
@@ -953,6 +1059,16 @@ pub fn project(workspace: Option<String>, task: Option<String>, mode: PackageMod
     let execution_id = execution_id("project");
     let execution_stage_root = std::env::temp_dir().join("UDF").join(&execution_id);
     let profile_output = saved_profile.is_some();
+    if mode.executes() {
+        let input_diagnostics = project
+            .parent()
+            .map(validate_project_links)
+            .transpose()?
+            .unwrap_or_default();
+        if !input_diagnostics.is_empty() {
+            return Err(UdfError::Other(input_diagnostics.join("；")));
+        }
+    }
     let staged_project = if mode.executes() {
         if let Some(profile) = saved_profile.as_ref() {
             let overlays = requested_task
@@ -1008,6 +1124,11 @@ pub fn project(workspace: Option<String>, task: Option<String>, mode: PackageMod
         vec![archive_dir.clone(), log_dir.clone()]
     };
     if mode == PackageMode::Check {
+        let input_diagnostics = project
+            .parent()
+            .map(validate_project_links)
+            .transpose()?
+            .unwrap_or_default();
         let next = requested_task
             .map(|task| format!("udf package project --task {task}"))
             .unwrap_or_else(|| format!("udf package project --workspace {name}"));
@@ -1017,6 +1138,7 @@ pub fn project(workspace: Option<String>, task: Option<String>, mode: PackageMod
             &commands,
             Some((&project, &engine_root)),
             next,
+            input_diagnostics,
         );
     }
     if mode == PackageMode::Plan {
@@ -1100,6 +1222,7 @@ pub fn plugin(
     plugins: Vec<String>,
     task: Option<String>,
     workspace: Option<String>,
+    requested_output: Option<PathBuf>,
     mode: PackageMode,
 ) -> Result<()> {
     if plugins.is_empty() {
@@ -1113,7 +1236,9 @@ pub fn plugin(
             context.workspace,
             host_dir.join("Plugins"),
             context.engine_path,
-            host_dir.join("Artifacts/UnrealDevFlow/Plugins"),
+            requested_output
+                .clone()
+                .unwrap_or_else(|| host_dir.join("Artifacts/UnrealDevFlow/Plugins")),
             "task",
         )
     } else {
@@ -1121,10 +1246,12 @@ pub fn plugin(
         let plugins_root = workspace_config
             .effective_plugins_root()
             .ok_or_else(|| UdfError::Other(format!("workspace '{}' 没有 plugins_root", name)))?;
-        let output_dir = plugins_root
-            .parent()
-            .unwrap_or(&plugins_root)
-            .join("Artifacts/UnrealDevFlow/Plugins");
+        let output_dir = requested_output.clone().unwrap_or_else(|| {
+            plugins_root
+                .parent()
+                .unwrap_or(&plugins_root)
+                .join("Artifacts/UnrealDevFlow/Plugins")
+        });
         (
             name,
             plugins_root,
@@ -1148,7 +1275,7 @@ pub fn plugin(
     let closure = plugin_closure(&plugins_root, &seed_plugins, &index, &mut selected_index)?;
     let commands =
         direct_plugin_commands(&engine_root, &stage_root, &seed_plugins, &selected_index);
-    let log_dir = output_dir.join(".udf-logs").join(&id);
+    let log_dir = execution_root()?.join(&id);
     let package_dirs = plugins
         .iter()
         .map(|plugin| output_dir.join(plugin))
@@ -1163,6 +1290,7 @@ pub fn plugin(
             &commands,
             None,
             format!("udf package plugin {} {selector}", plugins.join(" ")),
+            Vec::new(),
         );
     }
     if mode == PackageMode::Plan {
@@ -1240,14 +1368,25 @@ pub fn plugin(
     )
 }
 
-pub fn engine(workspace: Option<String>, mode: PackageMode) -> Result<()> {
+pub fn engine(
+    workspace: Option<String>,
+    requested_output: Option<PathBuf>,
+    requested_name: Option<String>,
+    mode: PackageMode,
+) -> Result<()> {
     let config = Config::load()?;
     let (name, workspace_config) = config.resolve_workspace(workspace.as_deref())?;
-    let output_dir = workspace_config
+    let default_output = workspace_config
         .default_project
         .join("Saved")
         .join("UnrealDevFlow")
         .join("InstalledBuild");
+    let output_dir = if let Some(root) = requested_output {
+        let name = requested_name.unwrap_or_else(|| "InstalledBuild-Win64".into());
+        root.join(name)
+    } else {
+        default_output
+    };
     let commands = installed_build_commands(&InstalledBuildOptions {
         engine_root: workspace_config.engine_path,
         output_dir: output_dir.clone(),
@@ -1260,6 +1399,7 @@ pub fn engine(workspace: Option<String>, mode: PackageMode) -> Result<()> {
             &commands,
             None,
             format!("udf package engine --workspace {name}"),
+            Vec::new(),
         );
     }
     if mode == PackageMode::Plan {
@@ -1273,7 +1413,7 @@ pub fn engine(workspace: Option<String>, mode: PackageMode) -> Result<()> {
         );
     }
     let id = execution_id("engine");
-    let log_dir = output_dir.join(".udf-logs").join(&id);
+    let log_dir = execution_root()?.join(&id);
     let logs = if mode.executes() {
         run_package_commands(
             &commands,

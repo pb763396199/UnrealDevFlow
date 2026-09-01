@@ -288,6 +288,9 @@ pub enum PackageAction {
         /// loose、pak 或 iostore。
         #[arg(long)]
         container: Option<String>,
+        /// 包目录名；省略时自动生成项目、任务、平台和配置组合名。
+        #[arg(long)]
+        name: Option<String>,
         /// 最终游戏目录。
         #[arg(long)]
         output: Option<PathBuf>,
@@ -295,7 +298,7 @@ pub enum PackageAction {
         #[arg(long = "disable-plugin")]
         disable_plugin: Vec<String>,
         /// 使用完整的严格候选配置。
-        #[arg(long, conflicts_with_all = ["configuration", "container", "output", "disable_plugin"])]
+        #[arg(long, conflicts_with_all = ["configuration", "container", "name", "output", "disable_plugin"])]
         file: Option<PathBuf>,
         /// 更新配置时的原因。
         #[arg(long)]
@@ -330,6 +333,9 @@ pub enum PackageAction {
         /// 从 workspace 主项目解析源码来源。
         #[arg(long)]
         workspace: Option<String>,
+        /// 包输出根目录；每个插件会使用自己的目录名。
+        #[arg(long)]
+        output: Option<PathBuf>,
     },
 
     /// 对解析出的 UE 引擎生成 Installed Build
@@ -337,6 +343,12 @@ pub enum PackageAction {
         /// workspace 名。不提供时只在唯一候选存在时自动选择。
         #[arg(long)]
         workspace: Option<String>,
+        /// 包输出根目录；省略 --name 时使用 InstalledBuild-Win64。
+        #[arg(long)]
+        output: Option<PathBuf>,
+        /// Installed Build 的目录名。
+        #[arg(long)]
+        name: Option<String>,
     },
 
     /// 判断指定动作现在是否可执行
@@ -357,6 +369,12 @@ pub enum PackageAction {
         /// 从 workspace 主项目解析源码来源。
         #[arg(long)]
         workspace: Option<String>,
+        /// 输出根目录，仅用于生成与检查计划。
+        #[arg(long)]
+        output: Option<PathBuf>,
+        /// 输出目录名，仅用于生成与检查计划。
+        #[arg(long)]
+        name: Option<String>,
     },
 
     /// 展示实际会执行的阶段、参数和输出位置
@@ -377,6 +395,12 @@ pub enum PackageAction {
         /// 从 workspace 主项目解析源码来源。
         #[arg(long)]
         workspace: Option<String>,
+        /// 输出根目录，仅用于生成计划。
+        #[arg(long)]
+        output: Option<PathBuf>,
+        /// 输出目录名，仅用于生成计划。
+        #[arg(long)]
+        name: Option<String>,
     },
 
     /// 执行配置中声明的多个阶段
