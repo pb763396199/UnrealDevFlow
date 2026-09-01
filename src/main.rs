@@ -19,6 +19,7 @@ mod migration;
 mod output;
 mod package_profile;
 mod plugin;
+mod project_packaging;
 mod source_context;
 mod state;
 mod ue_commands;
@@ -322,6 +323,7 @@ fn run(cli: Cli) -> Result<()> {
                 task,
                 configuration,
                 container,
+                cook_mode,
                 name,
                 output,
                 disable_plugin,
@@ -332,6 +334,7 @@ fn run(cli: Cli) -> Result<()> {
                 task,
                 configuration,
                 container,
+                cook_mode,
                 name,
                 output,
                 disable_plugin,

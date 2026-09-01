@@ -132,7 +132,7 @@ udf build check <task-ref> --format json   # 同样的结论，机器可读
 udf build check --workspace <名字>          # 不给任务引用就是查主项目
 ```
 
-四种结论。这条命令自己永远返回 0——结论就是答案，不是失败。
+四种结论。这条命令自己永远返回 0，结论就是答案，不是失败。
 
 | 结论 | 意思 | 该怎么做 |
 |---|---|---|
@@ -154,13 +154,15 @@ udf build project [--workspace <名字>] [--profile light|medium|heavy]
 
 ### 项目打包配置
 
-项目 task 首次需要打包时，先保存固定配置。之后 `package plan`、`check` 和 `project` 使用同一份配置。
+项目 task 首次需要打包时，先保存固定配置。配置会保存项目原生 Packaging、Cooker、地图和
+Windows 平台设置的摘要；之后 `package plan`、`check` 和 `project` 使用同一份配置，并由 UE
+继续解释未被 UDF 映射的设置。新配置默认使用日常开发的 `iterate`，完整发布必须显式使用 `full`。
 常用配置只包含 `--configuration`、`--container`、`--output`、`--name` 和重复的 `--disable-plugin`。
 MCP 等不能打包的插件可以按用户要求加入禁用列表，修改必须带 `--reason`。
 
 ```powershell
-udf package configure --task <workspace/task-id> --configuration Shipping --container pak `
-  --output "C:\Package" --name "UGA-task-Win64-Shipping" --disable-plugin ModelContextProtocol --reason "验证 Shipping 包"
+udf package configure --task <workspace/task-id> --configuration Shipping --container pak --cook-mode iterate `
+  --output "C:\Package" --name "UGA-task-Win64-Shipping" --disable-plugin ModelContextProtocol --reason "日常开发打包"
 udf package plan project --task <workspace/task-id>
 udf package project --task <workspace/task-id>
 udf package recover <execution-id>
@@ -169,6 +171,7 @@ udf package recover <execution-id>
 `--output` 指包根目录，`--name` 指包目录名；省略 name 时自动生成项目、任务、平台和配置组合名。高级地图、数据映射和既有文件接管使用严格候选文件：
 `udf package configure --task <workspace/task-id> --file <profile.toml> --reason "..."`。
 `disabled_plugins = []` 才表示清空禁用列表，省略 `--disable-plugin` 表示保持原列表。
+日常开发使用 `--cook-mode iterate`，正式发布使用 `--cook-mode full`。只有候选文件显式设置 `[cook] mode = "iterate"`，并且项目、引擎、设置与来源摘要匹配时才传 `-iterate`；Pak 有内容变化时仍可能重建。项目设置发生变化时，必须用带 `--reason` 的 `configure` 接纳新基线。
 `recover` 只处理有完整事务日志的未完成交付，不重新 Cook，也不会凭目录内容猜测删除文件。
 
 插件包可用 `udf package plugin <插件> --output <包根目录>`，多个插件按插件名分目录；Installed Build 可用 `udf package engine --output <包根目录> --name <目录名>`。省略 Installed Build 的 name 时使用 `InstalledBuild-Win64`，避免平台默认目录重名。
@@ -250,7 +253,7 @@ udf task cleanup <task-ref>
 |---|---|
 | `switch` 报「目录被占用」 | 关掉 Rider/VSCode/资源管理器，再跑 `udf task switch <task-ref> --force` |
 | 报「Build.bat 不存在」 | 重跑 `udf workspace add --engine-path "正确路径"` |
-| `build` 像是卡在别人的编译后面 | `udf build check <task-ref>`——`deferred` 就是别的 UBT 占着锁 |
+| `build` 像是卡在别人的编译后面 | `udf build check <task-ref>`，`deferred` 就是别的 UBT 占着锁 |
 | 合并顺序搞错了 | `git reflog`，然后 `git reset --hard <合并前的提交>`，重跑 `udf task merge` |
 | 引擎和项目的依赖冲突 | `udf task create ... --override-dep <名字>=engine\|project` |
 | 短任务 id 有歧义 | 用完整引用 `workspace/task-id` |
@@ -258,7 +261,7 @@ udf task cleanup <task-ref>
 
 ## Junction 的生命周期（重要）
 
-跑 `udf task delete <task-ref>` 时，工具会**自动清理 Junction**——所有已知主项目里指向这个
+跑 `udf task delete <task-ref>` 时，工具会**自动清理 Junction**。所有已知主项目里指向这个
 任务 worktree 的 Junction 都会被清掉。这是为了不留下会挡住以后 `switch` 的断链 Junction。
 
 **`delete` 的时候发生了什么：**
@@ -279,9 +282,9 @@ udf task cleanup <task-ref>
 
 ## 完整文档（在工具的源码仓库里）
 
-- `AGENTS.md` — 完整规范：工作流、v2 多插件、提交格式、故障排查
-- `README.md` — 面向用户的安装、init/create/next/finish、workspace 说明
-- `docs/releases/v0.2.0.md` — 0.2.0 的命令改名对照表
-- `docs/plans/2026-06-12-002-multi-workspace-and-simple-commands.md` — workspace 与小白命令的设计
-- `docs/plans/2026-06-09-001-feat-multi-plugin-support-implementation-plan.md` — v2 设计
-- `docs/insights/2026-06-09-001-ubt-strict-build-flags-reference.md` — UBT 严格编译参数考据
+- `AGENTS.md`：完整规范，工作流、v2 多插件、提交格式、故障排查
+- `README.md`：面向用户的安装、init/create/next/finish、workspace 说明
+- `docs/releases/v0.2.0.md`：0.2.0 的命令改名对照表
+- `docs/plans/2026-06-12-002-multi-workspace-and-simple-commands.md`：workspace 与小白命令的设计
+- `docs/plans/2026-06-09-001-feat-multi-plugin-support-implementation-plan.md`：v2 设计
+- `docs/insights/2026-06-09-001-ubt-strict-build-flags-reference.md`：UBT 严格编译参数考据

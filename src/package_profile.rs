@@ -1,6 +1,7 @@
 use crate::config::Config;
 use crate::error::{Result, UdfError};
 use crate::host;
+use crate::project_packaging::{PackageContainer as ProjectContainer, ProjectPackagingSnapshot};
 use md5::{Digest, Md5};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
@@ -28,6 +29,24 @@ impl Container {
     }
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum CookMode {
+    #[default]
+    Iterate,
+    Full,
+}
+
+impl CookMode {
+    pub fn parse(value: &str) -> Result<Self> {
+        match value.to_ascii_lowercase().as_str() {
+            "full" => Ok(Self::Full),
+            "iterate" => Ok(Self::Iterate),
+            other => Err(UdfError::Other(format!("不支持的 Cook 模式：{other}"))),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PackageProfile {
     pub schema_version: u32,
@@ -47,6 +66,10 @@ pub struct PackageProfile {
     pub last_reason: String,
     #[serde(default)]
     pub content_digest: String,
+    #[serde(default)]
+    pub project_settings: Option<ProjectPackagingSnapshot>,
+    #[serde(default)]
+    pub cook_mode: CookMode,
 }
 
 #[derive(Debug, Serialize)]
@@ -58,6 +81,7 @@ pub struct ConfigureResult {
     pub name: String,
     pub output: PathBuf,
     pub disabled_plugins: Vec<String>,
+    pub cook_mode: CookMode,
     pub revision: u64,
     pub changed: bool,
 }
@@ -68,6 +92,7 @@ pub struct ConfigureOptions {
     pub task: Option<String>,
     pub configuration: Option<String>,
     pub container: Option<String>,
+    pub cook_mode: Option<String>,
     pub name: Option<String>,
     pub output: Option<PathBuf>,
     pub disable_plugin: Vec<String>,
@@ -123,8 +148,21 @@ pub fn profile_path(binding: &Binding) -> Result<PathBuf> {
     }
 }
 
-fn defaults(binding: &Binding) -> PackageProfile {
-    let name = default_name(binding, "Development");
+fn defaults(
+    binding: &Binding,
+    project_settings: Option<&ProjectPackagingSnapshot>,
+) -> PackageProfile {
+    let configuration = project_settings
+        .and_then(|settings| settings.packaging.configuration.clone())
+        .unwrap_or_else(|| "Development".into());
+    let name = default_name(binding, &configuration);
+    let container = project_settings
+        .map(|settings| match settings.packaging.container {
+            ProjectContainer::Loose => Container::Loose,
+            ProjectContainer::Pak => Container::Pak,
+            ProjectContainer::Iostore => Container::Iostore,
+        })
+        .unwrap_or(Container::Pak);
     PackageProfile {
         schema_version: 1,
         task_uid: binding.task_uid.clone(),
@@ -132,14 +170,16 @@ fn defaults(binding: &Binding) -> PackageProfile {
         host: binding.host.clone(),
         project: binding.project.clone(),
         engine: binding.engine.clone(),
-        configuration: "Development".into(),
-        container: Container::Pak,
+        configuration,
+        container,
         name: name.clone(),
         output: binding.host.join("Saved/UnrealDevFlow/Packages").join(name),
         disabled_plugins: Vec::new(),
         revision: 0,
         last_reason: String::new(),
         content_digest: String::new(),
+        project_settings: project_settings.cloned(),
+        cook_mode: CookMode::Iterate,
     }
 }
 
@@ -179,6 +219,8 @@ fn reject_unknown(value: &toml::Value) -> Result<()> {
         "revision",
         "last_reason",
         "content_digest",
+        "project_settings",
+        "cook",
         "source",
         "build",
         "package",
@@ -221,6 +263,53 @@ fn profile_digest(profile: &PackageProfile) -> String {
         &profile.disabled_plugins,
         profile.revision,
         &profile.last_reason,
+        &profile.project_settings,
+        profile.cook_mode,
+    );
+    format!(
+        "md5:{:x}",
+        Md5::digest(serde_json::to_vec(&value).unwrap_or_default())
+    )
+}
+
+fn legacy_profile_digest(profile: &PackageProfile) -> String {
+    let value = (
+        profile.schema_version,
+        &profile.task_uid,
+        &profile.created,
+        &profile.host,
+        &profile.project,
+        &profile.engine,
+        &profile.configuration,
+        &profile.container,
+        &profile.name,
+        &profile.output,
+        &profile.disabled_plugins,
+        profile.revision,
+        &profile.last_reason,
+    );
+    format!(
+        "md5:{:x}",
+        Md5::digest(serde_json::to_vec(&value).unwrap_or_default())
+    )
+}
+
+fn project_profile_digest_without_cook(profile: &PackageProfile) -> String {
+    let value = (
+        profile.schema_version,
+        &profile.task_uid,
+        &profile.created,
+        &profile.host,
+        &profile.project,
+        &profile.engine,
+        &profile.configuration,
+        &profile.container,
+        &profile.name,
+        &profile.output,
+        &profile.disabled_plugins,
+        profile.revision,
+        &profile.last_reason,
+        &profile.project_settings,
     );
     format!(
         "md5:{:x}",
@@ -244,7 +333,26 @@ fn load_profile(
     reject_nested(&value, "build", &["configuration"])?;
     reject_nested(&value, "package", &["container", "name", "output"])?;
     reject_nested(&value, "plugins", &["disabled"])?;
-    let mut profile = defaults(binding);
+    reject_nested(
+        &value,
+        "project_settings",
+        &[
+            "digest",
+            "source_files",
+            "source_digests",
+            "packaging",
+            "cooker",
+            "maps",
+        ],
+    )?;
+    reject_nested(&value, "cook", &["mode"])?;
+    let mut profile = defaults(binding, None);
+    let has_cook_section = value.get("cook").is_some();
+    if !has_cook_section {
+        // Profiles created before cook-mode existed were full package recipes.
+        // Preserve that fixed behavior instead of changing it during upgrade.
+        profile.cook_mode = CookMode::Full;
+    }
     if let Some(table) = value.as_table() {
         if let Some(v) = table
             .get("source")
@@ -292,6 +400,19 @@ fn load_profile(
                 .map(str::to_string)
                 .collect();
         }
+        if let Some(value) = table.get("project_settings") {
+            profile.project_settings =
+                Some(value.clone().try_into().map_err(|error| {
+                    UdfError::Other(format!("project_settings 配置无效：{error}"))
+                })?);
+        }
+        if let Some(value) = table
+            .get("cook")
+            .and_then(|value| value.get("mode"))
+            .and_then(toml::Value::as_str)
+        {
+            profile.cook_mode = CookMode::parse(value)?;
+        }
         if let Some(v) = table.get("revision").and_then(toml::Value::as_integer) {
             profile.revision = v as u64;
         }
@@ -326,9 +447,18 @@ fn load_profile(
             }
         }
     }
+    let expected_digest = if profile.project_settings.is_some() {
+        if value.get("cook").is_some() {
+            profile_digest(&profile)
+        } else {
+            project_profile_digest_without_cook(&profile)
+        }
+    } else {
+        legacy_profile_digest(&profile)
+    };
     if verify_digest
         && !profile.content_digest.is_empty()
-        && profile.content_digest != profile_digest(&profile)
+        && profile.content_digest != expected_digest
     {
         return Err(UdfError::Other(
             "当前打包配置已被直接修改；请使用 package configure --file 接纳候选配置并提供 --reason"
@@ -362,6 +492,22 @@ fn serialized_profile(profile: &PackageProfile) -> Result<String> {
     value.insert(
         "content_digest".into(),
         profile.content_digest.clone().into(),
+    );
+    if let Some(settings) = &profile.project_settings {
+        value.insert(
+            "project_settings".into(),
+            toml::Value::try_from(settings)
+                .map_err(|error| UdfError::Other(format!("项目打包设置序列化失败：{error}")))?,
+        );
+    }
+    value.insert(
+        "cook".into(),
+        toml::Value::Table(toml::map::Map::from_iter([(
+            "mode".into(),
+            format!("{:?}", profile.cook_mode)
+                .to_ascii_lowercase()
+                .into(),
+        )])),
     );
     value.insert(
         "source".into(),
@@ -444,10 +590,12 @@ pub fn configure(options: ConfigureOptions) -> Result<()> {
         options.workspace.as_deref(),
         options.task.as_deref(),
     )?;
+    let project_settings = crate::project_packaging::load_snapshot(&binding.project)?;
     let path = profile_path(&binding)?;
     if options.file.is_some()
         && (options.configuration.is_some()
             || options.container.is_some()
+            || options.cook_mode.is_some()
             || options.name.is_some()
             || options.output.is_some()
             || !options.disable_plugin.is_empty())
@@ -458,7 +606,7 @@ pub fn configure(options: ConfigureOptions) -> Result<()> {
     // reviewed manual edit; ordinary configure calls must reject drift.
     let existing = load_profile(&path, &binding, options.file.is_none())?;
     let was_existing = existing.is_some();
-    let mut profile = existing.unwrap_or_else(|| defaults(&binding));
+    let mut profile = existing.unwrap_or_else(|| defaults(&binding, Some(&project_settings)));
     let before = profile.clone();
     if let Some(file) = options.file {
         profile = load_profile(&file, &binding, false)?
@@ -470,11 +618,17 @@ pub fn configure(options: ConfigureOptions) -> Result<()> {
             )));
         }
     } else {
+        if profile.project_settings.is_none() {
+            profile.project_settings = Some(project_settings.clone());
+        }
         if let Some(value) = options.configuration {
             profile.configuration = value;
         }
         if let Some(value) = options.container {
             profile.container = Container::parse(&value)?;
+        }
+        if let Some(value) = options.cook_mode {
+            profile.cook_mode = CookMode::parse(&value)?;
         }
         if let Some(value) = options.name.as_deref() {
             let name = normalize_name(value)?;
@@ -521,6 +675,7 @@ pub fn configure(options: ConfigureOptions) -> Result<()> {
             name: profile.name,
             output: profile.output,
             disabled_plugins: profile.disabled_plugins,
+            cook_mode: profile.cook_mode,
             revision: profile.revision,
             changed,
         },
@@ -541,5 +696,16 @@ pub fn load_for_project(
     task: Option<&str>,
 ) -> Result<Option<PackageProfile>> {
     let binding = resolve_binding(config, workspace, task)?;
-    load_profile(&profile_path(&binding)?, &binding, true)
+    let profile = load_profile(&profile_path(&binding)?, &binding, true)?;
+    if let Some(profile) = profile.as_ref()
+        && let Some(saved) = profile.project_settings.as_ref()
+    {
+        let current = crate::project_packaging::load_snapshot(&profile.project)?;
+        if current.digest != saved.digest {
+            return Err(UdfError::Other(
+                "项目原生打包设置已变化；请使用 package configure --reason 显式更新固定配置".into(),
+            ));
+        }
+    }
+    Ok(profile)
 }

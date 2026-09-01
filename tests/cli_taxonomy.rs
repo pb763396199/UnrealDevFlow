@@ -69,6 +69,18 @@ fn package_contains_configure() {
 }
 
 #[test]
+fn package_help_describes_cook_modes() {
+    let configure_help = help_for(&["package", "configure"]);
+    assert!(configure_help.contains("--cook-mode <MODE>"));
+    assert!(configure_help.contains("日常开发"));
+    assert!(configure_help.contains("完整发布"));
+
+    let project_help = help_for(&["package", "project"]);
+    assert!(project_help.contains("iterate"));
+    assert!(project_help.contains("configure --cook-mode full"));
+}
+
+#[test]
 fn package_contains_recover() {
     let parsed = Cli::parse_from(["udf", "package", "recover", "package-project-test"]);
     assert!(matches!(

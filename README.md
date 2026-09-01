@@ -269,16 +269,18 @@ udf task finish neon-dev/prefab-save-bug
 
 `package` 接受 workspace 或 task 作为源码来源；来源不同不会改变同名二级命令的含义、输出结构或生命周期。
 
-项目首次需要打包时，先保存配置。之后 `project`、`plan` 和 `check` 使用同一份配置，不再临时拼接
-Shipping 或 Cook 参数。MCP 等不能参与打包的插件可以显式加入禁用列表。
+项目首次需要打包时，先保存配置。配置会记录项目 `ProjectPackagingSettings`、Cooker、地图和
+Windows 平台设置的摘要；之后 `project`、`plan` 和 `check` 使用同一份固定基线，不再临时自创
+Shipping 或 Cook 参数。新配置默认是日常开发用的 `iterate`，完整发布必须显式改成 `full`。
+MCP 等不能参与打包的插件可以显式加入禁用列表。
 
 ~~~powershell
-udf package configure --task neon-dev/my-task --configuration Shipping --container pak --output "C:/Package" --name "UGA-my-task-Win64-Shipping" --disable-plugin ModelContextProtocol --reason "验证 Shipping 包"
+udf package configure --task neon-dev/my-task --configuration Shipping --container pak --cook-mode iterate --output "C:/Package" --name "UGA-my-task-Win64-Shipping" --disable-plugin ModelContextProtocol --reason "日常开发打包"
 udf package plan project --task neon-dev/my-task
 udf package project --task neon-dev/my-task
 ~~~
 
-`--output` 是包根目录，`--name` 是包目录名；省略 name 时自动生成项目、任务、平台和配置组合名，避免默认平台目录冲突。高级地图、数据映射和既有文件接管使用 `package configure --file <候选.toml> --reason <原因>`。
+`--output` 是包根目录，`--name` 是包目录名；省略 name 时自动生成项目、任务、平台和配置组合名，避免默认平台目录冲突。日常开发使用 `--cook-mode iterate`，正式发布使用 `--cook-mode full`。iterate 只有在项目、引擎、设置和来源摘要匹配时才复用持久化 Cook workspace；Pak 有内容变化时仍可能重建。高级地图、数据映射和既有文件接管使用 `package configure --file <候选.toml> --reason <原因>`。
 候选文件中的 `disabled_plugins = []` 才表示清空禁用列表，省略 `--disable-plugin` 表示保持原列表。
 交付中断时使用 `package recover <execution-id>`；没有完整事务日志时工具会拒绝修改输出目录。
 

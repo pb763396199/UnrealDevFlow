@@ -288,6 +288,10 @@ pub enum PackageAction {
         /// loose、pak 或 iostore。
         #[arg(long)]
         container: Option<String>,
+        /// Cook 模式：iterate 用于日常开发，full 用于完整发布。
+        /// 新配置默认 iterate；已有配置保持原模式。iterate 只有在缓存摘要匹配时才复用 Cook，Pak 仍可能重建。
+        #[arg(long = "cook-mode", value_name = "MODE", value_parser = ["iterate", "full"])]
+        cook_mode: Option<String>,
         /// 包目录名；省略时自动生成项目、任务、平台和配置组合名。
         #[arg(long)]
         name: Option<String>,
@@ -298,7 +302,7 @@ pub enum PackageAction {
         #[arg(long = "disable-plugin")]
         disable_plugin: Vec<String>,
         /// 使用完整的严格候选配置。
-        #[arg(long, conflicts_with_all = ["configuration", "container", "name", "output", "disable_plugin"])]
+        #[arg(long, conflicts_with_all = ["configuration", "container", "cook_mode", "name", "output", "disable_plugin"])]
         file: Option<PathBuf>,
         /// 更新配置时的原因。
         #[arg(long)]
@@ -310,7 +314,8 @@ pub enum PackageAction {
         /// 已记录的 package execution ID。
         execution_id: String,
     },
-    /// 对解析出的 UE 项目生成可运行项目包
+    /// 对解析出的 UE 项目生成可运行项目包。
+    /// 使用 profile 中固定的 Cook 模式，日常开发通常是 iterate，正式发布请先 configure --cook-mode full。
     Project {
         /// workspace 名。不提供时只在唯一候选存在时自动选择。
         #[arg(long)]

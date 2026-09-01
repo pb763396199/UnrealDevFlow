@@ -4,9 +4,9 @@ mod ue_commands;
 use std::path::PathBuf;
 
 use ue_commands::{
-    Configuration, EngineSourceBuildOptions, InstalledBuildOptions, PackageContainer,
-    ProjectPackageOptions, UbtMutexMode, UePlatform, engine_source_build_commands,
-    installed_build_commands, project_package_commands,
+    Configuration, EngineSourceBuildOptions, InstalledBuildOptions, NativePackageSettings,
+    PackageContainer, ProjectPackageOptions, UbtMutexMode, UePlatform,
+    engine_source_build_commands, installed_build_commands, project_package_commands,
 };
 
 fn argv(commands: &[ue_commands::UeCommand]) -> Vec<Vec<String>> {
@@ -25,6 +25,8 @@ fn project_package_argv_matches_ueb_default_buildcookrun() {
         package_args: None,
         container: PackageContainer::Pak,
         clean: false,
+        native_settings: None,
+        iterate: false,
     };
 
     assert_eq!(
@@ -75,6 +77,8 @@ fn project_package_derives_platform_configuration_mutex_and_clean() {
         package_args: None,
         container: PackageContainer::Iostore,
         clean: true,
+        native_settings: None,
+        iterate: false,
     };
     let command = project_package_commands(&options)[0].argv();
 
@@ -100,6 +104,8 @@ fn project_package_preserves_explicit_package_args_ubtargs() {
         ]),
         container: PackageContainer::Pak,
         clean: false,
+        native_settings: None,
+        iterate: false,
     };
     let command = project_package_commands(&options)[0].argv();
 
@@ -107,6 +113,93 @@ fn project_package_preserves_explicit_package_args_ubtargs() {
     assert!(!command.contains(&"-clientconfig=Shipping".to_string()));
     assert!(command.contains(&"-ubtargs=-Custom".to_string()));
     assert!(!command.contains(&"-ubtargs=-NoMutex".to_string()));
+}
+
+#[test]
+fn project_profile_uses_native_project_settings_for_package_args() {
+    let options = ProjectPackageOptions {
+        engine_root: PathBuf::from("C:/UE"),
+        project: PathBuf::from("C:/ws/Project/AES.uproject"),
+        archive_dir: PathBuf::from("C:/ws/Archive"),
+        platform: UePlatform::Windows,
+        configuration: Configuration::Shipping,
+        mutex: UbtMutexMode::Wait,
+        package_args: None,
+        container: PackageContainer::Pak,
+        clean: false,
+        native_settings: Some(NativePackageSettings {
+            build: Some("IfProjectHasCode".into()),
+            full_rebuild: Some(false),
+            include_debug_files: Some(true),
+            cook_all: Some(false),
+            cook_maps_only: Some(false),
+            skip_editor_content: Some(false),
+            compressed: Some(true),
+            include_prerequisites: Some(true),
+            use_zen_store: Some(false),
+            maps_to_cook: Vec::new(),
+        }),
+        iterate: false,
+    };
+    let command = project_package_commands(&options)[0].argv();
+
+    assert!(command.contains(&"-build".to_string()));
+    assert!(command.contains(&"-pak".to_string()));
+    assert!(command.contains(&"-compressed".to_string()));
+    assert!(command.contains(&"-prereqs".to_string()));
+    assert!(!command.contains(&"-allmaps".to_string()));
+    assert!(!command.contains(&"-skipcookingeditorcontent".to_string()));
+    assert!(!command.contains(&"-iterate".to_string()));
+}
+
+#[test]
+fn project_profile_maps_explicit_native_cook_options() {
+    let options = ProjectPackageOptions {
+        engine_root: PathBuf::from("C:/UE"),
+        project: PathBuf::from("C:/ws/Project/AES.uproject"),
+        archive_dir: PathBuf::from("C:/ws/Archive"),
+        platform: UePlatform::Windows,
+        configuration: Configuration::Shipping,
+        mutex: UbtMutexMode::Wait,
+        package_args: None,
+        container: PackageContainer::Iostore,
+        clean: false,
+        native_settings: Some(NativePackageSettings {
+            build: Some("IfProjectHasCode".into()),
+            full_rebuild: Some(true),
+            include_debug_files: Some(false),
+            cook_all: Some(true),
+            cook_maps_only: Some(true),
+            skip_editor_content: Some(true),
+            compressed: Some(false),
+            include_prerequisites: Some(false),
+            use_zen_store: Some(true),
+            maps_to_cook: vec!["/Game/Maps/Main".into(), "/Game/Maps/Test".into()],
+        }),
+        iterate: true,
+    };
+    let command = project_package_commands(&options)[0].argv();
+
+    for expected in [
+        "-build",
+        "-clean",
+        "-nodebuginfo",
+        "-cook",
+        "-iterate",
+        "-allmaps",
+        "-cookmapsonly",
+        "-skipcookingeditorcontent",
+        "-iostore",
+        "-zenstore",
+        "-mapstocook=/Game/Maps/Main+/Game/Maps/Test",
+    ] {
+        assert!(
+            command.contains(&expected.to_string()),
+            "missing {expected}"
+        );
+    }
+    assert!(!command.contains(&"-compressed".to_string()));
+    assert!(!command.contains(&"-prereqs".to_string()));
 }
 
 #[test]

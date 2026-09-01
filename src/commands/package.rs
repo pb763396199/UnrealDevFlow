@@ -2,24 +2,146 @@ use crate::config::Config;
 use crate::error::{Result, UdfError};
 use crate::output;
 use crate::package_profile;
+use crate::project_packaging::{self, PackageContainer as ProjectContainer};
 use crate::ue_commands::{
-    Configuration, EngineSourceBuildOptions, InstalledBuildOptions, PackageContainer,
-    ProjectPackageOptions, UbtMutexMode, UeCommand, UePlatform, engine_source_build_commands,
-    installed_build_commands, project_package_commands,
+    Configuration, EngineSourceBuildOptions, InstalledBuildOptions, NativePackageSettings,
+    PackageContainer, ProjectPackageOptions, UbtMutexMode, UeCommand, UePlatform,
+    engine_source_build_commands, installed_build_commands, project_package_commands,
 };
 use chrono::Utc;
 use md5::{Digest, Md5};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::time::UNIX_EPOCH;
 
 fn plugin_stage_root(execution_id: &str) -> PathBuf {
     let mut hasher = Md5::new();
     hasher.update(execution_id.as_bytes());
     let digest = format!("{:x}", hasher.finalize());
     std::env::temp_dir().join("UDF").join(&digest[..12])
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CookCacheState {
+    schema_version: u32,
+    project: PathBuf,
+    engine: PathBuf,
+    configuration: String,
+    container: String,
+    project_settings_digest: String,
+    source_fingerprint: String,
+}
+
+fn cook_cache_root(profile: &package_profile::PackageProfile) -> Result<PathBuf> {
+    let value = format!(
+        "{}|{}|{}|{}",
+        profile.task_uid,
+        profile.project.display(),
+        profile.engine.display(),
+        profile.configuration
+    );
+    let digest = format!("{:x}", Md5::digest(value.as_bytes()));
+    Ok(Config::config_dir()?
+        .join("package")
+        .join("cook-cache")
+        .join(digest))
+}
+
+fn update_source_fingerprint(
+    path: &Path,
+    visited: &mut HashSet<PathBuf>,
+    digest: &mut Md5,
+) -> Result<()> {
+    if crate::junction::exists(path).unwrap_or(false) {
+        let target = crate::junction::get_target(path)?;
+        let canonical = dunce::canonicalize(&target).unwrap_or(target.clone());
+        if !visited.insert(canonical.clone()) {
+            return Ok(());
+        }
+        digest.update(b"junction");
+        digest.update(canonical.to_string_lossy().as_bytes());
+        return update_source_fingerprint(&canonical, visited, digest);
+    }
+    let metadata = fs::metadata(path)?;
+    digest.update(path.to_string_lossy().as_bytes());
+    if metadata.is_dir() {
+        let mut entries = fs::read_dir(path)?
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|entry| {
+                let name = entry
+                    .file_name()
+                    .map(|name| name.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                !excluded_entry(&name) && !excluded_file(&name)
+            })
+            .collect::<Vec<_>>();
+        entries.sort();
+        for entry in entries {
+            update_source_fingerprint(&entry, visited, digest)?;
+        }
+    } else if metadata.is_file() {
+        digest.update(metadata.len().to_le_bytes());
+        if let Ok(modified) = metadata.modified()
+            && let Ok(duration) = modified.duration_since(UNIX_EPOCH)
+        {
+            digest.update(duration.as_secs().to_le_bytes());
+            digest.update(duration.subsec_nanos().to_le_bytes());
+        }
+    }
+    Ok(())
+}
+
+fn source_fingerprint(project_root: &Path) -> Result<String> {
+    let mut digest = Md5::new();
+    let mut visited = HashSet::new();
+    for name in [
+        "Config", "Content", "Plugins", "Source", "Build", "Shaders", "Binaries",
+    ] {
+        let path = project_root.join(name);
+        if path.exists() {
+            update_source_fingerprint(&path, &mut visited, &mut digest)?;
+        }
+    }
+    for project in fs::read_dir(project_root)?
+        .flatten()
+        .map(|entry| entry.path())
+    {
+        if project
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("uproject"))
+        {
+            update_source_fingerprint(&project, &mut visited, &mut digest)?;
+        }
+    }
+    Ok(format!("md5:{:x}", digest.finalize()))
+}
+
+fn cache_state_path(root: &Path) -> PathBuf {
+    root.join(".udf-cook-cache.json")
+}
+
+fn read_cache_state(root: &Path) -> Option<CookCacheState> {
+    let path = cache_state_path(root);
+    fs::read(&path)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+}
+
+fn write_cache_state(root: &Path, state: &CookCacheState) -> Result<()> {
+    fs::write(cache_state_path(root), serde_json::to_vec_pretty(state)?)?;
+    Ok(())
+}
+
+fn container_name(container: PackageContainer) -> &'static str {
+    match container {
+        PackageContainer::Loose => "loose",
+        PackageContainer::Pak => "pak",
+        PackageContainer::Iostore => "iostore",
+    }
 }
 
 fn is_managed_cleanup_target(path: &Path) -> bool {
@@ -39,6 +161,56 @@ fn is_managed_cleanup_target(path: &Path) -> bool {
     // be inside this dedicated hidden log directory.
     path.components()
         .any(|part| part.as_os_str() == ".udf-logs")
+}
+
+fn warning_diagnostics(logs: &[PathBuf]) -> Vec<String> {
+    let mut total = 0usize;
+    let mut categories = BTreeMap::<&'static str, usize>::new();
+    for log in logs {
+        let Ok(text) = fs::read_to_string(log) else {
+            continue;
+        };
+        for line in text.lines() {
+            let lower = line.to_ascii_lowercase();
+            let is_warning = lower.contains("warning:")
+                || lower.contains("warning c")
+                || lower.contains("warning ")
+                || lower.contains("deprecated");
+            if !is_warning {
+                continue;
+            }
+            total += 1;
+            let category = if lower.contains("unable to find package for cooking") {
+                "cook_missing_package"
+            } else if lower.contains("missing file")
+                || lower.contains("failed to find")
+                || lower.contains("could not find")
+            {
+                "missing_file_or_dependency"
+            } else if lower.contains("material")
+                || lower.contains("shader")
+                || lower.contains("niagara")
+            {
+                "material_or_shader"
+            } else if lower.contains("deprecated") || lower.contains("warning c") {
+                "deprecated_or_compiler"
+            } else {
+                "other"
+            };
+            *categories.entry(category).or_default() += 1;
+        }
+    }
+    if total == 0 {
+        return Vec::new();
+    }
+    let summary = categories
+        .into_iter()
+        .map(|(category, count)| format!("{category}={count}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    vec![format!(
+        "UE 日志包含 {total} 条警告（{summary}）；详见 logs 中的原始 UAT/Cook 日志"
+    )]
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -84,6 +256,8 @@ struct PackagePlanReport {
     steps: Vec<PackagePlanStep>,
     outputs: Vec<PathBuf>,
     diagnostics: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    project_settings: Option<crate::project_packaging::ProjectPackagingSnapshot>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -107,6 +281,22 @@ pub struct PackageResult {
     cleanup_targets: Vec<PathBuf>,
     #[serde(default)]
     diagnostics: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    project_settings: Option<crate::project_packaging::ProjectPackagingSnapshot>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    cook_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    cook_reused: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    cook_reuse_reason: Option<String>,
+}
+
+#[derive(Clone, Default)]
+struct PackageEvidence {
+    project_settings: Option<crate::project_packaging::ProjectPackagingSnapshot>,
+    cook_mode: Option<String>,
+    cook_reused: Option<bool>,
+    cook_reuse_reason: Option<String>,
 }
 
 fn check_package_commands(
@@ -531,6 +721,7 @@ fn emit_plan(
     commands: &[UeCommand],
     outputs: Vec<PathBuf>,
     diagnostics: Vec<String>,
+    project_settings: Option<crate::project_packaging::ProjectPackagingSnapshot>,
 ) -> Result<()> {
     let steps = commands
         .iter()
@@ -541,7 +732,7 @@ fn emit_plan(
             argv: command.argv(),
         })
         .collect::<Vec<_>>();
-    let normalized = serde_json::to_vec(&(&steps, &outputs, &diagnostics))?;
+    let normalized = serde_json::to_vec(&(&steps, &outputs, &diagnostics, &project_settings))?;
     let plan_digest = format!("md5:{:x}", Md5::digest(normalized));
     let report = PackagePlanReport {
         domain: "package",
@@ -551,6 +742,7 @@ fn emit_plan(
         steps,
         outputs,
         diagnostics,
+        project_settings,
     };
     output::emit("package plan", report, |report| {
         format!("package {} plan: {}", report.action, report.plan_digest)
@@ -631,6 +823,7 @@ fn run_package_commands(
     source: &str,
     outputs: Vec<PathBuf>,
     cleanup_targets: Vec<PathBuf>,
+    evidence: PackageEvidence,
 ) -> Result<Vec<PathBuf>> {
     save_result(&PackageResult {
         execution_id: execution_id.to_string(),
@@ -646,6 +839,10 @@ fn run_package_commands(
         manifests: Vec::new(),
         cleanup_targets: cleanup_targets.clone(),
         diagnostics: Vec::new(),
+        project_settings: evidence.project_settings.clone(),
+        cook_mode: evidence.cook_mode.clone(),
+        cook_reused: evidence.cook_reused,
+        cook_reuse_reason: evidence.cook_reuse_reason.clone(),
     })?;
     match run_commands(commands, log_dir) {
         Ok(logs) => Ok(logs),
@@ -658,6 +855,8 @@ fn run_package_commands(
                 .filter(|path| path.extension().is_some_and(|ext| ext == "log"))
                 .collect::<Vec<_>>();
             logs.sort();
+            let mut diagnostics = vec![error.to_string()];
+            diagnostics.extend(warning_diagnostics(&logs));
             save_result(&PackageResult {
                 execution_id: execution_id.to_string(),
                 action: action.to_string(),
@@ -671,7 +870,11 @@ fn run_package_commands(
                 logs,
                 manifests: Vec::new(),
                 cleanup_targets,
-                diagnostics: vec![error.to_string()],
+                diagnostics,
+                project_settings: evidence.project_settings,
+                cook_mode: evidence.cook_mode,
+                cook_reused: evidence.cook_reused,
+                cook_reuse_reason: evidence.cook_reuse_reason,
             })?;
             Err(UdfError::Other(format!(
                 "{}（execution ID: {}）",
@@ -916,6 +1119,63 @@ fn copy_tree(source: &Path, destination: &Path, include_source: bool) -> Result<
     Ok(())
 }
 
+fn copy_tree_entry(source: &Path, destination: &Path, include_source: bool) -> Result<()> {
+    if crate::junction::exists(source).unwrap_or(false) {
+        let target = crate::junction::get_target(source)?;
+        if let Some(parent) = destination.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        crate::junction::create(&target, destination).map_err(|error| {
+            UdfError::Other(format!(
+                "创建 staging Junction 失败：{} -> {}：{}",
+                destination.display(),
+                target.display(),
+                error
+            ))
+        })?;
+        return Ok(());
+    }
+    if source.is_dir() {
+        copy_tree(source, destination, include_source)
+    } else if source.is_file() {
+        if let Some(parent) = destination.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::copy(source, destination).map_err(|error| {
+            UdfError::Other(format!(
+                "复制 staging 文件失败：{} -> {}：{}",
+                source.display(),
+                destination.display(),
+                error
+            ))
+        })?;
+        Ok(())
+    } else {
+        Err(UdfError::Other(format!(
+            "staging 输入不存在：{}",
+            source.display()
+        )))
+    }
+}
+
+fn remove_owned_tree(path: &Path) -> Result<()> {
+    if crate::junction::exists(path).unwrap_or(false) {
+        return crate::junction::delete(path);
+    }
+    if !path.exists() {
+        return Ok(());
+    }
+    if path.is_dir() {
+        for entry in fs::read_dir(path)? {
+            remove_owned_tree(&entry?.path())?;
+        }
+        fs::remove_dir(path)?;
+    } else {
+        fs::remove_file(path)?;
+    }
+    Ok(())
+}
+
 fn excluded_file(name: &str) -> bool {
     matches!(
         name.to_ascii_lowercase().as_str(),
@@ -923,14 +1183,29 @@ fn excluded_file(name: &str) -> bool {
     )
 }
 
-fn copy_project_inputs(source_root: &Path, destination: &Path) -> Result<()> {
+fn copy_project_inputs(
+    source_root: &Path,
+    destination: &Path,
+    preserve_plugins_root: bool,
+) -> Result<()> {
     fs::create_dir_all(destination)?;
     for name in [
         "Config", "Content", "Plugins", "Source", "Build", "Shaders", "Binaries",
     ] {
         let source = source_root.join(name);
         if source.exists() {
-            copy_tree(&source, &destination.join(name), true)?;
+            if name == "Plugins" && preserve_plugins_root {
+                crate::junction::create(&source, &destination.join(name)).map_err(|error| {
+                    UdfError::Other(format!(
+                        "创建 staging Plugins Junction 失败：{} -> {}：{}",
+                        destination.join(name).display(),
+                        source.display(),
+                        error
+                    ))
+                })?;
+                continue;
+            }
+            copy_tree_entry(&source, &destination.join(name), true)?;
         }
     }
     for entry in fs::read_dir(source_root)? {
@@ -966,12 +1241,12 @@ fn prepare_project_stage(
         )));
     }
     if stage_root.exists() {
-        fs::remove_dir_all(stage_root)?;
+        remove_owned_tree(stage_root)?;
     }
     let source_root = project
         .parent()
         .ok_or_else(|| UdfError::Other(format!("项目路径没有父目录：{}", project.display())))?;
-    copy_project_inputs(source_root, stage_root)?;
+    copy_project_inputs(source_root, stage_root, plugin_overlays.is_empty())?;
     let staged_project = stage_root.join(
         project
             .file_name()
@@ -1014,7 +1289,7 @@ fn prepare_plugin_stage(
     index: &BTreeMap<String, PathBuf>,
 ) -> Result<()> {
     if stage_root.exists() {
-        fs::remove_dir_all(stage_root)?;
+        remove_owned_tree(stage_root)?;
     }
     fs::create_dir_all(stage_root.join("Plugins"))?;
     for plugin in closure {
@@ -1114,6 +1389,11 @@ pub fn project(workspace: Option<String>, task: Option<String>, mode: PackageMod
             .map(|p| &p.project)
             .unwrap_or(&project_root),
     )?;
+    let source_project = project.clone();
+    let project_settings =
+        project_packaging::load_snapshot(project.parent().ok_or_else(|| {
+            UdfError::Other(format!("项目路径没有父目录：{}", project.display()))
+        })?)?;
     let archive_dir = saved_profile
         .as_ref()
         .map(|p| p.output.clone())
@@ -1125,6 +1405,13 @@ pub fn project(workspace: Option<String>, task: Option<String>, mode: PackageMod
     let configuration = saved_profile
         .as_ref()
         .map(|p| Configuration::parse(&p.configuration))
+        .or_else(|| {
+            project_settings
+                .packaging
+                .configuration
+                .as_deref()
+                .map(Configuration::parse)
+        })
         .unwrap_or(Configuration::Development);
     let container = saved_profile
         .as_ref()
@@ -1133,10 +1420,49 @@ pub fn project(workspace: Option<String>, task: Option<String>, mode: PackageMod
             package_profile::Container::Pak => PackageContainer::Pak,
             package_profile::Container::Iostore => PackageContainer::Iostore,
         })
+        .or(Some(match project_settings.packaging.container {
+            ProjectContainer::Loose => PackageContainer::Loose,
+            ProjectContainer::Pak => PackageContainer::Pak,
+            ProjectContainer::Iostore => PackageContainer::Iostore,
+        }))
         .unwrap_or(PackageContainer::Pak);
+    let configuration_name = configuration.as_unreal_value().to_string();
     let execution_id = execution_id("project");
-    let execution_stage_root = std::env::temp_dir().join("UDF").join(&execution_id);
     let profile_output = saved_profile.is_some();
+    let requested_iterate = saved_profile
+        .as_ref()
+        .is_some_and(|profile| profile.cook_mode == package_profile::CookMode::Iterate);
+    let persistent_stage_root = if requested_iterate {
+        Some(cook_cache_root(
+            saved_profile.as_ref().expect("iterate requires profile"),
+        )?)
+    } else {
+        None
+    };
+    let current_source_fingerprint = if requested_iterate && mode != PackageMode::Check {
+        Some(source_fingerprint(project.parent().ok_or_else(|| {
+            UdfError::Other(format!("项目路径没有父目录：{}", project.display()))
+        })?)?)
+    } else {
+        None
+    };
+    let can_iterate = requested_iterate
+        && persistent_stage_root
+            .as_ref()
+            .and_then(|root| read_cache_state(root).map(|state| (root, state)))
+            .is_some_and(|(root, state)| {
+                root.is_dir()
+                    && current_source_fingerprint.as_deref()
+                        == Some(state.source_fingerprint.as_str())
+                    && state.project_settings_digest == project_settings.digest
+                    && state.project == project
+                    && state.engine == engine_root
+                    && state.configuration == configuration_name.as_str()
+                    && state.container == container_name(container)
+            });
+    let execution_stage_root = persistent_stage_root
+        .clone()
+        .unwrap_or_else(|| std::env::temp_dir().join("UDF").join(&execution_id));
     if mode.executes() {
         let input_diagnostics = project
             .parent()
@@ -1162,12 +1488,26 @@ pub fn project(workspace: Option<String>, task: Option<String>, mode: PackageMod
                 })
                 .transpose()?
                 .unwrap_or_default();
-            Some(prepare_project_stage(
-                &project,
-                &execution_stage_root,
-                &profile.disabled_plugins,
-                &overlays,
-            )?)
+            if can_iterate {
+                let archive = execution_stage_root.join("Archive");
+                if archive.exists() {
+                    remove_owned_tree(&archive)?;
+                }
+                Some(
+                    execution_stage_root.join(
+                        project
+                            .file_name()
+                            .ok_or_else(|| UdfError::Other("项目文件名为空".into()))?,
+                    ),
+                )
+            } else {
+                Some(prepare_project_stage(
+                    &project,
+                    &execution_stage_root,
+                    &profile.disabled_plugins,
+                    &overlays,
+                )?)
+            }
         } else {
             None
         }
@@ -1194,10 +1534,27 @@ pub fn project(workspace: Option<String>, task: Option<String>, mode: PackageMod
         package_args: None,
         container,
         clean: false,
+        native_settings: Some(NativePackageSettings {
+            build: project_settings.packaging.build.clone(),
+            full_rebuild: project_settings.packaging.full_rebuild,
+            include_debug_files: project_settings.packaging.include_debug_files,
+            cook_all: project_settings.packaging.cook_all,
+            cook_maps_only: project_settings.packaging.cook_maps_only,
+            skip_editor_content: project_settings.packaging.skip_editor_content,
+            compressed: project_settings.packaging.compressed,
+            include_prerequisites: project_settings.packaging.include_prerequisites,
+            use_zen_store: project_settings.packaging.use_zen_store,
+            maps_to_cook: project_settings.maps.maps_to_cook.clone(),
+        }),
+        iterate: can_iterate,
     });
     let log_dir = log_dir_for_execution(&project_root, &execution_id);
     let cleanup_targets = if profile_output {
-        vec![log_dir.clone(), execution_stage_root.clone()]
+        if requested_iterate {
+            vec![log_dir.clone()]
+        } else {
+            vec![log_dir.clone(), execution_stage_root.clone()]
+        }
     } else {
         vec![archive_dir.clone(), log_dir.clone()]
     };
@@ -1221,9 +1578,24 @@ pub fn project(workspace: Option<String>, task: Option<String>, mode: PackageMod
     }
     if mode == PackageMode::Plan {
         let (_, diagnostics) = check_package_commands(&commands, None);
-        return emit_plan("project", source, &commands, vec![archive_dir], diagnostics);
+        return emit_plan(
+            "project",
+            source,
+            &commands,
+            vec![archive_dir],
+            diagnostics,
+            Some(project_settings),
+        );
     }
     let id = execution_id;
+    let cook_mode_name = if requested_iterate { "iterate" } else { "full" };
+    let cook_reuse_reason = if requested_iterate && can_iterate {
+        "持久化 Cook 状态与项目来源摘要匹配".to_string()
+    } else if requested_iterate {
+        "没有匹配的持久化 Cook 状态，已回退完整 Cook".to_string()
+    } else {
+        "默认遵循 UE Package Project 的完整 By-the-book Cook".to_string()
+    };
     let logs = if mode.executes() {
         run_package_commands(
             &commands,
@@ -1234,15 +1606,24 @@ pub fn project(workspace: Option<String>, task: Option<String>, mode: PackageMod
             source,
             vec![archive_dir.clone()],
             cleanup_targets.clone(),
+            PackageEvidence {
+                project_settings: Some(project_settings.clone()),
+                cook_mode: Some(cook_mode_name.to_string()),
+                cook_reused: Some(can_iterate),
+                cook_reuse_reason: Some(cook_reuse_reason.clone()),
+            },
         )?
     } else {
         Vec::new()
     };
+    let package_diagnostics = warning_diagnostics(&logs);
     let manifests = if mode.executes() {
         if profile_output {
             write_manifest(&execution_archive_dir, &archive_dir)?;
             publish_directory(&execution_archive_dir, &archive_dir, &id, &log_dir).map_err(
                 |error| {
+                    let mut diagnostics = vec![format!("交付失败：{error}")];
+                    diagnostics.extend(warning_diagnostics(&logs));
                     let mut failed = PackageResult {
                         execution_id: id.clone(),
                         action: "project".to_string(),
@@ -1256,7 +1637,11 @@ pub fn project(workspace: Option<String>, task: Option<String>, mode: PackageMod
                         logs: logs.clone(),
                         manifests: Vec::new(),
                         cleanup_targets: cleanup_targets.clone(),
-                        diagnostics: vec![format!("交付失败：{error}")],
+                        diagnostics,
+                        project_settings: Some(project_settings.clone()),
+                        cook_mode: Some(cook_mode_name.to_string()),
+                        cook_reused: Some(can_iterate),
+                        cook_reuse_reason: Some(cook_reuse_reason.clone()),
                     };
                     let _ = save_result(&failed);
                     failed.diagnostics.push(format!("execution ID: {id}"));
@@ -1272,6 +1657,23 @@ pub fn project(workspace: Option<String>, task: Option<String>, mode: PackageMod
     } else {
         Vec::new()
     };
+    if mode.executes()
+        && requested_iterate
+        && let Some(source_fingerprint) = current_source_fingerprint.as_ref()
+    {
+        write_cache_state(
+            &execution_stage_root,
+            &CookCacheState {
+                schema_version: 1,
+                project: source_project,
+                engine: engine_root.clone(),
+                configuration: configuration_name.clone(),
+                container: container_name(container).to_string(),
+                project_settings_digest: project_settings.digest.clone(),
+                source_fingerprint: source_fingerprint.clone(),
+            },
+        )?;
+    }
     finish_execution(
         "package project",
         PackageResult {
@@ -1291,7 +1693,11 @@ pub fn project(workspace: Option<String>, task: Option<String>, mode: PackageMod
             logs,
             manifests,
             cleanup_targets,
-            diagnostics: Vec::new(),
+            diagnostics: package_diagnostics,
+            project_settings: Some(project_settings),
+            cook_mode: Some(cook_mode_name.to_string()),
+            cook_reused: Some(can_iterate),
+            cook_reuse_reason: Some(cook_reuse_reason),
         },
     )
 }
@@ -1373,7 +1779,7 @@ pub fn plugin(
     }
     if mode == PackageMode::Plan {
         let (_, diagnostics) = check_package_commands(&commands, None);
-        return emit_plan("plugin", source, &commands, package_dirs, diagnostics);
+        return emit_plan("plugin", source, &commands, package_dirs, diagnostics, None);
     }
     let logs = if mode.executes() {
         prepare_plugin_stage(&plugins_root, &stage_root, &closure, &selected_index)?;
@@ -1392,6 +1798,7 @@ pub fn plugin(
             source,
             package_dirs,
             failure_cleanup,
+            PackageEvidence::default(),
         )?;
         for plugin in &plugins {
             let package_dir = output_dir.join(plugin);
@@ -1442,6 +1849,10 @@ pub fn plugin(
             manifests,
             cleanup_targets,
             diagnostics: Vec::new(),
+            project_settings: None,
+            cook_mode: None,
+            cook_reused: None,
+            cook_reuse_reason: None,
         },
     )
 }
@@ -1488,6 +1899,7 @@ pub fn engine(
             &commands,
             vec![output_dir],
             diagnostics,
+            None,
         );
     }
     let id = execution_id("engine");
@@ -1503,6 +1915,7 @@ pub fn engine(
             "workspace",
             vec![output_dir.clone()],
             engine_failure_cleanup_targets(&output_dir, &log_dir, output_preexisted),
+            PackageEvidence::default(),
         )?
     } else {
         Vec::new()
@@ -1528,6 +1941,10 @@ pub fn engine(
             manifests,
             cleanup_targets: vec![output_dir],
             diagnostics: Vec::new(),
+            project_settings: None,
+            cook_mode: None,
+            cook_reused: None,
+            cook_reuse_reason: None,
         },
     )
 }
@@ -1575,6 +1992,10 @@ pub fn build_engine(workspace: Option<String>, plan_only: bool) -> Result<()> {
         manifests: Vec::new(),
         cleanup_targets: Vec::new(),
         diagnostics: Vec::new(),
+        project_settings: None,
+        cook_mode: None,
+        cook_reused: None,
+        cook_reuse_reason: None,
     };
     output::emit(
         if plan_only {
@@ -1814,7 +2235,59 @@ mod tests {
         assert_eq!(fs::read(source.join("Game.uproject")).unwrap(), original);
         assert!(!stage.join(".vscode").exists());
         assert!(!stage.join("ContentBackups").exists());
-        assert!(!stage.join("Plugins/AesWorld/.gitignore").exists());
+        assert!(
+            crate::junction::exists(&stage.join("Plugins")).unwrap(),
+            "without task overlays the complete project plugin root is read-only"
+        );
+        assert!(stage.join("Plugins/AesWorld/.gitignore").exists());
+    }
+
+    #[test]
+    fn project_stage_preserves_top_level_junction_inputs() {
+        let root = tempfile::tempdir().unwrap();
+        let source = root.path().join("SourceProject");
+        let external_content = root.path().join("ExternalContent");
+        let stage = root.path().join("Stage");
+        fs::create_dir_all(&source).unwrap();
+        fs::create_dir_all(&external_content).unwrap();
+        fs::write(external_content.join("asset.uasset"), b"asset").unwrap();
+        crate::junction::create(&external_content, &source.join("Content")).unwrap();
+        fs::write(
+            source.join("Game.uproject"),
+            br#"{"FileVersion":3,"Plugins":[]}"#,
+        )
+        .unwrap();
+
+        prepare_project_stage(&source.join("Game.uproject"), &stage, &[], &[]).unwrap();
+
+        assert!(crate::junction::exists(&stage.join("Content")).unwrap());
+        assert_eq!(
+            crate::junction::get_target(&stage.join("Content")).unwrap(),
+            crate::junction::get_target(&source.join("Content")).unwrap()
+        );
+        assert_eq!(
+            fs::read(stage.join("Content/asset.uasset")).unwrap(),
+            b"asset"
+        );
+    }
+
+    #[test]
+    fn warning_diagnostics_group_unreal_log_warnings() {
+        let root = tempfile::tempdir().unwrap();
+        let log = root.path().join("step.log");
+        fs::write(
+            &log,
+            "Warning: Unable to find package for cooking Foo\nWarning: Failed to find Bar\nwarning C4996: deprecated API\n",
+        )
+        .unwrap();
+
+        let diagnostics = warning_diagnostics(&[log]);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert!(diagnostics[0].contains("3 条警告"));
+        assert!(diagnostics[0].contains("cook_missing_package=1"));
+        assert!(diagnostics[0].contains("missing_file_or_dependency=1"));
+        assert!(diagnostics[0].contains("deprecated_or_compiler=1"));
     }
 
     #[test]

@@ -131,6 +131,22 @@ pub struct ProjectPackageOptions {
     pub package_args: Option<Vec<String>>,
     pub container: PackageContainer,
     pub clean: bool,
+    pub native_settings: Option<NativePackageSettings>,
+    pub iterate: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NativePackageSettings {
+    pub build: Option<String>,
+    pub full_rebuild: Option<bool>,
+    pub include_debug_files: Option<bool>,
+    pub cook_all: Option<bool>,
+    pub cook_maps_only: Option<bool>,
+    pub skip_editor_content: Option<bool>,
+    pub compressed: Option<bool>,
+    pub include_prerequisites: Option<bool>,
+    pub use_zen_store: Option<bool>,
+    pub maps_to_cook: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -250,12 +266,10 @@ pub fn installed_build_commands(options: &InstalledBuildOptions) -> Vec<UeComman
 }
 
 fn resolved_package_args(options: &ProjectPackageOptions) -> Vec<String> {
-    let package_args = options.package_args.clone().unwrap_or_else(|| {
-        DEFAULT_PACKAGE_ARGS
-            .iter()
-            .map(|arg| (*arg).to_string())
-            .collect()
-    });
+    let package_args = options
+        .package_args
+        .clone()
+        .unwrap_or_else(|| native_package_args(options));
     let mut package_args = package_args;
     if matches!(options.container, PackageContainer::Loose) {
         package_args.retain(|arg| {
@@ -279,6 +293,59 @@ fn resolved_package_args(options: &ProjectPackageOptions) -> Vec<String> {
         resolved.extend(package_args);
         resolved
     }
+}
+
+fn native_package_args(options: &ProjectPackageOptions) -> Vec<String> {
+    let Some(settings) = options.native_settings.as_ref() else {
+        return DEFAULT_PACKAGE_ARGS
+            .iter()
+            .map(|arg| (*arg).to_string())
+            .collect();
+    };
+    let mut args = vec!["-nocompileeditor".to_string(), "-nop4".to_string()];
+    match settings.build.as_deref() {
+        Some(value) if value.eq_ignore_ascii_case("never") => args.push("-skipbuild".into()),
+        _ => args.push("-build".into()),
+    }
+    if settings.full_rebuild == Some(true) {
+        args.push("-clean".into());
+    }
+    if settings.include_debug_files == Some(false) {
+        args.push("-nodebuginfo".into());
+    }
+    args.push("-cook".into());
+    if options.iterate {
+        args.push("-iterate".into());
+    }
+    if settings.cook_all == Some(true) {
+        args.push("-allmaps".into());
+        if settings.cook_maps_only == Some(true) {
+            args.push("-cookmapsonly".into());
+        }
+    }
+    if settings.skip_editor_content == Some(true) {
+        args.push("-skipcookingeditorcontent".into());
+    }
+    args.extend(["-stage".into(), "-archive".into(), "-package".into()]);
+    match options.container {
+        PackageContainer::Loose => {}
+        PackageContainer::Pak => args.push("-pak".into()),
+        PackageContainer::Iostore => args.push("-iostore".into()),
+    }
+    if settings.compressed == Some(true) {
+        args.push("-compressed".into());
+    }
+    if settings.include_prerequisites == Some(true) {
+        args.push("-prereqs".into());
+    }
+    if settings.use_zen_store == Some(true) {
+        args.push("-zenstore".into());
+    }
+    if !settings.maps_to_cook.is_empty() {
+        args.push(format!("-mapstocook={}", settings.maps_to_cook.join("+")));
+    }
+    args.push("-utf8output".into());
+    args
 }
 
 fn has_client_config(args: &[String]) -> bool {

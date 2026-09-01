@@ -234,3 +234,129 @@ fn configure_writes_nested_profile_and_rejects_direct_edits() {
     );
     assert!(diagnostics.contains("直接修改"), "{diagnostics}");
 }
+
+#[test]
+fn configure_inherits_project_packaging_baseline_and_detects_changes() {
+    let fixture = Fixture::new();
+    fs::create_dir_all(fixture.project.join("Config")).unwrap();
+    fs::write(
+        fixture.project.join("Config/DefaultGame.ini"),
+        r#"[/Script/UnrealEd.ProjectPackagingSettings]
+BuildConfiguration=PPBC_Development
+PerPlatformBuildConfig=(("Windows", PPBC_Shipping))
+UsePakFile=True
+bCompressed=True
+IncludePrerequisites=True
+"#,
+    )
+    .unwrap();
+    let configured = fixture
+        .command()
+        .args([
+            "--format",
+            "json",
+            "package",
+            "configure",
+            "--workspace",
+            "test",
+            "--reason",
+            "读取项目原生配置",
+        ])
+        .output()
+        .unwrap();
+    assert!(configured.status.success());
+    let response: Value = serde_json::from_slice(&configured.stdout).unwrap();
+    assert_eq!(response["data"]["configuration"], "Shipping");
+    assert_eq!(response["data"]["cookMode"], "iterate");
+
+    let profile = fixture
+        .config_dir
+        .join("package/profiles/workspace_test.toml");
+    let text = fs::read_to_string(&profile).unwrap();
+    assert!(text.contains("project_settings"), "{text}");
+    assert!(text.contains("mode = \"iterate\""), "{text}");
+
+    fs::write(
+        fixture.project.join("Config/DefaultGame.ini"),
+        "[/Script/UnrealEd.ProjectPackagingSettings]\nUsePakFile=False\n",
+    )
+    .unwrap();
+    let plan = fixture
+        .command()
+        .args([
+            "--format",
+            "json",
+            "package",
+            "plan",
+            "project",
+            "--workspace",
+            "test",
+        ])
+        .output()
+        .unwrap();
+    assert!(!plan.status.success());
+    let diagnostics = format!(
+        "{}{}",
+        String::from_utf8_lossy(&plan.stdout),
+        String::from_utf8_lossy(&plan.stderr)
+    );
+    assert!(diagnostics.contains("原生打包设置已变化"), "{diagnostics}");
+}
+
+#[test]
+fn configure_can_fix_full_mode_and_requires_reason_for_existing_profile() {
+    let fixture = Fixture::new();
+    let first = fixture
+        .command()
+        .args([
+            "package",
+            "configure",
+            "--workspace",
+            "test",
+            "--cook-mode",
+            "iterate",
+            "--reason",
+            "日常开发",
+        ])
+        .output()
+        .unwrap();
+    assert!(first.status.success());
+
+    let missing_reason = fixture
+        .command()
+        .args([
+            "package",
+            "configure",
+            "--workspace",
+            "test",
+            "--cook-mode",
+            "full",
+        ])
+        .output()
+        .unwrap();
+    assert!(!missing_reason.status.success());
+
+    let release = fixture
+        .command()
+        .args([
+            "package",
+            "configure",
+            "--workspace",
+            "test",
+            "--cook-mode",
+            "full",
+            "--reason",
+            "正式发布",
+        ])
+        .output()
+        .unwrap();
+    assert!(release.status.success());
+    let profile = fixture
+        .config_dir
+        .join("package/profiles/workspace_test.toml");
+    assert!(
+        fs::read_to_string(profile)
+            .unwrap()
+            .contains("mode = \"full\"")
+    );
+}
