@@ -875,6 +875,7 @@ fn copy_tree(source: &Path, destination: &Path, include_source: bool) -> Result<
         let name = entry.file_name();
         let name_text = name.to_string_lossy();
         if excluded_entry(&name_text)
+            || excluded_file(&name_text)
             || (!include_source && name_text.eq_ignore_ascii_case("Source"))
         {
             continue;
@@ -886,7 +887,14 @@ fn copy_tree(source: &Path, destination: &Path, include_source: bool) -> Result<
             if let Some(parent) = destination_path.parent() {
                 fs::create_dir_all(parent)?;
             }
-            crate::junction::create(&target, &destination_path)?;
+            crate::junction::create(&target, &destination_path).map_err(|error| {
+                UdfError::Other(format!(
+                    "创建 staging Junction 失败：{} -> {}：{}",
+                    destination_path.display(),
+                    target.display(),
+                    error
+                ))
+            })?;
             continue;
         }
         if entry.file_type()?.is_dir() {
@@ -895,7 +903,51 @@ fn copy_tree(source: &Path, destination: &Path, include_source: bool) -> Result<
             if let Some(parent) = destination_path.parent() {
                 fs::create_dir_all(parent)?;
             }
-            fs::copy(&source_path, &destination_path)?;
+            fs::copy(&source_path, &destination_path).map_err(|error| {
+                UdfError::Other(format!(
+                    "复制 staging 文件失败：{} -> {}：{}",
+                    source_path.display(),
+                    destination_path.display(),
+                    error
+                ))
+            })?;
+        }
+    }
+    Ok(())
+}
+
+fn excluded_file(name: &str) -> bool {
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        ".gitattributes" | ".gitignore" | ".gitmodules" | ".p4config" | ".p4ignore"
+    )
+}
+
+fn copy_project_inputs(source_root: &Path, destination: &Path) -> Result<()> {
+    fs::create_dir_all(destination)?;
+    for name in [
+        "Config", "Content", "Plugins", "Source", "Build", "Shaders", "Binaries",
+    ] {
+        let source = source_root.join(name);
+        if source.exists() {
+            copy_tree(&source, &destination.join(name), true)?;
+        }
+    }
+    for entry in fs::read_dir(source_root)? {
+        let entry = entry?;
+        if entry
+            .path()
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("uproject"))
+        {
+            fs::copy(entry.path(), destination.join(entry.file_name())).map_err(|error| {
+                UdfError::Other(format!(
+                    "复制 staging 项目文件失败：{} -> {}：{}",
+                    entry.path().display(),
+                    destination.join(entry.file_name()).display(),
+                    error
+                ))
+            })?;
         }
     }
     Ok(())
@@ -919,7 +971,7 @@ fn prepare_project_stage(
     let source_root = project
         .parent()
         .ok_or_else(|| UdfError::Other(format!("项目路径没有父目录：{}", project.display())))?;
-    copy_tree(source_root, stage_root, true)?;
+    copy_project_inputs(source_root, stage_root)?;
     let staged_project = stage_root.join(
         project
             .file_name()
@@ -1735,6 +1787,13 @@ mod tests {
         let stage = root.path().join("Stage");
         fs::create_dir_all(source.join("Plugins/AesWorld")).unwrap();
         fs::create_dir_all(source.join(".vscode")).unwrap();
+        fs::create_dir_all(source.join("ContentBackups")).unwrap();
+        fs::write(source.join("Plugins/AesWorld/.gitignore"), b"Binaries").unwrap();
+        fs::write(
+            source.join("ContentBackups/should-not-stage.txt"),
+            b"backup",
+        )
+        .unwrap();
         fs::write(
             source.join("Game.uproject"),
             br#"{"FileVersion":3,"Plugins":[{"Name":"ModelContextProtocol","Enabled":true},{"Name":"AesWorld","Enabled":true}]}"#,
@@ -1754,6 +1813,8 @@ mod tests {
         assert_eq!(descriptor["Plugins"][1]["Enabled"], true);
         assert_eq!(fs::read(source.join("Game.uproject")).unwrap(), original);
         assert!(!stage.join(".vscode").exists());
+        assert!(!stage.join("ContentBackups").exists());
+        assert!(!stage.join("Plugins/AesWorld/.gitignore").exists());
     }
 
     #[test]
