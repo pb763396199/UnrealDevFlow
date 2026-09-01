@@ -154,11 +154,25 @@ pub struct InstalledBuildOptions {
 
 pub fn project_package_commands(options: &ProjectPackageOptions) -> Vec<UeCommand> {
     let package_args = resolved_package_args(options);
+    let target = options
+        .project
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or("Game");
+    let unreal_exe = options
+        .engine_root
+        .join("Engine/Binaries/Win64/UnrealEditor-Cmd.exe");
     let mut arguments = vec![
         "BuildCookRun".to_string(),
         format!("-project={}", path_arg(&options.project)),
+        format!("-target={target}"),
         format!("-archivedirectory={}", path_arg(&options.archive_dir)),
         format!("-targetplatform={}", options.platform.uat_target_platform()),
+        format!("-unrealexe={}", path_arg(&unreal_exe)),
+        "-installed".to_string(),
+        "-skipbuildeditor".to_string(),
+        "-nocompile".to_string(),
+        "-nocompileuat".to_string(),
     ];
     arguments.extend(package_args);
 

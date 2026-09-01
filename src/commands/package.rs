@@ -681,6 +681,10 @@ fn run_package_commands(
     }
 }
 
+fn engine_failure_cleanup_targets(output_dir: &Path, log_dir: &Path) -> Vec<PathBuf> {
+    vec![output_dir.to_path_buf(), log_dir.to_path_buf()]
+}
+
 fn extract_exit_code(message: &str) -> Option<i32> {
     let start = message.find("Some(")? + "Some(".len();
     let end = message[start..].find(')')? + start;
@@ -838,7 +842,20 @@ fn plugin_closure(
 fn excluded_entry(name: &str) -> bool {
     matches!(
         name.to_ascii_lowercase().as_str(),
-        ".git" | "workflow" | "intermediate" | "saved" | "deriveddatacache" | "nul"
+        ".git"
+            | "workflow"
+            | "intermediate"
+            | "saved"
+            | "deriveddatacache"
+            | ".claude"
+            | ".codex"
+            | ".omx"
+            | ".sisyphus"
+            | ".idea"
+            | ".junie"
+            | ".vs"
+            | ".vscode"
+            | "nul"
     )
 }
 
@@ -1423,7 +1440,7 @@ pub fn engine(
             &name,
             "workspace",
             vec![output_dir.clone()],
-            vec![log_dir.clone()],
+            engine_failure_cleanup_targets(&output_dir, &log_dir),
         )?
     } else {
         Vec::new()
@@ -1707,6 +1724,7 @@ mod tests {
         let source = root.path().join("SourceProject");
         let stage = root.path().join("Stage");
         fs::create_dir_all(source.join("Plugins/AesWorld")).unwrap();
+        fs::create_dir_all(source.join(".vscode")).unwrap();
         fs::write(
             source.join("Game.uproject"),
             br#"{"FileVersion":3,"Plugins":[{"Name":"ModelContextProtocol","Enabled":true},{"Name":"AesWorld","Enabled":true}]}"#,
@@ -1725,6 +1743,7 @@ mod tests {
         assert_eq!(descriptor["Plugins"][0]["Enabled"], false);
         assert_eq!(descriptor["Plugins"][1]["Enabled"], true);
         assert_eq!(fs::read(source.join("Game.uproject")).unwrap(), original);
+        assert!(!stage.join(".vscode").exists());
     }
 
     #[test]
@@ -1749,5 +1768,21 @@ mod tests {
         assert_eq!(journal.state, "delivered");
         assert_eq!(journal.entries.len(), 1);
         assert!(journal.entries[0].backup.is_some());
+    }
+
+    #[test]
+    fn engine_failure_cleanup_includes_output_and_log_roots() {
+        let targets = engine_failure_cleanup_targets(
+            Path::new("C:/Package/InstalledBuild-Win64"),
+            Path::new("C:/udf/executions/package/package-engine-1"),
+        );
+
+        assert_eq!(
+            targets,
+            vec![
+                PathBuf::from("C:/Package/InstalledBuild-Win64"),
+                PathBuf::from("C:/udf/executions/package/package-engine-1"),
+            ]
+        );
     }
 }
