@@ -267,9 +267,8 @@ pub enum BuildAction {
 
 #[derive(Clone, Copy, Debug, clap::ValueEnum, PartialEq)]
 pub enum PackageTarget {
+    /// 普通项目包；插件包和引擎包请使用 package advanced。
     Project,
-    Plugin,
-    Engine,
 }
 
 #[derive(Subcommand)]
@@ -314,6 +313,11 @@ pub enum PackageAction {
         /// 已记录的 package execution ID。
         execution_id: String,
     },
+    /// 显式执行非项目制品工具链。普通任务打包不会进入这里。
+    Advanced {
+        #[command(subcommand)]
+        action: PackageAdvancedAction,
+    },
     /// 对解析出的 UE 项目生成可运行项目包。
     /// 使用 profile 中固定的 Cook 模式，日常开发通常是 iterate，正式发布请先 configure --cook-mode full。
     Project {
@@ -327,6 +331,7 @@ pub enum PackageAction {
     },
 
     /// 对解析出的插件集合生成可分发插件包
+    #[command(hide = true)]
     Plugin {
         /// 要打包的插件名，按给定顺序作为 seed。
         plugins: Vec<String>,
@@ -344,6 +349,7 @@ pub enum PackageAction {
     },
 
     /// 对解析出的 UE 引擎生成 Installed Build
+    #[command(hide = true)]
     Engine {
         /// workspace 名。不提供时只在唯一候选存在时自动选择。
         #[arg(long)]
@@ -359,13 +365,9 @@ pub enum PackageAction {
     /// 判断指定动作现在是否可执行
     #[command(about = EXECUTION_CHECK_ABOUT)]
     Check {
-        /// 要检查的制品对象。
+        /// 普通项目包目标；非项目目标没有普通入口。
         #[arg(value_enum, default_value = "project")]
         target: PackageTarget,
-
-        /// 插件对象的 seed 名称。
-        #[arg(long = "plugin")]
-        plugins: Vec<String>,
 
         /// 从任务 Host 解析源码来源。
         #[arg(long)]
@@ -374,24 +376,14 @@ pub enum PackageAction {
         /// 从 workspace 主项目解析源码来源。
         #[arg(long)]
         workspace: Option<String>,
-        /// 输出根目录，仅用于生成与检查计划。
-        #[arg(long)]
-        output: Option<PathBuf>,
-        /// 输出目录名，仅用于生成与检查计划。
-        #[arg(long)]
-        name: Option<String>,
     },
 
     /// 展示实际会执行的阶段、参数和输出位置
     #[command(about = EXECUTION_PLAN_ABOUT)]
     Plan {
-        /// 要规划的制品对象。
+        /// 普通项目包目标；非项目目标没有普通入口。
         #[arg(value_enum, default_value = "project")]
         target: PackageTarget,
-
-        /// 插件对象的 seed 名称。
-        #[arg(long = "plugin")]
-        plugins: Vec<String>,
 
         /// 从任务 Host 解析源码来源。
         #[arg(long)]
@@ -400,15 +392,9 @@ pub enum PackageAction {
         /// 从 workspace 主项目解析源码来源。
         #[arg(long)]
         workspace: Option<String>,
-        /// 输出根目录，仅用于生成计划。
-        #[arg(long)]
-        output: Option<PathBuf>,
-        /// 输出目录名，仅用于生成计划。
-        #[arg(long)]
-        name: Option<String>,
     },
 
-    /// 执行配置中声明的多个阶段
+    /// 执行固定配置的项目包；兼容旧脚本，等价于 package project
     Run {
         /// workspace 名。不提供时只在唯一候选存在时自动选择。
         #[arg(long)]
@@ -424,8 +410,61 @@ pub enum PackageAction {
 
     /// 清理由 package 创建并记账的可再生文件
     Clean {
-        /// 要清理的 execution ID。必须显式指定，避免误删最近一次制品。
-        execution_id: String,
+        /// 要清理的 execution ID；省略时只报告可回收空间。
+        #[arg(conflicts_with_all = ["task", "workspace"])]
+        execution_id: Option<String>,
+        /// 只查看或清理某个任务的 UDF 临时材料。
+        #[arg(long, conflicts_with = "workspace")]
+        task: Option<String>,
+        /// 只查看或清理某个 workspace 的 UDF 临时材料。
+        #[arg(long)]
+        workspace: Option<String>,
+        /// 只报告，不删除任何 UDF 临时材料。
+        #[arg(long)]
+        dry_run: bool,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum PackageAdvancedAction {
+    /// 显式生成插件分发包；不会被 project/run 隐式触发。
+    Plugin {
+        /// 要打包的插件名，按给定顺序作为 seed。
+        #[arg(long = "plugin")]
+        plugins: Vec<String>,
+        /// 从任务 Host 解析源码来源。
+        #[arg(long)]
+        task: Option<String>,
+        /// 从 workspace 主项目解析源码来源。
+        #[arg(long)]
+        workspace: Option<String>,
+        /// 包输出根目录。
+        #[arg(long)]
+        output: Option<PathBuf>,
+        /// 只生成计划，不启动 UBT。
+        #[arg(long, conflicts_with = "check")]
+        plan: bool,
+        /// 只做可执行性检查，不启动 UBT。
+        #[arg(long, conflicts_with = "plan")]
+        check: bool,
+    },
+    /// 显式生成 UE Installed Build；需要源码引擎和 BuildGraph 脚本。
+    Engine {
+        /// workspace 名。
+        #[arg(long)]
+        workspace: Option<String>,
+        /// 包输出根目录。
+        #[arg(long)]
+        output: Option<PathBuf>,
+        /// Installed Build 的目录名。
+        #[arg(long)]
+        name: Option<String>,
+        /// 只生成计划，不启动 BuildGraph。
+        #[arg(long, conflicts_with = "check")]
+        plan: bool,
+        /// 只做可执行性检查，不启动 BuildGraph。
+        #[arg(long, conflicts_with = "plan")]
+        check: bool,
     },
 }
 

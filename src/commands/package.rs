@@ -2,6 +2,7 @@ use crate::config::Config;
 use crate::error::{Result, UdfError};
 use crate::output;
 use crate::package_profile;
+use crate::package_storage::StorageReport;
 use crate::project_packaging::{self, PackageContainer as ProjectContainer};
 use crate::ue_commands::{
     Configuration, EngineSourceBuildOptions, InstalledBuildOptions, NativePackageSettings,
@@ -37,11 +38,14 @@ struct CookCacheState {
 
 fn cook_cache_root(profile: &package_profile::PackageProfile) -> Result<PathBuf> {
     let value = format!(
-        "{}|{}|{}|{}",
+        "{}|{}|{}|{}|{:?}|{}|{}",
         profile.task_uid,
         profile.project.display(),
         profile.engine.display(),
-        profile.configuration
+        profile.configuration,
+        profile.container,
+        profile.name,
+        profile.revision,
     );
     let digest = format!("{:x}", Md5::digest(value.as_bytes()));
     Ok(Config::config_dir()?
@@ -236,6 +240,8 @@ struct PackageCheckReport {
     checks: Vec<String>,
     diagnostics: Vec<String>,
     next_command: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    storage: Option<StorageReport>,
 }
 
 #[derive(Debug, Serialize)]
@@ -258,6 +264,8 @@ struct PackagePlanReport {
     diagnostics: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     project_settings: Option<crate::project_packaging::ProjectPackagingSnapshot>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    storage: Option<StorageReport>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -289,6 +297,42 @@ pub struct PackageResult {
     cook_reused: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     cook_reuse_reason: Option<String>,
+    #[serde(flatten)]
+    metadata: PackageMetadata,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PackageMetadata {
+    #[serde(default)]
+    target_kind: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    profile_revision: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    source_revision: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    source_digest: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    lineage_parent: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    lineage_label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    task_ref: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    storage: Option<StorageReport>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    cleanup_policy: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    cleanup_result: Option<String>,
+}
+
+impl PackageMetadata {
+    fn target(target_kind: &str) -> Self {
+        Self {
+            target_kind: target_kind.to_string(),
+            ..Self::default()
+        }
+    }
 }
 
 #[derive(Clone, Default)]
@@ -297,6 +341,7 @@ struct PackageEvidence {
     cook_mode: Option<String>,
     cook_reused: Option<bool>,
     cook_reuse_reason: Option<String>,
+    metadata: PackageMetadata,
 }
 
 fn check_package_commands(
@@ -370,11 +415,13 @@ fn check_package_commands(
     ("ready".to_string(), Vec::new())
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ManifestEntry {
     path: PathBuf,
     bytes: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    digest: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -385,6 +432,8 @@ struct DeliveryEntry {
     backup: Option<PathBuf>,
     old_digest: Option<String>,
     new_digest: String,
+    #[serde(default)]
+    removed: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -489,14 +538,15 @@ fn publish_directory(
     let journal_path = log_dir.join(".udf-delivery-journal.json");
     fs::create_dir_all(output)?;
     fs::create_dir_all(&backup_root)?;
+    let previous_manifest = read_manifest_entries(output);
     let mut relative_files = Vec::new();
     collect_files(source, source, &mut relative_files)?;
     relative_files.sort();
     let mut entries = Vec::new();
-    for relative in relative_files {
-        safe_relative(&relative)?;
-        let from = source.join(&relative);
-        let to = output.join(&relative);
+    for relative in &relative_files {
+        safe_relative(relative)?;
+        let from = source.join(relative);
+        let to = output.join(relative);
         if crate::junction::exists(&to).unwrap_or(false) {
             return Err(UdfError::Other(format!(
                 "交付目标是受保护 Junction：{}",
@@ -504,7 +554,13 @@ fn publish_directory(
             )));
         }
         let (existed, backup, old_digest) = if to.is_file() {
-            let backup = backup_root.join(&relative);
+            if !previous_manifest.contains_key(relative) {
+                return Err(UdfError::Other(format!(
+                    "交付目标存在未由 UDF manifest 拥有的文件，拒绝覆盖：{}",
+                    to.display()
+                )));
+            }
+            let backup = backup_root.join(relative);
             if let Some(parent) = backup.parent() {
                 fs::create_dir_all(parent)?;
             }
@@ -519,11 +575,36 @@ fn publish_directory(
             (false, None, None)
         };
         entries.push(DeliveryEntry {
-            relative,
+            relative: relative.clone(),
             existed,
             backup,
             old_digest,
             new_digest: file_digest(&from)?,
+            removed: false,
+        });
+    }
+    for (relative, old_digest) in &previous_manifest {
+        if relative == Path::new(".udf-manifest.json")
+            || relative_files_contains(&relative_files, relative)
+        {
+            continue;
+        }
+        let target = output.join(relative);
+        if !target.is_file() || file_digest(&target)? != *old_digest {
+            continue;
+        }
+        let backup = backup_root.join(relative);
+        if let Some(parent) = backup.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::copy(&target, &backup)?;
+        entries.push(DeliveryEntry {
+            relative: relative.clone(),
+            existed: true,
+            backup: Some(backup),
+            old_digest: Some(old_digest.clone()),
+            new_digest: String::new(),
+            removed: true,
         });
     }
     let mut journal = DeliveryJournal {
@@ -536,6 +617,9 @@ fn publish_directory(
     };
     write_journal(&journal_path, &journal)?;
     for entry in &journal.entries {
+        if entry.removed {
+            continue;
+        }
         let from = source.join(&entry.relative);
         let to = output.join(&entry.relative);
         if let Some(parent) = to.parent() {
@@ -543,9 +627,42 @@ fn publish_directory(
         }
         fs::copy(from, to)?;
     }
+    for entry in &journal.entries {
+        if entry.removed {
+            let target = output.join(&entry.relative);
+            if target.is_file() {
+                fs::remove_file(target)?;
+            }
+        }
+    }
     journal.state = "delivered".into();
     write_journal(&journal_path, &journal)?;
     Ok(())
+}
+
+fn relative_files_contains(files: &[PathBuf], path: &Path) -> bool {
+    files.iter().any(|candidate| candidate == path)
+}
+
+fn read_manifest_entries(root: &Path) -> BTreeMap<PathBuf, String> {
+    let path = root.join(".udf-manifest.json");
+    let Ok(bytes) = fs::read(path) else {
+        return BTreeMap::new();
+    };
+    let Ok(manifest) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
+        return BTreeMap::new();
+    };
+    manifest
+        .get("files")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| {
+            let path = entry.get("path")?.as_str().map(PathBuf::from)?;
+            let digest = entry.get("digest")?.as_str()?.to_string();
+            Some((path, digest))
+        })
+        .collect()
 }
 
 fn collect_manifest_entries(
@@ -569,6 +686,7 @@ fn collect_manifest_entries(
             entries.push(ManifestEntry {
                 path: path.strip_prefix(root).unwrap_or(&path).to_path_buf(),
                 bytes: entry.metadata()?.len(),
+                digest: Some(file_digest(&path)?),
             });
         }
     }
@@ -639,12 +757,17 @@ fn emit_check(
     mutex_project: Option<(&Path, &Path)>,
     next_command: String,
     additional_diagnostics: Vec<String>,
+    storage: Option<StorageReport>,
 ) -> Result<()> {
     let (readiness, mut diagnostics) = check_package_commands(commands, mutex_project);
+    if let Some(storage) = &storage {
+        diagnostics.extend(storage.diagnostics.clone());
+    }
     diagnostics.extend(additional_diagnostics);
-    let readiness = if diagnostics
-        .iter()
-        .any(|diagnostic| diagnostic.starts_with("broken junction"))
+    let readiness = if storage.as_ref().is_some_and(StorageReport::blocked)
+        || diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.starts_with("broken junction"))
     {
         "blocked".to_string()
     } else {
@@ -672,6 +795,7 @@ fn emit_check(
         checks,
         diagnostics,
         next_command,
+        storage,
     };
     output::emit("package check", report, |report| {
         format!("package {}: {}", report.action, report.readiness)
@@ -722,6 +846,7 @@ fn emit_plan(
     outputs: Vec<PathBuf>,
     diagnostics: Vec<String>,
     project_settings: Option<crate::project_packaging::ProjectPackagingSnapshot>,
+    storage: Option<StorageReport>,
 ) -> Result<()> {
     let steps = commands
         .iter()
@@ -743,6 +868,7 @@ fn emit_plan(
         outputs,
         diagnostics,
         project_settings,
+        storage,
     };
     output::emit("package plan", report, |report| {
         format!("package {} plan: {}", report.action, report.plan_digest)
@@ -761,6 +887,21 @@ fn render(result: &PackageResult) -> String {
     for output in &result.outputs {
         lines.push(format!("  输出：{}", output.display()));
     }
+    if let Some(storage) = &result.metadata.storage {
+        lines.push(format!(
+            "  空间：{}（输出 {} bytes，临时 {} bytes，预计新增 {} bytes）",
+            storage.decision,
+            storage.current_output_bytes,
+            storage.current_temp_bytes,
+            storage.estimated_additional_bytes
+        ));
+    }
+    lines.extend(
+        result
+            .diagnostics
+            .iter()
+            .map(|diagnostic| format!("  诊断：{diagnostic}")),
+    );
     lines.join("\n")
 }
 
@@ -843,6 +984,7 @@ fn run_package_commands(
         cook_mode: evidence.cook_mode.clone(),
         cook_reused: evidence.cook_reused,
         cook_reuse_reason: evidence.cook_reuse_reason.clone(),
+        metadata: evidence.metadata.clone(),
     })?;
     match run_commands(commands, log_dir) {
         Ok(logs) => Ok(logs),
@@ -875,6 +1017,7 @@ fn run_package_commands(
                 cook_mode: evidence.cook_mode,
                 cook_reused: evidence.cook_reused,
                 cook_reuse_reason: evidence.cook_reuse_reason,
+                metadata: evidence.metadata,
             })?;
             Err(UdfError::Other(format!(
                 "{}（execution ID: {}）",
@@ -1549,15 +1692,28 @@ pub fn project(workspace: Option<String>, task: Option<String>, mode: PackageMod
         iterate: can_iterate,
     });
     let log_dir = log_dir_for_execution(&project_root, &execution_id);
-    let cleanup_targets = if profile_output {
+    let mut cleanup_targets = if profile_output {
         if requested_iterate {
             vec![log_dir.clone()]
         } else {
             vec![log_dir.clone(), execution_stage_root.clone()]
         }
     } else {
-        vec![archive_dir.clone(), log_dir.clone()]
+        // The final package is never a clean target. It is user-facing output,
+        // even when it was produced without a saved profile.
+        vec![log_dir.clone()]
     };
+    let storage = crate::package_storage::assess(
+        &archive_dir,
+        &[execution_stage_root.clone(), log_dir.clone()],
+        None,
+    );
+    if mode.executes() && storage.blocked() {
+        return Err(UdfError::Other(format!(
+            "package project 空间预检阻止执行：{}",
+            storage.diagnostics.join("；")
+        )));
+    }
     if mode == PackageMode::Check {
         let input_diagnostics = project
             .parent()
@@ -1574,10 +1730,19 @@ pub fn project(workspace: Option<String>, task: Option<String>, mode: PackageMod
             Some((&project, &engine_root)),
             next,
             input_diagnostics,
+            Some(storage.clone()),
         );
     }
     if mode == PackageMode::Plan {
-        let (_, diagnostics) = check_package_commands(&commands, None);
+        let (_, mut diagnostics) = check_package_commands(&commands, None);
+        diagnostics.extend(
+            project
+                .parent()
+                .map(validate_project_links)
+                .transpose()?
+                .unwrap_or_default(),
+        );
+        diagnostics.extend(storage.diagnostics.clone());
         return emit_plan(
             "project",
             source,
@@ -1585,6 +1750,7 @@ pub fn project(workspace: Option<String>, task: Option<String>, mode: PackageMod
             vec![archive_dir],
             diagnostics,
             Some(project_settings),
+            Some(storage.clone()),
         );
     }
     let id = execution_id;
@@ -1611,12 +1777,28 @@ pub fn project(workspace: Option<String>, task: Option<String>, mode: PackageMod
                 cook_mode: Some(cook_mode_name.to_string()),
                 cook_reused: Some(can_iterate),
                 cook_reuse_reason: Some(cook_reuse_reason.clone()),
+                metadata: {
+                    let mut metadata = PackageMetadata::target("project");
+                    metadata.profile_revision =
+                        saved_profile.as_ref().map(|profile| profile.revision);
+                    metadata.source_digest = current_source_fingerprint.clone();
+                    metadata.lineage_label =
+                        saved_profile.as_ref().map(|profile| profile.name.clone());
+                    metadata.task_ref = requested_task.clone();
+                    metadata.storage = Some(storage.clone());
+                    metadata.cleanup_policy = Some(if requested_iterate {
+                        "keep-persistent-iterate-cache".into()
+                    } else {
+                        "remove-execution-stage-on-success".into()
+                    });
+                    metadata
+                },
             },
         )?
     } else {
         Vec::new()
     };
-    let package_diagnostics = warning_diagnostics(&logs);
+    let mut package_diagnostics = warning_diagnostics(&logs);
     let manifests = if mode.executes() {
         if profile_output {
             write_manifest(&execution_archive_dir, &archive_dir)?;
@@ -1642,6 +1824,17 @@ pub fn project(workspace: Option<String>, task: Option<String>, mode: PackageMod
                         cook_mode: Some(cook_mode_name.to_string()),
                         cook_reused: Some(can_iterate),
                         cook_reuse_reason: Some(cook_reuse_reason.clone()),
+                        metadata: {
+                            let mut metadata = PackageMetadata::target("project");
+                            metadata.profile_revision =
+                                saved_profile.as_ref().map(|profile| profile.revision);
+                            metadata.source_digest = current_source_fingerprint.clone();
+                            metadata.lineage_label =
+                                saved_profile.as_ref().map(|profile| profile.name.clone());
+                            metadata.task_ref = requested_task.clone();
+                            metadata.storage = Some(storage.clone());
+                            metadata
+                        },
                     };
                     let _ = save_result(&failed);
                     failed.diagnostics.push(format!("execution ID: {id}"));
@@ -1674,6 +1867,21 @@ pub fn project(workspace: Option<String>, task: Option<String>, mode: PackageMod
             },
         )?;
     }
+    let mut cleanup_result = "not-applicable".to_string();
+    if mode.executes() && profile_output && !requested_iterate {
+        match remove_owned_tree(&execution_stage_root) {
+            Ok(()) => {
+                cleanup_targets.retain(|target| target != &execution_stage_root);
+                cleanup_result = "succeeded".into();
+            }
+            Err(error) => {
+                cleanup_result = "warning".into();
+                package_diagnostics.push(format!("成功交付，但自动清理 staging 失败：{error}"));
+            }
+        }
+    } else if mode.executes() && requested_iterate {
+        cleanup_result = "persistent-cache-kept".into();
+    }
     finish_execution(
         "package project",
         PackageResult {
@@ -1698,8 +1906,32 @@ pub fn project(workspace: Option<String>, task: Option<String>, mode: PackageMod
             cook_mode: Some(cook_mode_name.to_string()),
             cook_reused: Some(can_iterate),
             cook_reuse_reason: Some(cook_reuse_reason),
+            metadata: {
+                let mut metadata = PackageMetadata::target("project");
+                metadata.profile_revision = saved_profile.as_ref().map(|profile| profile.revision);
+                metadata.source_digest = current_source_fingerprint;
+                metadata.lineage_label = saved_profile.map(|profile| profile.name);
+                metadata.task_ref = requested_task;
+                metadata.storage = Some(storage);
+                metadata.cleanup_result = Some(cleanup_result.clone());
+                metadata.cleanup_policy = Some(if requested_iterate {
+                    "keep-persistent-iterate-cache".into()
+                } else {
+                    "remove-execution-stage-on-success".into()
+                });
+                metadata
+            },
         },
     )
+}
+
+/// 保留旧命令的解析兼容，但不再让模糊的顶层目标启动重量级工具链。
+/// 用户必须把意图写进 `package advanced <target>`，这样 AI 和脚本不会因旧提示
+/// 或补全结果误打插件/引擎。
+pub fn legacy_target(target: &str) -> Result<()> {
+    Err(UdfError::Other(format!(
+        "package {target} 已降为兼容入口，未启动任何 UBT/BuildGraph；请明确使用 `udf package advanced {target} ...`。普通任务请使用 `udf package project ...`"
+    )))
 }
 
 pub fn plugin(
@@ -1764,6 +1996,14 @@ pub fn plugin(
         .iter()
         .map(|plugin| output_dir.join(plugin))
         .collect::<Vec<_>>();
+    let storage =
+        crate::package_storage::assess(&output_dir, &[stage_root.clone(), log_dir.clone()], None);
+    if mode.executes() && storage.blocked() {
+        return Err(UdfError::Other(format!(
+            "package advanced plugin 空间预检阻止执行：{}",
+            storage.diagnostics.join("；")
+        )));
+    }
     if mode == PackageMode::Check {
         let selector = requested_task
             .map(|task| format!("--task {task}"))
@@ -1775,11 +2015,20 @@ pub fn plugin(
             None,
             format!("udf package plugin {} {selector}", plugins.join(" ")),
             Vec::new(),
+            Some(storage.clone()),
         );
     }
     if mode == PackageMode::Plan {
         let (_, diagnostics) = check_package_commands(&commands, None);
-        return emit_plan("plugin", source, &commands, package_dirs, diagnostics, None);
+        return emit_plan(
+            "plugin",
+            source,
+            &commands,
+            package_dirs,
+            diagnostics,
+            None,
+            Some(storage.clone()),
+        );
     }
     let logs = if mode.executes() {
         prepare_plugin_stage(&plugins_root, &stage_root, &closure, &selected_index)?;
@@ -1798,7 +2047,10 @@ pub fn plugin(
             source,
             package_dirs,
             failure_cleanup,
-            PackageEvidence::default(),
+            PackageEvidence {
+                metadata: PackageMetadata::target("plugin"),
+                ..PackageEvidence::default()
+            },
         )?;
         for plugin in &plugins {
             let package_dir = output_dir.join(plugin);
@@ -1827,8 +2079,7 @@ pub fn plugin(
         .iter()
         .map(|plugin| output_dir.join(plugin))
         .collect::<Vec<_>>();
-    let mut cleanup_targets = package_dirs.clone();
-    cleanup_targets.push(stage_root);
+    let mut cleanup_targets = vec![stage_root];
     cleanup_targets.push(log_dir);
     if !mode.executes() {
         cleanup_targets.clear();
@@ -1853,6 +2104,13 @@ pub fn plugin(
             cook_mode: None,
             cook_reused: None,
             cook_reuse_reason: None,
+            metadata: {
+                let mut metadata = PackageMetadata::target("plugin");
+                metadata.storage = Some(storage);
+                metadata.cleanup_policy =
+                    Some("keep-final-plugin-package-remove-stage-manually".into());
+                metadata
+            },
         },
     )
 }
@@ -1881,6 +2139,13 @@ pub fn engine(
         output_dir: output_dir.clone(),
         platform: UePlatform::Windows,
     });
+    let storage = crate::package_storage::assess(&output_dir, &[execution_root()?], None);
+    if mode.executes() && storage.blocked() {
+        return Err(UdfError::Other(format!(
+            "package advanced engine 空间预检阻止执行：{}",
+            storage.diagnostics.join("；")
+        )));
+    }
     if mode == PackageMode::Check {
         return emit_check(
             "engine",
@@ -1889,6 +2154,7 @@ pub fn engine(
             None,
             format!("udf package engine --workspace {name}"),
             Vec::new(),
+            Some(storage.clone()),
         );
     }
     if mode == PackageMode::Plan {
@@ -1900,6 +2166,7 @@ pub fn engine(
             vec![output_dir],
             diagnostics,
             None,
+            Some(storage.clone()),
         );
     }
     let id = execution_id("engine");
@@ -1915,7 +2182,10 @@ pub fn engine(
             "workspace",
             vec![output_dir.clone()],
             engine_failure_cleanup_targets(&output_dir, &log_dir, output_preexisted),
-            PackageEvidence::default(),
+            PackageEvidence {
+                metadata: PackageMetadata::target("engine"),
+                ..PackageEvidence::default()
+            },
         )?
     } else {
         Vec::new()
@@ -1939,12 +2209,18 @@ pub fn engine(
             outputs: vec![output_dir.clone()],
             logs,
             manifests,
-            cleanup_targets: vec![output_dir],
+            cleanup_targets: Vec::new(),
             diagnostics: Vec::new(),
             project_settings: None,
             cook_mode: None,
             cook_reused: None,
             cook_reuse_reason: None,
+            metadata: {
+                let mut metadata = PackageMetadata::target("engine");
+                metadata.storage = Some(storage);
+                metadata.cleanup_policy = Some("keep-final-installed-build".into());
+                metadata
+            },
         },
     )
 }
@@ -1996,6 +2272,7 @@ pub fn build_engine(workspace: Option<String>, plan_only: bool) -> Result<()> {
         cook_mode: None,
         cook_reused: None,
         cook_reuse_reason: None,
+        metadata: PackageMetadata::target("engine"),
     };
     output::emit(
         if plan_only {
@@ -2059,32 +2336,128 @@ pub fn status(execution_id: Option<String>) -> Result<()> {
     Ok(())
 }
 
-pub fn clean(execution_id: Option<String>) -> Result<()> {
-    let mut result = load_result(execution_id.as_deref())?;
-    if result.cleanup_targets.is_empty() {
-        return Err(UdfError::Other(format!(
-            "执行记录 '{}' 没有声明可清理目标",
-            result.execution_id
-        )));
-    }
-    for target in &result.cleanup_targets {
-        let resolved = dunce::canonicalize(target).unwrap_or_else(|_| target.clone());
-        let allowed = is_managed_cleanup_target(&resolved);
-        if !allowed {
-            return Err(UdfError::Other(format!(
-                "拒绝清理未位于 UnrealDevFlow 制品目录内的路径：{}",
-                target.display()
-            )));
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CleanReport {
+    dry_run: bool,
+    scope: String,
+    reclaimable_bytes: u64,
+    targets: Vec<PathBuf>,
+    diagnostics: Vec<String>,
+}
+
+fn package_records() -> Result<Vec<PackageResult>> {
+    let root = execution_root()?;
+    Ok(fs::read_dir(root)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "json"))
+        .filter_map(|entry| fs::read(entry.path()).ok())
+        .filter_map(|bytes| serde_json::from_slice::<PackageResult>(&bytes).ok())
+        .collect())
+}
+
+pub fn clean(
+    execution_id: Option<String>,
+    task_ref: Option<String>,
+    workspace: Option<String>,
+    dry_run: bool,
+) -> Result<()> {
+    let explicit = execution_id.is_some();
+    let mut records = if let Some(id) = execution_id.as_deref() {
+        vec![load_result(Some(id))?]
+    } else {
+        package_records()?
+    };
+    records.retain(|result| {
+        task_ref
+            .as_deref()
+            .is_none_or(|task| result.metadata.task_ref.as_deref() == Some(task))
+            && workspace
+                .as_deref()
+                .is_none_or(|name| result.workspace == name)
+    });
+    let scope = if let Some(id) = execution_id {
+        format!("execution {id}")
+    } else if let Some(task) = task_ref {
+        format!("task {task}")
+    } else if let Some(workspace) = workspace {
+        format!("workspace {workspace}")
+    } else {
+        "all package executions".into()
+    };
+    let mut targets = BTreeSet::new();
+    let mut reclaimable_bytes = 0;
+    let mut diagnostics = Vec::new();
+    for result in &records {
+        if result.metadata.target_kind.is_empty() {
+            if explicit {
+                return Err(UdfError::Other(format!(
+                    "执行记录 '{}' 缺少可信 targetKind，拒绝猜测性清理",
+                    result.execution_id
+                )));
+            }
+            diagnostics.push(format!(
+                "忽略旧执行记录 '{}'：缺少可信 targetKind",
+                result.execution_id
+            ));
+            continue;
         }
-        if target.is_dir() {
-            fs::remove_dir_all(target)?;
-        } else if target.is_file() {
-            fs::remove_file(target)?;
+        for target in &result.cleanup_targets {
+            let resolved = dunce::canonicalize(target).unwrap_or_else(|_| target.clone());
+            if !is_managed_cleanup_target(&resolved) {
+                if explicit {
+                    return Err(UdfError::Other(format!(
+                        "拒绝清理未位于 UnrealDevFlow 制品目录内的路径：{}",
+                        target.display()
+                    )));
+                }
+                diagnostics.push(format!(
+                    "忽略未位于 UnrealDevFlow 制品目录内的路径：{}",
+                    target.display()
+                ));
+                continue;
+            }
+            if targets.insert(target.clone()) {
+                reclaimable_bytes += crate::package_storage::tree_bytes(target);
+            }
         }
     }
-    result.state = "cleaned".to_string();
-    save_result(&result)?;
-    output::emit("package clean", result, render);
+    // No-argument clean is intentionally an inventory command. It must never
+    // choose the latest execution and delete final packages by accident.
+    if !explicit && !dry_run {
+        diagnostics.push("未指定 execution ID；仅报告可回收空间，未删除任何文件".into());
+    } else if !dry_run {
+        for target in &targets {
+            if target.is_dir() {
+                remove_owned_tree(target)?;
+            } else if target.is_file() {
+                fs::remove_file(target)?;
+            }
+        }
+        if let Some(result) = records.first_mut() {
+            result.state = "cleaned".to_string();
+            result.metadata.cleanup_result = Some("manual-clean".into());
+            save_result(result)?;
+        }
+    }
+    output::emit(
+        "package clean",
+        CleanReport {
+            dry_run: dry_run || !explicit,
+            scope,
+            reclaimable_bytes,
+            targets: targets.into_iter().collect(),
+            diagnostics,
+        },
+        |report| {
+            format!(
+                "package clean: {} bytes 可回收（{}）",
+                report.reclaimable_bytes, report.scope
+            )
+        },
+    );
     Ok(())
 }
 
@@ -2124,6 +2497,21 @@ pub fn recover(execution_id: String) -> Result<()> {
                 "恢复目标包含 Junction，拒绝修改：{}",
                 target.display()
             )));
+        }
+        if entry.removed {
+            if target.exists()
+                && (!target.is_file()
+                    || entry
+                        .old_digest
+                        .as_deref()
+                        .is_none_or(|digest| file_digest(&target).ok().as_deref() != Some(digest)))
+            {
+                return Err(UdfError::Other(format!(
+                    "恢复前发现外部修改，未回退：{}",
+                    target.display()
+                )));
+            }
+            continue;
         }
         if target.exists() && (!target.is_file() || file_digest(&target)? != entry.new_digest) {
             return Err(UdfError::Other(format!(
@@ -2301,6 +2689,19 @@ mod tests {
         fs::write(source.join("Binaries/Game.exe"), b"new").unwrap();
         fs::write(output.join("Binaries/Game.exe"), b"old").unwrap();
         fs::write(output.join("user.sav"), b"user data").unwrap();
+        fs::write(
+            output.join(".udf-manifest.json"),
+            serde_json::json!({
+                "schemaVersion": 1,
+                "files": [{
+                    "path": "Binaries/Game.exe",
+                    "bytes": 3,
+                    "digest": file_digest(&output.join("Binaries/Game.exe")).unwrap(),
+                }]
+            })
+            .to_string(),
+        )
+        .unwrap();
 
         publish_directory(&source, &output, "package-test", &logs).unwrap();
 
@@ -2312,6 +2713,38 @@ mod tests {
         assert_eq!(journal.state, "delivered");
         assert_eq!(journal.entries.len(), 1);
         assert!(journal.entries[0].backup.is_some());
+    }
+
+    #[test]
+    fn delivery_reconciles_stale_udf_files_but_keeps_unowned_files() {
+        let root = tempfile::tempdir().unwrap();
+        let source = root.path().join("archive");
+        let output = root.path().join("output");
+        let logs = root.path().join("logs");
+        fs::create_dir_all(&source).unwrap();
+        fs::create_dir_all(&output).unwrap();
+        fs::write(source.join("new.pak"), b"new").unwrap();
+        fs::write(output.join("old.pak"), b"old").unwrap();
+        fs::write(output.join("user.txt"), b"keep").unwrap();
+        fs::write(
+            output.join(".udf-manifest.json"),
+            serde_json::json!({
+                "schemaVersion": 1,
+                "files": [{
+                    "path": "old.pak",
+                    "bytes": 3,
+                    "digest": file_digest(&output.join("old.pak")).unwrap(),
+                }]
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        publish_directory(&source, &output, "package-reconcile", &logs).unwrap();
+
+        assert!(!output.join("old.pak").exists());
+        assert_eq!(fs::read(output.join("user.txt")).unwrap(), b"keep");
+        assert!(output.join("new.pak").is_file());
     }
 
     #[test]

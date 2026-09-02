@@ -174,7 +174,12 @@ udf package recover <execution-id>
 日常开发使用 `--cook-mode iterate`，正式发布使用 `--cook-mode full`。只有候选文件显式设置 `[cook] mode = "iterate"`，并且项目、引擎、设置与来源摘要匹配时才传 `-iterate`；Pak 有内容变化时仍可能重建。项目设置发生变化时，必须用带 `--reason` 的 `configure` 接纳新基线。
 `recover` 只处理有完整事务日志的未完成交付，不重新 Cook，也不会凭目录内容猜测删除文件。
 
-插件包可用 `udf package plugin <插件> --output <包根目录>`，多个插件按插件名分目录；Installed Build 可用 `udf package engine --output <包根目录> --name <目录名>`。省略 Installed Build 的 name 时使用 `InstalledBuild-Win64`，避免平台默认目录重名。
+普通任务只允许 `udf package project`。插件包和 Installed Build 是高级工具链，只有用户明确点名目标时才可使用：
+`udf package advanced plugin --plugin <插件> --output <包根目录>` 或
+`udf package advanced engine --output <包根目录> --name <目录名>`。
+旧的顶层 `package plugin/engine` 仅返回迁移提示，不会启动 UBT/BuildGraph。比较包必须先用
+`package configure --name <名称> --reason <原因>` 固定 lineage；执行前检查空间、同任务版本和预计新增占用。
+`package clean` 无参数只盘点可回收空间，显式 execution ID 才能清理 UDF 临时材料，最终包不会被自动删除。
 
 ### 4. SWITCH — 没有用户明确授权，绝不执行
 

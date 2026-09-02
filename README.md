@@ -255,13 +255,12 @@ udf task finish neon-dev/prefab-save-bug
 | | `build plan` | 展示启动后会执行的步骤、参数和输出位置；不执行、不生成执行记录 |
 | package | `package project` | 对 workspace 主项目或任务 Host 执行 BuildCookRun，生成可运行项目包 |
 | | `package configure` | 首次保存或更新 task 的固定项目打包配置 |
-| | `package plugin` | 按插件依赖闭包暂存并构建可分发插件包 |
-| | `package engine` | 通过 BuildGraph 生成 Installed Build |
+| | `package advanced plugin/engine` | 显式执行插件包或 Installed Build 高级工具链；普通项目任务不会进入 |
 | | `package check` | 只回答现在能不能启动打包；不执行、不生成执行记录 |
 | | `package plan` | 展示启动后会执行的命令、阶段和输出位置；不执行、不生成执行记录 |
 | | `package run` | 执行 workspace 的默认项目发布流程 |
 | | `package status` | 按 execution ID 查看真实执行；省略时查看最近一次真实 package 执行 |
-| | `package clean` | 仅清理由 package 记账且位于 `UnrealDevFlow` 制品目录内的输出 |
+| | `package clean` | 默认只盘点可回收空间；显式 execution ID 才清理 UDF 临时材料，不删除最终包 |
 | | `package recover` | 只恢复有完整事务日志的未完成交付，不重新 Cook |
 | skill | `skill install/list/remove` | 管理装到四个 AI provider 的 skill |
 
@@ -284,25 +283,26 @@ udf package project --task neon-dev/my-task
 候选文件中的 `disabled_plugins = []` 才表示清空禁用列表，省略 `--disable-plugin` 表示保持原列表。
 交付中断时使用 `package recover <execution-id>`；没有完整事务日志时工具会拒绝修改输出目录。
 
-插件包可用 `package plugin <插件> --output C:/Package`，每个插件按插件名分目录；Installed Build 可用 `package engine --output C:/Package --name UE55-InstalledBuild-Win64`。`plan` 和 `check` 也接受这两个输出选项。
+普通任务只使用 `package project`。插件包和 Installed Build 必须显式使用 `package advanced plugin/engine`；旧的顶层 `package plugin/engine` 仅保留迁移提示，不会启动 UBT/BuildGraph。比较包必须通过 `configure --name <名称> --reason <原因>` 固定命名，工具会在执行前报告同任务版本和空间占用。
 
 ```powershell
 # check 只返回 readiness，不生成 execution ID
 udf --format json package check project --workspace neon-dev
-udf --format json package check plugin --workspace neon-dev --plugin AesWorld
+udf --format json package advanced plugin --check --workspace neon-dev --plugin AesWorld
 
 # plan 展示完整步骤、argv 和输出位置，不生成 execution ID
 udf --format json package plan project --workspace neon-dev
-udf --format json package plan plugin --workspace neon-dev --plugin AesWorld
+udf --format json package advanced plugin --plan --workspace neon-dev --plugin AesWorld
 udf --format json package plan project --task neon-dev/prefab-save-bug
 
 # 生成制品
 udf package project --workspace neon-dev
-udf package plugin AesWorld --workspace neon-dev
-udf package engine --workspace neon-dev
+udf package advanced plugin --plugin AesWorld --workspace neon-dev
+udf package advanced engine --workspace neon-dev
 
 # 查询证据并清理可再生制品
 udf --format json package status [execution-id]
+udf --format json package clean --dry-run
 udf --format json package clean <execution-id>
 ```
 

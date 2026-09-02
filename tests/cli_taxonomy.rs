@@ -18,7 +18,7 @@ mod build_profile {
 mod cli;
 
 use clap::{CommandFactory, Parser};
-use cli::{BuildAction, Cli, Commands, PackageAction, WorkspaceAction};
+use cli::{BuildAction, Cli, Commands, PackageAction, PackageAdvancedAction, WorkspaceAction};
 
 fn help_for(path: &[&str]) -> String {
     let mut command = Cli::command();
@@ -89,6 +89,25 @@ fn package_contains_recover() {
             action: PackageAction::Recover { .. }
         }
     ));
+}
+
+#[test]
+fn package_separates_normal_and_advanced_targets() {
+    let parsed = Cli::parse_from([
+        "udf", "package", "advanced", "plugin", "--plugin", "AesWorld", "--plan",
+    ]);
+    assert!(matches!(
+        parsed.command,
+        Commands::Package {
+            action: PackageAction::Advanced {
+                action: PackageAdvancedAction::Plugin { plan: true, .. }
+            }
+        }
+    ));
+    let help = help_for(&["package"]);
+    assert!(help.contains("advanced"));
+    assert!(!help.contains("package plugin"));
+    assert!(!help.contains("package engine"));
 }
 
 #[test]

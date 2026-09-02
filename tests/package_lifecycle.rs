@@ -102,8 +102,9 @@ fn plugin_collection_expands_nested_uplugins_without_an_execution() {
 
     let planned = fixture.run_json(&[
         "package",
-        "plan",
+        "advanced",
         "plugin",
+        "--plan",
         "--workspace",
         "test",
         "--plugin",
@@ -132,8 +133,9 @@ fn exact_plugin_package_ignores_unrelated_duplicate_named_descriptors() {
 
     let planned = fixture.run_json(&[
         "package",
-        "plan",
+        "advanced",
         "plugin",
+        "--plan",
         "--workspace",
         "test",
         "--plugin",
@@ -160,8 +162,9 @@ fn plugin_collection_rejects_duplicate_names_inside_collection_subtree() {
 
     let failed = fixture.run_failure_json(&[
         "package",
-        "plan",
+        "advanced",
         "plugin",
+        "--plan",
         "--workspace",
         "test",
         "--plugin",
@@ -193,8 +196,9 @@ fn plugin_package_rejects_dependency_names_with_multiple_project_candidates() {
 
     let failed = fixture.run_failure_json(&[
         "package",
-        "plan",
+        "advanced",
         "plugin",
+        "--plan",
         "--workspace",
         "test",
         "--plugin",
@@ -247,6 +251,34 @@ fn package_check_returns_readiness_without_creating_an_execution() {
             .config_dir
             .join("executions/package/latest")
             .exists()
+    );
+}
+
+#[test]
+fn legacy_plugin_entrypoint_only_returns_migration_guidance() {
+    let fixture = Fixture::new();
+    let failed = fixture.run_failure_json(&["package", "plugin", "AesWorld"]);
+    assert_eq!(failed["ok"], false);
+    assert!(
+        failed["error"]
+            .as_str()
+            .unwrap()
+            .contains("package advanced plugin")
+    );
+    assert!(!fixture.config_dir.join("executions/package").exists());
+}
+
+#[test]
+fn clean_without_scope_is_an_inventory_only_operation() {
+    let fixture = Fixture::new();
+    let report = fixture.run_json(&["package", "clean"]);
+    assert_eq!(report["data"]["dryRun"], true);
+    assert!(
+        report["data"]["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value.as_str().unwrap().contains("未指定 execution ID"))
     );
 }
 
@@ -411,8 +443,9 @@ fn plugin_package_check_requires_the_ubt_dll_not_only_dotnet() {
 
     let checked = fixture.run_json(&[
         "package",
-        "check",
+        "advanced",
         "plugin",
+        "--check",
         "--workspace",
         "test",
         "--plugin",
