@@ -59,7 +59,13 @@ fn update_source_fingerprint(
     visited: &mut HashSet<PathBuf>,
     digest: &mut Md5,
 ) -> Result<()> {
-    if crate::junction::exists(path).unwrap_or(false) {
+    // `junction::exists` resolves the target on every call. On a large UE
+    // project that turns a metadata walk into millions of reparse-point
+    // probes. Read the directory entry once instead, and resolve only actual
+    // Junction/symlink entries. This still handles dangling links through
+    // `symlink_metadata`, which deliberately does not follow the target.
+    let metadata = fs::symlink_metadata(path)?;
+    if metadata.file_type().is_symlink() {
         let target = crate::junction::get_target(path)?;
         let canonical = dunce::canonicalize(&target).unwrap_or(target.clone());
         if !visited.insert(canonical.clone()) {
@@ -69,7 +75,6 @@ fn update_source_fingerprint(
         digest.update(canonical.to_string_lossy().as_bytes());
         return update_source_fingerprint(&canonical, visited, digest);
     }
-    let metadata = fs::metadata(path)?;
     digest.update(path.to_string_lossy().as_bytes());
     if metadata.is_dir() {
         let mut entries = fs::read_dir(path)?
@@ -2660,6 +2665,24 @@ mod tests {
             fs::read(stage.join("Content/asset.uasset")).unwrap(),
             b"asset"
         );
+    }
+
+    #[test]
+    fn source_fingerprint_detects_input_changes_without_resolving_every_file_as_a_junction() {
+        let root = tempfile::tempdir().unwrap();
+        fs::create_dir_all(root.path().join("Content")).unwrap();
+        fs::write(root.path().join("Game.uproject"), br#"{"FileVersion":3}"#).unwrap();
+        fs::write(root.path().join("Content/asset.uasset"), b"before").unwrap();
+
+        let before = source_fingerprint(root.path()).unwrap();
+        fs::write(
+            root.path().join("Content/asset.uasset"),
+            b"after and changed",
+        )
+        .unwrap();
+        let after = source_fingerprint(root.path()).unwrap();
+
+        assert_ne!(before, after);
     }
 
     #[test]
