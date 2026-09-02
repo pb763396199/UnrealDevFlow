@@ -161,6 +161,19 @@ fn cleanup_orphaned_branches(
     force: bool,
     skip_confirm: bool,
 ) -> Result<()> {
+    let junctions = crate::task_junctions::cleanup_for_missing_task(config, task_ref)?;
+    if junctions.removed > 0 {
+        output::print_success(&format!(
+            "Cleaned up {} project Junction(s) for missing task Host.",
+            junctions.removed
+        ));
+    }
+    if junctions.failed > 0 {
+        output::print_warning(&format!(
+            "Failed to remove {} project Junction(s) for '{}'.",
+            junctions.failed, task_ref
+        ));
+    }
     let branches = expected_branch_names(config, task_ref);
     let ledger_refs = ledger_task_refs(config, task_ref);
     let roots = candidate_plugin_roots(config, task_ref);
@@ -205,7 +218,20 @@ fn cleanup_orphaned_branches(
     if matches.is_empty() {
         // 找不到不等于清理成功。说清楚是「没有可清的」，别让人以为清过了。
         output::print_info(&format!("没有找到属于任务 '{}' 的残留分支。", task_ref));
-        output::emit("task cleanup", untouched(task_ref, true), render_cleanup);
+        output::emit(
+            "task cleanup",
+            CleanupOutcome {
+                task_ref: task_ref.to_string(),
+                cancelled: false,
+                worktrees_removed: true,
+                branches_deleted: true,
+                host_deleted: true,
+                junctions_removed: junctions.removed,
+                junctions_clean: junctions.clean(),
+                complete: junctions.clean(),
+            },
+            render_cleanup,
+        );
         return Ok(());
     }
 
@@ -255,7 +281,9 @@ fn cleanup_orphaned_branches(
             worktrees_removed: true,
             branches_deleted: all_deleted,
             host_deleted: true,
-            complete: all_deleted,
+            junctions_removed: junctions.removed,
+            junctions_clean: junctions.clean(),
+            complete: all_deleted && junctions.clean(),
         },
         render_cleanup,
     );
@@ -345,20 +373,21 @@ pub fn run(task_id: &str, force: bool, skip_confirm: bool) -> Result<()> {
 
     output::print_info(&format!("Cleaning up task '{}'...", task_id));
 
-    // Step 1: Remove dependency junctions explicitly so we don't accidentally
-    // recurse into the main repo when we later delete the Host dir.
-    for dep in &meta.dependency_plugins {
-        if let Some(rel) = &dep.junction {
-            let junction_abs = host_dir.join(rel);
-            if junction_abs.exists()
-                && let Err(e) = crate::junction::delete(&junction_abs)
-            {
-                output::print_warning(&format!(
-                    "Failed to remove junction for '{}': {}",
-                    dep.name, e
-                ));
-            }
-        }
+    // Step 1: Remove all project-side and Host dependency Junctions before
+    // deleting any worktree or the Host directory. This also handles dangling
+    // project links left by an earlier interrupted cleanup.
+    let junctions = crate::task_junctions::cleanup_for_task(task_id, &host_dir, &meta)?;
+    if junctions.removed > 0 {
+        output::print_success(&format!(
+            "Cleaned up {} project Junction(s).",
+            junctions.removed
+        ));
+    }
+    if junctions.failed > 0 {
+        output::print_warning(&format!(
+            "{} task Junction(s) could not be removed; cleanup will be incomplete.",
+            junctions.failed
+        ));
     }
 
     // Step 2: Remove primary worktrees before deleting the Host directory.
@@ -396,7 +425,12 @@ pub fn run(task_id: &str, force: bool, skip_confirm: bool) -> Result<()> {
             worktrees_removed: all_worktrees_removed,
             branches_deleted: all_branches_deleted,
             host_deleted,
-            complete: host_deleted && all_worktrees_removed && all_branches_deleted,
+            junctions_removed: junctions.removed,
+            junctions_clean: junctions.clean(),
+            complete: host_deleted
+                && all_worktrees_removed
+                && all_branches_deleted
+                && junctions.clean(),
         },
         render_cleanup,
     );
@@ -412,6 +446,8 @@ struct CleanupOutcome {
     worktrees_removed: bool,
     branches_deleted: bool,
     host_deleted: bool,
+    junctions_removed: usize,
+    junctions_clean: bool,
     complete: bool,
 }
 
@@ -423,6 +459,8 @@ fn untouched(task_ref: &str, complete: bool) -> CleanupOutcome {
         worktrees_removed: false,
         branches_deleted: false,
         host_deleted: false,
+        junctions_removed: 0,
+        junctions_clean: true,
         complete,
     }
 }
@@ -435,7 +473,11 @@ fn render_cleanup(data: &CleanupOutcome) -> String {
         return format!("\n✓ Task '{}' cleaned up successfully!", data.task_ref);
     }
     format!(
-        "\n⚠ Task '{}' cleanup incomplete. Some resources may remain (worktrees={}, branches={}, host={}).",
-        data.task_ref, data.worktrees_removed, data.branches_deleted, data.host_deleted
+        "\n⚠ Task '{}' cleanup incomplete. Some resources may remain (worktrees={}, branches={}, host={}, junctions={}).",
+        data.task_ref,
+        data.worktrees_removed,
+        data.branches_deleted,
+        data.host_deleted,
+        data.junctions_clean
     )
 }

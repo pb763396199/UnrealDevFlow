@@ -219,6 +219,11 @@ git log --oneline -5
 udf task cleanup neon-dev/prefab-save-bug
 ```
 
+`cleanup` 和 `delete` 都会先清理所有已登记项目中的任务 Junction，再删除
+Host/worktree；即使 Junction 的目标已经不存在，也会按文件系统链接入口清理，避免留下
+阻塞下一次 `switch` 的悬空 Junction。Host 已被外部删除时，`cleanup` 仍会按 workspace
+推导 Host 路径并尝试恢复清理。
+
 也可以使用小白合并向导：
 
 ```powershell

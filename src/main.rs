@@ -23,6 +23,7 @@ mod plugin;
 mod project_packaging;
 mod source_context;
 mod state;
+mod task_junctions;
 mod ue_commands;
 
 use clap::FromArgMatches;

@@ -259,109 +259,22 @@ pub fn run(task_id: &str, force: bool, skip_confirm: bool, dry_run: bool) -> Res
 
     output::print_info(&format!("Deleting task '{}'...", task_id));
 
-    // Step 0: Clean up junctions in all known projects that point to this task's worktrees.
-    // This prevents "broken junctions" that would block future switch operations.
-    output::print_info("Checking for junctions pointing to this task...");
-    let mut state = crate::state::GlobalState::load()?;
-    let mut junctions_cleaned = 0;
-
-    for (project_name, project_state) in &state.projects {
-        for junction_state in &project_state.junctions {
-            // Check if this junction points to any worktree in the current task
-            let points_to_task = meta.primary_plugins.iter().any(|p| {
-                let worktree_abs = host_dir.join(&p.worktree);
-                junction_state.junction_target == worktree_abs
-            }) || meta.dependency_plugins.iter().any(|d| {
-                if let Some(rel) = &d.junction {
-                    let dep_abs = host_dir.join(rel);
-                    junction_state.junction_target == dep_abs
-                } else {
-                    false
-                }
-            });
-
-            if points_to_task {
-                output::print_info(&format!(
-                    "  Found junction in project '{}' for plugin '{}': {:?}",
-                    project_name, junction_state.plugin_name, junction_state.junction_path
-                ));
-
-                // Try to delete the junction
-                if junction_state.junction_path.exists() {
-                    match crate::junction::delete(&junction_state.junction_path) {
-                        Ok(_) => {
-                            output::print_success(&format!(
-                                "    ✓ Removed junction: {:?}",
-                                junction_state.junction_path
-                            ));
-                            junctions_cleaned += 1;
-                        }
-                        Err(e) => {
-                            output::print_warning(&format!(
-                                "    ⚠ Failed to remove junction: {}",
-                                e
-                            ));
-                        }
-                    }
-                } else {
-                    output::print_info(&format!(
-                        "    Junction already gone: {:?}",
-                        junction_state.junction_path
-                    ));
-                }
-            }
-        }
-    }
-
-    if junctions_cleaned > 0 {
+    // Step 0: Remove all project-side and Host dependency Junctions before
+    // deleting worktrees or the Host directory. The helper deliberately uses
+    // filesystem metadata, so dangling project links are cleaned as well.
+    output::print_info("Checking for Junctions pointing to this task...");
+    let junctions = crate::task_junctions::cleanup_for_task(task_id, &host_dir, &meta)?;
+    if junctions.removed > 0 {
         output::print_success(&format!(
-            "Cleaned up {} junction(s) from main project(s)",
-            junctions_cleaned
+            "Cleaned up {} project Junction(s).",
+            junctions.removed
         ));
     }
-
-    // Remove stale task-owned Junction records as part of the same lifecycle.
-    for project_state in state.projects.values_mut() {
-        project_state.junctions.retain(|junction_state| {
-            !meta
-                .primary_plugins
-                .iter()
-                .any(|p| junction_state.junction_target == host_dir.join(&p.worktree))
-                && !meta.dependency_plugins.iter().any(|d| {
-                    d.junction
-                        .as_ref()
-                        .map(|rel| junction_state.junction_target == host_dir.join(rel))
-                        .unwrap_or(false)
-                })
-        });
-        let owned_active_task = project_state.active_task.as_deref() == Some(task_id)
-            || project_state.active_task.as_deref() == meta.task_uid.as_deref()
-            || project_state.active_task.as_deref() == Some(meta.id.as_str());
-        if owned_active_task {
-            project_state.active_task = None;
-        }
-        let first = project_state.junctions.first().cloned();
-        project_state.junction_path = first
-            .as_ref()
-            .map(|entry| entry.junction_path.clone())
-            .unwrap_or_default();
-        project_state.junction_target = first.map(|entry| entry.junction_target);
-    }
-    state.save()?;
-
-    // Step 1: Remove dependency junctions explicitly.
-    for dep in &meta.dependency_plugins {
-        if let Some(rel) = &dep.junction {
-            let abs = host_dir.join(rel);
-            if abs.exists()
-                && let Err(e) = crate::junction::delete(&abs)
-            {
-                output::print_warning(&format!(
-                    "Failed to remove junction for '{}': {}",
-                    dep.name, e
-                ));
-            }
-        }
+    if junctions.failed > 0 {
+        output::print_warning(&format!(
+            "{} task Junction(s) could not be removed; delete will be incomplete.",
+            junctions.failed
+        ));
     }
 
     // Step 2: Remove worktree + branch per primary plugin before deleting
@@ -452,7 +365,12 @@ pub fn run(task_id: &str, force: bool, skip_confirm: bool, dry_run: bool) -> Res
             worktrees_removed: all_worktrees_removed,
             branches_deleted: all_branches_deleted,
             host_deleted,
-            complete: host_deleted && all_worktrees_removed && all_branches_deleted,
+            junctions_removed: junctions.removed,
+            junctions_clean: junctions.clean(),
+            complete: host_deleted
+                && all_worktrees_removed
+                && all_branches_deleted
+                && junctions.clean(),
         },
         render_delete,
     );
@@ -468,6 +386,8 @@ struct DeleteOutcome {
     worktrees_removed: bool,
     branches_deleted: bool,
     host_deleted: bool,
+    junctions_removed: usize,
+    junctions_clean: bool,
     complete: bool,
 }
 
@@ -479,6 +399,8 @@ fn cancelled(task_ref: &str) -> DeleteOutcome {
         worktrees_removed: false,
         branches_deleted: false,
         host_deleted: false,
+        junctions_removed: 0,
+        junctions_clean: true,
         complete: false,
     }
 }
@@ -525,7 +447,11 @@ fn render_delete(data: &DeleteOutcome) -> String {
         return format!("\n✓ Task '{}' deleted successfully!", data.task_ref);
     }
     format!(
-        "\n⚠ Task '{}' partially deleted. Some resources may remain (worktrees={}, branches={}, host={}).",
-        data.task_ref, data.worktrees_removed, data.branches_deleted, data.host_deleted
+        "\n⚠ Task '{}' partially deleted. Some resources may remain (worktrees={}, branches={}, host={}, junctions={}).",
+        data.task_ref,
+        data.worktrees_removed,
+        data.branches_deleted,
+        data.host_deleted,
+        data.junctions_clean
     )
 }

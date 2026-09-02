@@ -276,6 +276,83 @@ fn switch_creates_three_junctions_and_delete_removes_every_resource_and_state_en
 }
 
 #[test]
+fn cleanup_missing_host_removes_dangling_project_junctions_before_branch_cleanup() {
+    let f = Fixture::new();
+    f.create();
+    f.switch().success();
+
+    // Reproduce the reported failure: the Host/worktrees are removed first,
+    // leaving project-side Junctions whose targets no longer exist.
+    fs::remove_dir_all(f.host()).expect("remove task host to create dangling links");
+    let aesworld = f.project.join("Plugins/AesWorld");
+    assert!(
+        !aesworld.exists(),
+        "Path::exists follows the broken junction"
+    );
+    assert!(
+        fs::symlink_metadata(&aesworld).is_ok(),
+        "the broken Junction entry must still exist on disk"
+    );
+
+    Command::cargo_bin("udf")
+        .unwrap()
+        .env("UNREALDEVFLOW_CONFIG_DIR", &f.config_dir)
+        .args(["task", "cleanup", "test/multi", "--force"])
+        .assert()
+        .success();
+
+    for name in PLUGINS {
+        let path = f.project.join("Plugins").join(name);
+        assert!(
+            fs::symlink_metadata(&path).is_err(),
+            "cleanup left project Junction for {name}"
+        );
+    }
+    assert!(
+        !f.config_dir.join("state.json").exists() || {
+            let state: Value =
+                serde_json::from_str(&fs::read_to_string(f.config_dir.join("state.json")).unwrap())
+                    .unwrap();
+            state["projects"]
+                .as_object()
+                .unwrap()
+                .values()
+                .all(|project| project["junctions"].as_array().unwrap().is_empty())
+        }
+    );
+}
+
+#[test]
+fn delete_removes_dangling_project_junctions_before_host_and_worktree_cleanup() {
+    let f = Fixture::new();
+    f.create();
+    f.switch().success();
+
+    // Only one worktree is gone, while the Host and the other worktrees still
+    // exist. This isolates the ordering bug in the normal delete path.
+    fs::remove_dir_all(f.host().join("Plugins/AesWorld"))
+        .expect("remove one worktree to create a dangling project link");
+    let aesworld = f.project.join("Plugins/AesWorld");
+    assert!(!aesworld.exists());
+    assert!(fs::symlink_metadata(&aesworld).is_ok());
+
+    Command::cargo_bin("udf")
+        .unwrap()
+        .env("UNREALDEVFLOW_CONFIG_DIR", &f.config_dir)
+        .args(["task", "delete", "test/multi", "--force"])
+        .assert()
+        .success();
+
+    for name in PLUGINS {
+        assert!(
+            fs::symlink_metadata(f.project.join("Plugins").join(name)).is_err(),
+            "delete left project Junction for {name}"
+        );
+    }
+    assert!(!f.host().exists());
+}
+
+#[test]
 fn merge_requires_selection_for_multi_primary_and_all_dry_run_is_reverse_order() {
     let f = Fixture::new();
     f.create();
