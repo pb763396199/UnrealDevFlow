@@ -175,7 +175,7 @@ udf package recover <execution-id>
 `recover` 只处理有完整事务日志的未完成交付，不重新 Cook，也不会凭目录内容猜测删除文件。
 
 普通任务只允许 `udf package project`。插件包和 Installed Build 是高级工具链，只有用户明确点名目标时才可使用：
-`udf package advanced plugin --plugin <插件> --output <包根目录>` 或
+`udf package advanced plugin <插件> --output <包根目录>` 或
 `udf package advanced engine --output <包根目录> --name <目录名>`。
 旧的顶层 `package plugin/engine` 仅返回迁移提示，不会启动 UBT/BuildGraph。比较包必须先用
 `package configure --name <名称> --reason <原因>` 固定 lineage；执行前检查空间、同任务版本和预计新增占用。

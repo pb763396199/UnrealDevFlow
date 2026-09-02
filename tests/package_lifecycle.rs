@@ -107,7 +107,6 @@ fn plugin_collection_expands_nested_uplugins_without_an_execution() {
         "--plan",
         "--workspace",
         "test",
-        "--plugin",
         "UnrealMCP",
     ]);
 
@@ -138,7 +137,6 @@ fn exact_plugin_package_ignores_unrelated_duplicate_named_descriptors() {
         "--plan",
         "--workspace",
         "test",
-        "--plugin",
         "AesWorld",
     ]);
 
@@ -167,7 +165,6 @@ fn plugin_collection_rejects_duplicate_names_inside_collection_subtree() {
         "--plan",
         "--workspace",
         "test",
-        "--plugin",
         "UnrealMCP",
     ]);
 
@@ -201,7 +198,6 @@ fn plugin_package_rejects_dependency_names_with_multiple_project_candidates() {
         "--plan",
         "--workspace",
         "test",
-        "--plugin",
         "AesWorld",
     ]);
 
@@ -448,7 +444,6 @@ fn plugin_package_check_requires_the_ubt_dll_not_only_dotnet() {
         "--check",
         "--workspace",
         "test",
-        "--plugin",
         "AesWorld",
     ]);
     assert_eq!(checked["data"]["readiness"], "blocked");

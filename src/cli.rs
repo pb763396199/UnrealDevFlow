@@ -430,7 +430,6 @@ pub enum PackageAdvancedAction {
     /// 显式生成插件分发包；不会被 project/run 隐式触发。
     Plugin {
         /// 要打包的插件名，按给定顺序作为 seed。
-        #[arg(long = "plugin")]
         plugins: Vec<String>,
         /// 从任务 Host 解析源码来源。
         #[arg(long)]

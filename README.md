@@ -288,16 +288,16 @@ udf package project --task neon-dev/my-task
 ```powershell
 # check 只返回 readiness，不生成 execution ID
 udf --format json package check project --workspace neon-dev
-udf --format json package advanced plugin --check --workspace neon-dev --plugin AesWorld
+udf --format json package advanced plugin AesWorld --check --workspace neon-dev
 
 # plan 展示完整步骤、argv 和输出位置，不生成 execution ID
 udf --format json package plan project --workspace neon-dev
-udf --format json package advanced plugin --plan --workspace neon-dev --plugin AesWorld
+udf --format json package advanced plugin AesWorld --plan --workspace neon-dev
 udf --format json package plan project --task neon-dev/prefab-save-bug
 
 # 生成制品
 udf package project --workspace neon-dev
-udf package advanced plugin --plugin AesWorld --workspace neon-dev
+udf package advanced plugin AesWorld --workspace neon-dev
 udf package advanced engine --workspace neon-dev
 
 # 查询证据并清理可再生制品

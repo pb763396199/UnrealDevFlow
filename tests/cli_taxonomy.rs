@@ -93,9 +93,7 @@ fn package_contains_recover() {
 
 #[test]
 fn package_separates_normal_and_advanced_targets() {
-    let parsed = Cli::parse_from([
-        "udf", "package", "advanced", "plugin", "--plugin", "AesWorld", "--plan",
-    ]);
+    let parsed = Cli::parse_from(["udf", "package", "advanced", "plugin", "AesWorld", "--plan"]);
     assert!(matches!(
         parsed.command,
         Commands::Package {
