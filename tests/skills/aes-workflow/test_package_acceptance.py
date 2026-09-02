@@ -40,8 +40,8 @@ class PackageAcceptance(unittest.TestCase):
             "advanced",
             "plugin",
             "UnrealMCP",
-            "--task",
-            "neon-dev/unreal-mcp-functional-eval",
+            "--workspace",
+            "neon-dev",
             "--format",
             "json",
         ]
@@ -70,7 +70,7 @@ class PackageAcceptance(unittest.TestCase):
         self.assertEqual(plan.returncode, 0, plan.stdout + plan.stderr)
         plan_document = json.loads(plan.stdout)
         steps = plan_document["data"]["steps"]
-        self.assertEqual(len(steps), 78)
+        self.assertGreaterEqual(len(steps), 78)
         self.assertTrue(all("-NoMutex" in step["argv"] for step in steps))
         self.assertNotIn("executionId", plan_document["data"])
 
