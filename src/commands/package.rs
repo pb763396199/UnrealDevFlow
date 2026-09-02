@@ -659,6 +659,9 @@ fn read_manifest_entries(root: &Path) -> BTreeMap<PathBuf, String> {
         .flatten()
         .filter_map(|entry| {
             let path = entry.get("path")?.as_str().map(PathBuf::from)?;
+            if safe_relative(&path).is_err() {
+                return None;
+            }
             let digest = entry.get("digest")?.as_str()?.to_string();
             Some((path, digest))
         })
@@ -2365,6 +2368,7 @@ pub fn clean(
     dry_run: bool,
 ) -> Result<()> {
     let explicit = execution_id.is_some();
+    let inventory_only = !explicit && task_ref.is_none() && workspace.is_none();
     let mut records = if let Some(id) = execution_id.as_deref() {
         vec![load_result(Some(id))?]
     } else {
@@ -2426,7 +2430,7 @@ pub fn clean(
     }
     // No-argument clean is intentionally an inventory command. It must never
     // choose the latest execution and delete final packages by accident.
-    if !explicit && !dry_run {
+    if inventory_only && !dry_run {
         diagnostics.push("未指定 execution ID；仅报告可回收空间，未删除任何文件".into());
     } else if !dry_run {
         for target in &targets {
@@ -2445,7 +2449,7 @@ pub fn clean(
     output::emit(
         "package clean",
         CleanReport {
-            dry_run: dry_run || !explicit,
+            dry_run: dry_run || inventory_only,
             scope,
             reclaimable_bytes,
             targets: targets.into_iter().collect(),
