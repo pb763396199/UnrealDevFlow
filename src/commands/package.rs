@@ -2055,26 +2055,25 @@ pub fn plugin(
                 ..PackageEvidence::default()
             },
         )?;
+        let mut delivery_logs = Vec::new();
         for plugin in &plugins {
             let package_dir = output_dir.join(plugin);
-            if package_dir.exists() {
-                fs::remove_dir_all(&package_dir)?;
-            }
-            copy_tree(
-                &stage_root.join("Plugins").join(plugin),
-                &package_dir,
-                false,
-            )?;
+            let source_dir = stage_root.join("Plugins").join(plugin);
+            write_manifest(&source_dir, &package_dir)?;
+            let plugin_log_dir = log_dir.join(plugin);
+            publish_directory(&source_dir, &package_dir, &id, &plugin_log_dir)?;
+            delivery_logs.push(plugin_log_dir.join(".udf-delivery-journal.json"));
         }
-        logs
+        // Keep the per-plugin transaction journals discoverable by recover.
+        logs.into_iter().chain(delivery_logs).collect()
     } else {
         Vec::new()
     };
     let manifests = if mode.executes() {
         plugins
             .iter()
-            .map(|plugin| write_manifest(&output_dir.join(plugin), &output_dir.join(plugin)))
-            .collect::<Result<Vec<_>>>()?
+            .map(|plugin| output_dir.join(plugin).join(".udf-manifest.json"))
+            .collect()
     } else {
         Vec::new()
     };
