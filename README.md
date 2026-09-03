@@ -414,6 +414,10 @@ udf task create "..." --primary AesWorld --override-dep PCG=project
 
 A: 不会立刻拦截，但 build / switch / merge 前会 `git status --porcelain` 检查，dirty 时打印警告。
 
+### Q: 主插件仓库有未提交文件，还能创建任务吗？
+
+A: 可以。`task create` 只要求主插件当前在 `dev` 分支；任务会从当前 `HEAD` 创建独立 worktree，主仓库的未提交修改会保留原样，既不会带入 Host，也不会自动提交。工具会列出这些修改，提醒你任务基线不包含它们。
+
 ### Q: 如何查看任务状态？
 
 A:

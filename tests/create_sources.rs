@@ -480,6 +480,46 @@ fn create_rejects_primary_repo_when_current_branch_is_not_dev() {
 }
 
 #[test]
+fn create_uses_dev_commit_and_keeps_dirty_main_checkout_untouched() {
+    let temp = TempDir::new().expect("temp dir");
+    let root = temp.path();
+    let config_dir = root.join("config");
+    let main_repo = setup_main_plugin_repo(root);
+    let dev_head = git_stdout(&main_repo, &["rev-parse", "HEAD"]);
+    fs::create_dir_all(main_repo.join("output")).expect("output");
+    fs::write(main_repo.join("output/build.log"), "local output\n").expect("output file");
+    fs::write(main_repo.join("next-rerun-only.yml"), "local workflow\n").expect("workflow file");
+    let project = root.join("UGA").join("DEV");
+    let plugins_root = main_repo.parent().expect("plugins root");
+    write_workspace_config(&config_dir, root, &project, plugins_root);
+
+    Command::cargo_bin("udf")
+        .expect("binary")
+        .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
+        .args([
+            "task",
+            "create",
+            "dirty main checkout",
+            "--workspace",
+            "bad",
+            "--id",
+            "dirty-main",
+            "--primary",
+            "AesWorld",
+            "--yes",
+        ])
+        .assert()
+        .success();
+
+    let host = root.join("Hosts").join("W-bad").join("T-dirty-main_Host");
+    let task_worktree = host.join("Plugins").join("AesWorld");
+    assert_eq!(git_stdout(&task_worktree, &["rev-parse", "HEAD"]), dev_head);
+    assert!(main_repo.join("output/build.log").is_file());
+    assert!(main_repo.join("next-rerun-only.yml").is_file());
+    assert!(git_stdout(&main_repo, &["status", "--porcelain"]).contains("next-rerun-only.yml"));
+}
+
+#[test]
 fn start_from_valid_main_repo_records_canonical_source_and_base() {
     let temp = TempDir::new().expect("temp dir");
     let root = temp.path();

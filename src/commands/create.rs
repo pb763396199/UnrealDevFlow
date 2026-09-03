@@ -717,12 +717,20 @@ fn prepare_primary_plans(
                     name, current_branch, CREATE_BASE_BRANCH
                 )));
             }
-            let status = git::status_porcelain_tracked(&source_repo)?;
-            if !status.is_empty() {
+            let tracked_status = git::status_porcelain_tracked(&source_repo)?;
+            if !tracked_status.is_empty() {
                 return Err(UdfError::Other(format!(
                     "主插件 '{}' 的主仓工作区不干净，不能创建任务：\n{}",
-                    name, status
+                    name, tracked_status
                 )));
+            }
+            let status = git::status_porcelain(&source_repo)?;
+            if !status.is_empty() {
+                output::print_warning(&format!(
+                    "主插件 '{}' 的主仓工作区有未提交修改；本次任务将从当前 dev 提交创建，\
+                     这些修改会保留在主仓，不会带入 Host：\n{}",
+                    name, status
+                ));
             }
         }
         let based_on = match base_ref {
