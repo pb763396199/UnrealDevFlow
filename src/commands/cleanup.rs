@@ -218,6 +218,11 @@ fn cleanup_orphaned_branches(
     if matches.is_empty() {
         // 找不到不等于清理成功。说清楚是「没有可清的」，别让人以为清过了。
         output::print_info(&format!("没有找到属于任务 '{}' 的残留分支。", task_ref));
+        if junctions.clean()
+            && let Err(error) = crate::task_routes::remove(task_ref, None)
+        {
+            output::print_warning(&format!("Failed to remove persisted task route: {}", error));
+        }
         output::emit(
             "task cleanup",
             CleanupOutcome {
@@ -273,6 +278,10 @@ fn cleanup_orphaned_branches(
         }
     }
 
+    let complete = all_deleted && junctions.clean();
+    if complete && let Err(error) = crate::task_routes::remove(task_ref, None) {
+        output::print_warning(&format!("Failed to remove persisted task route: {}", error));
+    }
     output::emit(
         "task cleanup",
         CleanupOutcome {
@@ -283,7 +292,7 @@ fn cleanup_orphaned_branches(
             host_deleted: true,
             junctions_removed: junctions.removed,
             junctions_clean: junctions.clean(),
-            complete: all_deleted && junctions.clean(),
+            complete,
         },
         render_cleanup,
     );
@@ -417,6 +426,11 @@ pub fn run(task_id: &str, force: bool, skip_confirm: bool) -> Result<()> {
         true
     };
 
+    let complete =
+        host_deleted && all_worktrees_removed && all_branches_deleted && junctions.clean();
+    if complete && let Err(error) = crate::task_routes::remove(task_id, meta.task_uid.as_deref()) {
+        output::print_warning(&format!("Failed to remove persisted task route: {}", error));
+    }
     output::emit(
         "task cleanup",
         CleanupOutcome {
@@ -427,10 +441,7 @@ pub fn run(task_id: &str, force: bool, skip_confirm: bool) -> Result<()> {
             host_deleted,
             junctions_removed: junctions.removed,
             junctions_clean: junctions.clean(),
-            complete: host_deleted
-                && all_worktrees_removed
-                && all_branches_deleted
-                && junctions.clean(),
+            complete,
         },
         render_cleanup,
     );

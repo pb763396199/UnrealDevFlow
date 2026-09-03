@@ -323,6 +323,60 @@ fn cleanup_missing_host_removes_dangling_project_junctions_before_branch_cleanup
 }
 
 #[test]
+fn cleanup_missing_host_uses_persisted_task_route_after_project_configuration_changes() {
+    let f = Fixture::new();
+    f.create();
+    f.switch().success();
+    assert!(
+        f.config_dir.join("task-routes.json").is_file(),
+        "switch must persist the task route"
+    );
+
+    fs::remove_file(f.config_dir.join("state.json")).expect("remove state ledger");
+    fs::remove_dir_all(f.host()).expect("remove task Host");
+
+    let replacement_project = f._temp.path().join("ReplacementProject");
+    fs::create_dir_all(replacement_project.join("Plugins")).expect("replacement plugins");
+    let config = format!(
+        r#"hosts_root = "{}"
+default_project = "{}"
+engine_path = "{}"
+plugins_root = "{}"
+
+[workspaces.test]
+hosts_root = "{}"
+default_project = "{}"
+engine_path = "{}"
+plugins_root = "{}"
+"#,
+        toml_path(&f.hosts),
+        toml_path(&replacement_project),
+        toml_path(&f._temp.path().join("UE_5.5")),
+        toml_path(&f._temp.path().join("Plugins")),
+        toml_path(&f.hosts),
+        toml_path(&replacement_project),
+        toml_path(&f._temp.path().join("UE_5.5")),
+        toml_path(&f._temp.path().join("Plugins")),
+    );
+    fs::write(f.config_dir.join("config.toml"), config).expect("changed config");
+
+    Command::cargo_bin("udf")
+        .unwrap()
+        .env("UNREALDEVFLOW_CONFIG_DIR", &f.config_dir)
+        .args(["task", "cleanup", "test/multi", "--force"])
+        .assert()
+        .success();
+
+    for name in PLUGINS {
+        assert!(
+            fs::symlink_metadata(f.project.join("Plugins").join(name)).is_err(),
+            "cleanup left the old project's Junction for {name}"
+        );
+    }
+    assert!(!f.config_dir.join("task-routes.json").exists());
+}
+
+#[test]
 fn delete_removes_dangling_project_junctions_before_host_and_worktree_cleanup() {
     let f = Fixture::new();
     f.create();

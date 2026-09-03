@@ -11,7 +11,7 @@ use crate::error::Result;
 use crate::host::{self, TaskMeta};
 use crate::state::GlobalState;
 use std::collections::BTreeSet;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct CleanupReport {
@@ -39,30 +39,52 @@ pub fn cleanup_for_task(
 ) -> Result<CleanupReport> {
     let task_uid = meta.task_uid.as_deref();
     let roots = [host_dir.to_path_buf()];
-    let host_junctions = meta
-        .dependency_plugins
-        .iter()
-        .filter_map(|dependency| dependency.junction.as_ref())
-        .map(|relative| host_dir.join(relative))
-        .collect();
-    let task_project = meta
+    let (host_junctions, invalid_host_junctions) = collect_host_junctions(host_dir, meta);
+    let task_projects = meta
         .context
         .as_ref()
-        .map(|context| context.default_project.clone());
+        .map(|context| vec![context.default_project.clone()])
+        .unwrap_or_default();
     cleanup_for_host_roots(
         config,
         task_ref,
         &roots,
         task_uid,
-        task_project.as_deref(),
+        &task_projects,
+        invalid_host_junctions,
         host_junctions,
     )
 }
 
 /// Recovery variant used when the Host itself is already missing.
 pub fn cleanup_for_missing_task(config: &Config, task_ref: &str) -> Result<CleanupReport> {
-    let roots = candidate_task_hosts(config, task_ref);
-    cleanup_for_host_roots(config, task_ref, &roots, None, None, Vec::new())
+    let mut roots = candidate_task_hosts(config, task_ref);
+    let persisted_routes = crate::task_routes::find(task_ref)?;
+    let mut task_uid = None;
+    let mut task_projects = Vec::new();
+    for route in &persisted_routes {
+        if !roots
+            .iter()
+            .any(|root| normalize(root) == normalize(&route.host_dir))
+        {
+            roots.push(route.host_dir.clone());
+        }
+        if task_uid.is_none() {
+            task_uid = route.task_uid.as_deref();
+        }
+        for project in &route.project_paths {
+            add_project_path(&mut task_projects, project.clone());
+        }
+    }
+    cleanup_for_host_roots(
+        config,
+        task_ref,
+        &roots,
+        task_uid,
+        &task_projects,
+        0,
+        Vec::new(),
+    )
 }
 
 fn candidate_task_hosts(config: &Config, task_ref: &str) -> Vec<PathBuf> {
@@ -146,14 +168,42 @@ fn add_project_path(projects: &mut Vec<PathBuf>, path: PathBuf) {
     }
 }
 
+fn collect_host_junctions(host_dir: &Path, meta: &TaskMeta) -> (Vec<PathBuf>, usize) {
+    let mut paths = Vec::new();
+    let mut invalid = 0;
+    for dependency in &meta.dependency_plugins {
+        let Some(relative) = dependency.junction.as_ref() else {
+            continue;
+        };
+        let unsafe_path = relative.as_os_str().is_empty()
+            || relative.is_absolute()
+            || relative.components().any(|component| {
+                matches!(
+                    component,
+                    Component::ParentDir | Component::RootDir | Component::Prefix(_)
+                )
+            });
+        if unsafe_path {
+            invalid += 1;
+            crate::output::print_warning(&format!(
+                "忽略任务 '{}' 中越出 Host 的 dependency Junction 路径：{:?}",
+                meta.id, relative
+            ));
+            continue;
+        }
+        paths.push(host_dir.join(relative));
+    }
+    (paths, invalid)
+}
+
 fn configured_project_paths(
     config: &Config,
     state: &GlobalState,
-    task_project: Option<&Path>,
+    task_projects: &[PathBuf],
 ) -> Vec<PathBuf> {
     let mut projects = Vec::new();
-    if let Some(task_project) = task_project {
-        add_project_path(&mut projects, task_project.to_path_buf());
+    for task_project in task_projects {
+        add_project_path(&mut projects, task_project.clone());
     }
     add_project_path(&mut projects, config.default_project.clone());
     for workspace in config.workspaces.values() {
@@ -169,7 +219,7 @@ fn collect_project_candidates(
     config: &Config,
     state: &GlobalState,
     roots: &[PathBuf],
-    task_project: Option<&Path>,
+    task_projects: &[PathBuf],
 ) -> (Vec<PathBuf>, Vec<(PathBuf, PathBuf)>) {
     let mut candidates = Vec::new();
     let mut seen = BTreeSet::new();
@@ -196,7 +246,7 @@ fn collect_project_candidates(
     // Junction left behind before the first state save is still recoverable.
     // Only inspect immediate Plugins children; never recurse into arbitrary
     // project content.
-    for project_path in configured_project_paths(config, state, task_project) {
+    for project_path in configured_project_paths(config, state, task_projects) {
         let plugins_dir = project_path.join("Plugins");
         let Ok(entries) = std::fs::read_dir(plugins_dir) else {
             continue;
@@ -236,11 +286,13 @@ fn cleanup_for_host_roots(
     task_ref: &str,
     roots: &[PathBuf],
     task_uid: Option<&str>,
-    task_project: Option<&Path>,
+    task_projects: &[PathBuf],
+    invalid_candidates: usize,
     extra_candidates: Vec<PathBuf>,
 ) -> Result<CleanupReport> {
     let mut state = GlobalState::load()?;
-    let (mut candidates, records) = collect_project_candidates(config, &state, roots, task_project);
+    let (mut candidates, records) =
+        collect_project_candidates(config, &state, roots, task_projects);
     let mut seen = candidates.iter().map(|path| normalize(path)).collect();
     for path in extra_candidates {
         add_candidate(&mut candidates, &mut seen, path);
@@ -249,7 +301,10 @@ fn cleanup_for_host_roots(
         .iter()
         .map(|(_, target)| normalize(target))
         .collect();
-    let mut report = CleanupReport::default();
+    let mut report = CleanupReport {
+        failed: invalid_candidates,
+        ..CleanupReport::default()
+    };
     let mut failed_paths = BTreeSet::new();
 
     for path in candidates {
@@ -531,5 +586,36 @@ mod tests {
             "task context project junction was not found"
         );
         assert!(std::fs::symlink_metadata(&project_link).is_err());
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn cleanup_rejects_dependency_junction_paths_outside_the_host() {
+        let root = tempdir().expect("temp dir");
+        let host = root.path().join("Hosts/W-test/T-boundary_Host");
+        let outside_target = root.path().join("OutsideTarget");
+        let outside_link = root.path().join("Outside/Plugins/Victim");
+        std::fs::create_dir_all(&outside_target).expect("outside target");
+        std::fs::create_dir_all(outside_link.parent().unwrap()).expect("outside plugins");
+        crate::junction::create(&outside_target, &outside_link).expect("outside junction");
+        std::fs::create_dir_all(root.path().join("config")).expect("config");
+        unsafe {
+            std::env::set_var("UNREALDEVFLOW_CONFIG_DIR", root.path().join("config"));
+        }
+        let config = config_for(root.path());
+        config.save().expect("config");
+        let mut task_meta = meta();
+        task_meta.dependency_plugins[0].junction =
+            Some(PathBuf::from("../../../Outside/Plugins/Victim"));
+
+        let report =
+            cleanup_for_task(&config, "test/boundary", &host, &task_meta).expect("cleanup");
+
+        assert_eq!(report.removed, 0, "cleanup deleted a Junction outside Host");
+        assert!(crate::junction::exists(&outside_link).expect("outside junction exists"));
+        assert!(
+            outside_target.is_dir(),
+            "cleanup touched the outside target"
+        );
     }
 }

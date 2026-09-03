@@ -357,6 +357,11 @@ pub fn run(task_id: &str, force: bool, skip_confirm: bool, dry_run: bool) -> Res
         true
     };
 
+    let complete =
+        host_deleted && all_worktrees_removed && all_branches_deleted && junctions.clean();
+    if complete && let Err(error) = crate::task_routes::remove(task_id, meta.task_uid.as_deref()) {
+        output::print_warning(&format!("Failed to remove persisted task route: {}", error));
+    }
     output::emit(
         "task delete",
         DeleteOutcome {
@@ -367,10 +372,7 @@ pub fn run(task_id: &str, force: bool, skip_confirm: bool, dry_run: bool) -> Res
             host_deleted,
             junctions_removed: junctions.removed,
             junctions_clean: junctions.clean(),
-            complete: host_deleted
-                && all_worktrees_removed
-                && all_branches_deleted
-                && junctions.clean(),
+            complete,
         },
         render_delete,
     );

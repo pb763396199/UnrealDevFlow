@@ -7,6 +7,7 @@ use crate::host;
 use crate::junction;
 use crate::output;
 use crate::state::{GlobalState, JunctionState, ProjectState, junction_path_for};
+use crate::task_routes::TaskRoute;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -20,6 +21,7 @@ pub fn run(
     let config = Config::load()?;
     let mut regen_engine_path = config.engine_path.clone();
     let mut task_bound_project: Option<PathBuf> = None;
+    let mut task_route: Option<TaskRoute> = None;
 
     let mut target_projects = projects;
 
@@ -89,7 +91,13 @@ pub fn run(
         let bound_project = task_context.default_project.clone();
         validate_task_project_scope(task_id, &bound_project, target_projects.as_deref())?;
         target_projects = Some(vec![bound_project.clone()]);
-        task_bound_project = Some(bound_project);
+        task_bound_project = Some(bound_project.clone());
+        task_route = Some(TaskRoute {
+            task_ref: format!("{}/{}", task_context.workspace, meta.id),
+            task_uid: meta.task_uid.clone(),
+            host_dir: host_dir.clone(),
+            project_paths: vec![bound_project],
+        });
 
         let mut plan: Vec<(String, PathBuf)> = Vec::new();
         for primary in &meta.primary_plugins {
@@ -110,6 +118,10 @@ pub fn run(
         )));
     }
     let target_projects = target_projects.unwrap_or_else(|| vec![config.default_project.clone()]);
+    if let Some(mut route) = task_route {
+        route.project_paths = target_projects.clone();
+        crate::task_routes::record(route)?;
+    }
     let mut state = GlobalState::load()?;
     let shared_plugins_aliases = task_bound_project
         .as_deref()
