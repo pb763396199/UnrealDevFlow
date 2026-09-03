@@ -75,22 +75,22 @@ dependencies:
   work_item_contract_digest: sha256:f7aeaedd7b0a0eaf96f1cd22835f0b0889bd2f4f33e23993948dab53de528229
   artifacts:
     - artifact_id: ar_01M1K2962MV7BJDAWW3KPG1TAP
-      digest: sha256:fbf05cef7ed2bf8c6c0b77436ffd7729b2a8d558ec9f5f9e0cd5bdd322b2d1fd
+      digest: sha256:6ac3256dc125ac2cf1e540fb809a1a2ee490eeeab3ff301fd8381165ceed1c6c
       locator: implementation.md
     - artifact_id: ar_01M1K29683S5YVZ66ZA7K6R0ZX
-      digest: sha256:fd7e2911b5e9db0160c1c9ccf706fcc37f37acfbf3a40b918ed686cdf3fe9067
+      digest: sha256:ae3c5a4415005963995749d010573e786237371eebf929cba5fd8cf5af0ca724
       locator: reviews/code-review.md
     - artifact_id: ar_01M1K296MG12RFN2Y3V9GAQK2J
-      digest: sha256:fac97c789e2f66714469a25cbc9ec3b11170961ec25ad26b81e01713b9a7fe11
+      digest: sha256:db1856231b76fcbf53250f36b34f382587c0f4f06c371a9e19da4cc5839b8bb8
       locator: manual-test.md
   subject:
     kind: change_set
     digest: sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945
     repository: https://github.com/pb763396199/UnrealDevFlow.git
     base_revision: a817dd2473ebe5fa18ceb0168be9692bf905fcea
-    revision: 71085c0b785e41317d03c43fa4d9747c58b8c125
-    tree: 08907cbb20d394efbb6ec06b13d3fcca9454c266
-    content_digest: sha256:169f8e6829e36f04a2286d4b419f80c9abdd76033d5d043a05d1f8eb599b7055
+    revision: 2d76b395291f8b79b8ba447409a5b6d4dd402c26
+    tree: bb896285024e07a65b6c43696026c79e104573f6
+    content_digest: sha256:e402fec3b80a318be4aeab9bb0ec3ee423eed114772f8d290b379b9b07dd09ac
     branch_or_pr: feature/task-package-profiles
     workflow_excluded: true
 ---

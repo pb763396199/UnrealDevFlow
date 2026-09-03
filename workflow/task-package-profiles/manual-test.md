@@ -16,9 +16,9 @@ dependencies:
     digest: sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945
     repository: https://github.com/pb763396199/UnrealDevFlow.git
     base_revision: a817dd2473ebe5fa18ceb0168be9692bf905fcea
-    revision: 71085c0b785e41317d03c43fa4d9747c58b8c125
-    tree: 08907cbb20d394efbb6ec06b13d3fcca9454c266
-    content_digest: sha256:169f8e6829e36f04a2286d4b419f80c9abdd76033d5d043a05d1f8eb599b7055
+    revision: 2d76b395291f8b79b8ba447409a5b6d4dd402c26
+    tree: bb896285024e07a65b6c43696026c79e104573f6
+    content_digest: sha256:e402fec3b80a318be4aeab9bb0ec3ee423eed114772f8d290b379b9b07dd09ac
     branch_or_pr: feature/task-package-profiles
     workflow_excluded: true
 ---
