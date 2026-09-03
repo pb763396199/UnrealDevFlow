@@ -394,13 +394,6 @@ pub enum PackageAction {
         workspace: Option<String>,
     },
 
-    /// 执行固定配置的项目包；兼容旧脚本，等价于 package project
-    Run {
-        /// workspace 名。不提供时只在唯一候选存在时自动选择。
-        #[arg(long)]
-        workspace: Option<String>,
-    },
-
     /// 查看一次执行的当前状态和证据
     #[command(about = EXECUTION_STATUS_ABOUT)]
     Status {

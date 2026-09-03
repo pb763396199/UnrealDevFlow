@@ -130,7 +130,6 @@ fn command_name(command: &Commands) -> &'static str {
             cli::PackageAction::Engine { .. } => "package engine",
             cli::PackageAction::Check { .. } => "package check",
             cli::PackageAction::Plan { .. } => "package plan",
-            cli::PackageAction::Run { .. } => "package run",
             cli::PackageAction::Status { .. } => "package status",
             cli::PackageAction::Clean { .. } => "package clean",
         },
@@ -423,9 +422,6 @@ fn run(cli: Cli) -> Result<()> {
                     commands::package::PackageMode::Check,
                 )?,
             },
-            cli::PackageAction::Run { workspace } => {
-                commands::package::project(workspace, None, commands::package::PackageMode::Run)?
-            }
             cli::PackageAction::Status { execution_id } => commands::package::status(execution_id)?,
             cli::PackageAction::Clean {
                 execution_id,

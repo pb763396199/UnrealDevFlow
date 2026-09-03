@@ -128,12 +128,17 @@ fn legacy_query_invocations_have_explicit_compatibility() {
         ["udf", "package", "engine"].as_slice(),
         ["udf", "package", "check"].as_slice(),
         ["udf", "package", "plan"].as_slice(),
-        ["udf", "package", "run"].as_slice(),
         ["udf", "package", "status"].as_slice(),
         ["udf", "package", "clean", "package-project-1"].as_slice(),
     ] {
         Cli::try_parse_from(args).unwrap_or_else(|error| panic!("{args:?} failed: {error}"));
     }
+}
+
+#[test]
+fn removed_package_run_entrypoint_cannot_be_selected() {
+    assert!(Cli::try_parse_from(["udf", "package", "run"]).is_err());
+    assert!(!help_for(&["package"]).contains("package run"));
 }
 
 #[test]

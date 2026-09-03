@@ -263,7 +263,6 @@ udf task finish neon-dev/prefab-save-bug
 | | `package advanced plugin/engine` | 显式执行插件包或 Installed Build 高级工具链；普通项目任务不会进入 |
 | | `package check` | 只回答现在能不能启动打包；不执行、不生成执行记录 |
 | | `package plan` | 展示启动后会执行的命令、阶段和输出位置；不执行、不生成执行记录 |
-| | `package run` | 执行 workspace 的默认项目发布流程 |
 | | `package status` | 按 execution ID 查看真实执行；省略时查看最近一次真实 package 执行 |
 | | `package clean` | 默认只盘点可回收空间；显式 execution ID 才清理 UDF 临时材料，不删除最终包 |
 | | `package recover` | 只恢复有完整事务日志的未完成交付，不重新 Cook |
