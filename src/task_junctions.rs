@@ -31,7 +31,12 @@ impl CleanupReport {
 /// The state ledger is the fast/precise source, while the direct project scan
 /// is a repair path for stale or incomplete state. Both paths use filesystem
 /// metadata, so dangling Junctions are included.
-pub fn cleanup_for_task(task_ref: &str, host_dir: &Path, meta: &TaskMeta) -> Result<CleanupReport> {
+pub fn cleanup_for_task(
+    config: &Config,
+    task_ref: &str,
+    host_dir: &Path,
+    meta: &TaskMeta,
+) -> Result<CleanupReport> {
     let task_uid = meta.task_uid.as_deref();
     let roots = [host_dir.to_path_buf()];
     let host_junctions = meta
@@ -40,13 +45,13 @@ pub fn cleanup_for_task(task_ref: &str, host_dir: &Path, meta: &TaskMeta) -> Res
         .filter_map(|dependency| dependency.junction.as_ref())
         .map(|relative| host_dir.join(relative))
         .collect();
-    cleanup_for_host_roots(task_ref, &roots, task_uid, host_junctions)
+    cleanup_for_host_roots(config, task_ref, &roots, task_uid, host_junctions)
 }
 
 /// Recovery variant used when the Host itself is already missing.
 pub fn cleanup_for_missing_task(config: &Config, task_ref: &str) -> Result<CleanupReport> {
     let roots = candidate_task_hosts(config, task_ref);
-    cleanup_for_host_roots(task_ref, &roots, None, Vec::new())
+    cleanup_for_host_roots(config, task_ref, &roots, None, Vec::new())
 }
 
 fn candidate_task_hosts(config: &Config, task_ref: &str) -> Vec<PathBuf> {
@@ -121,7 +126,29 @@ fn add_state_candidates(
     }
 }
 
+fn add_project_path(projects: &mut Vec<PathBuf>, path: PathBuf) {
+    if !projects
+        .iter()
+        .any(|existing| normalize(existing) == normalize(&path))
+    {
+        projects.push(path);
+    }
+}
+
+fn configured_project_paths(config: &Config, state: &GlobalState) -> Vec<PathBuf> {
+    let mut projects = Vec::new();
+    add_project_path(&mut projects, config.default_project.clone());
+    for workspace in config.workspaces.values() {
+        add_project_path(&mut projects, workspace.default_project.clone());
+    }
+    for project_state in state.projects.values() {
+        add_project_path(&mut projects, project_state.path.clone());
+    }
+    projects
+}
+
 fn collect_project_candidates(
+    config: &Config,
     state: &GlobalState,
     roots: &[PathBuf],
 ) -> (Vec<PathBuf>, Vec<(PathBuf, PathBuf)>) {
@@ -144,10 +171,14 @@ fn collect_project_candidates(
         {
             records.push((project_state.junction_path.clone(), target.clone()));
         }
+    }
 
-        // State can be stale or absent. Only inspect the immediate Plugins
-        // children; never recurse into arbitrary project content.
-        let plugins_dir = project_state.path.join("Plugins");
+    // State can be stale or absent. Include every configured project so a
+    // Junction left behind before the first state save is still recoverable.
+    // Only inspect immediate Plugins children; never recurse into arbitrary
+    // project content.
+    for project_path in configured_project_paths(config, state) {
+        let plugins_dir = project_path.join("Plugins");
         let Ok(entries) = std::fs::read_dir(plugins_dir) else {
             continue;
         };
@@ -182,13 +213,14 @@ fn active_task_matches(active_task: Option<&str>, task_ref: &str, task_uid: Opti
 }
 
 fn cleanup_for_host_roots(
+    config: &Config,
     task_ref: &str,
     roots: &[PathBuf],
     task_uid: Option<&str>,
     extra_candidates: Vec<PathBuf>,
 ) -> Result<CleanupReport> {
     let mut state = GlobalState::load()?;
-    let (mut candidates, records) = collect_project_candidates(&state, roots);
+    let (mut candidates, records) = collect_project_candidates(config, &state, roots);
     let mut seen = candidates.iter().map(|path| normalize(path)).collect();
     for path in extra_candidates {
         add_candidate(&mut candidates, &mut seen, path);
@@ -400,7 +432,7 @@ mod tests {
         }
         .save()
         .expect("state");
-        let report = cleanup_for_task("test/dangling", &host, &meta()).expect("cleanup");
+        let report = cleanup_for_task(&config, "test/dangling", &host, &meta()).expect("cleanup");
         assert_eq!(report.removed, 2);
         assert!(!crate::junction::exists(&project_link).unwrap_or(false));
         assert!(std::fs::symlink_metadata(&project_link).is_err());
@@ -408,5 +440,38 @@ mod tests {
         assert!(dependency_target.is_dir(), "dependency target was touched");
         assert!(crate::junction::exists(&unrelated_link).expect("unrelated junction"));
         assert!(unrelated_target.is_dir(), "unrelated target was touched");
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn cleanup_scans_configured_project_when_state_has_no_entry() {
+        let root = tempdir().expect("temp dir");
+        let project = root.path().join("Project");
+        let host = root.path().join("Hosts/W-test/T-no-state_Host");
+        let project_link = project.join("Plugins/AesWorld");
+        let target = host.join("Plugins/AesWorld");
+        std::fs::create_dir_all(&target).expect("target");
+        std::fs::create_dir_all(project.join("Plugins")).expect("project plugins");
+        crate::junction::create(&target, &project_link).expect("project junction");
+        std::fs::remove_dir_all(&target).expect("remove Host before cleanup");
+        assert!(
+            !project_link.exists(),
+            "Path::exists follows the broken junction"
+        );
+        assert!(std::fs::symlink_metadata(&project_link).is_ok());
+        std::fs::create_dir_all(root.path().join("config")).expect("config");
+        unsafe {
+            std::env::set_var("UNREALDEVFLOW_CONFIG_DIR", root.path().join("config"));
+        }
+        let config = config_for(root.path());
+        config.save().expect("config");
+
+        let report = cleanup_for_task(&config, "test/no-state", &host, &meta()).expect("cleanup");
+
+        assert_eq!(
+            report.removed, 1,
+            "configured project junction was not found"
+        );
+        assert!(std::fs::symlink_metadata(&project_link).is_err());
     }
 }

@@ -263,7 +263,7 @@ pub fn run(task_id: &str, force: bool, skip_confirm: bool, dry_run: bool) -> Res
     // deleting worktrees or the Host directory. The helper deliberately uses
     // filesystem metadata, so dangling project links are cleaned as well.
     output::print_info("Checking for Junctions pointing to this task...");
-    let junctions = crate::task_junctions::cleanup_for_task(task_id, &host_dir, &meta)?;
+    let junctions = crate::task_junctions::cleanup_for_task(&config, task_id, &host_dir, &meta)?;
     if junctions.removed > 0 {
         output::print_success(&format!(
             "Cleaned up {} project Junction(s).",

@@ -376,7 +376,7 @@ pub fn run(task_id: &str, force: bool, skip_confirm: bool) -> Result<()> {
     // Step 1: Remove all project-side and Host dependency Junctions before
     // deleting any worktree or the Host directory. This also handles dangling
     // project links left by an earlier interrupted cleanup.
-    let junctions = crate::task_junctions::cleanup_for_task(task_id, &host_dir, &meta)?;
+    let junctions = crate::task_junctions::cleanup_for_task(&config, task_id, &host_dir, &meta)?;
     if junctions.removed > 0 {
         output::print_success(&format!(
             "Cleaned up {} project Junction(s).",
