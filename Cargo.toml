@@ -1,6 +1,6 @@
 [package]
 name = "unrealdevflow"
-version = "0.4.1"
+version = "0.5.0"
 edition = "2024"
 # Raised from 1.85 by ipc-lock 0.1.4, which the controlled build policy needs.
 rust-version = "1.89"
