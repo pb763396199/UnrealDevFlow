@@ -1,0 +1,420 @@
+{
+  "artifacts": [
+    {
+      "artifact_id": "ar_01M1GJ71HS5RPB8TS0T4EFVTD8",
+      "depends_on": [
+        "ar_01M1GCKQ5K74MTZJ9FFZK74M54",
+        "ar_01M1GD7JRRHR8QXDXHPXFTJ2Q8"
+      ],
+      "freshness": "fresh",
+      "outcome": "complete",
+      "path": "change-note.md",
+      "stage": 45,
+      "type": "change-note"
+    },
+    {
+      "artifact_id": "ar_01M1JP3MJDG785GAW51M12CEV7",
+      "depends_on": [
+        "ar_01M1GD7JRRHR8QXDXHPXFTJ2Q8"
+      ],
+      "freshness": "superseded",
+      "outcome": "fixed",
+      "path": "debug.md",
+      "stage": 40,
+      "type": "debug"
+    },
+    {
+      "artifact_id": "ar_01M1K296X3184KK59161PJSG3E",
+      "depends_on": [
+        "ar_01M1K29683S5YVZ66ZA7K6R0ZX",
+        "ar_01M1K296E4SMC060K71PQ91SB7",
+        "ar_01M1K296MG12RFN2Y3V9GAQK2J"
+      ],
+      "freshness": "fresh",
+      "outcome": "delivered",
+      "path": "delivery.md",
+      "stage": 80,
+      "type": "delivery"
+    },
+    {
+      "artifact_id": "ar_01M1B9A2M0VRC0N808JQA3KRKR",
+      "depends_on": [
+        "ar_01M1B98DD4X813908Y0PEVJK8P",
+        "ar_01M1B7ZVMZARF55F5GS4BRZWWT"
+      ],
+      "freshness": "superseded",
+      "outcome": "superseded",
+      "path": "design/package-design-v2.md",
+      "stage": 20,
+      "type": "design"
+    },
+    {
+      "artifact_id": "ar_01M1DXZWBW3073G1TNNW48AG5S",
+      "depends_on": [
+        "ar_01M1DY0G9HF11ZFAJKST8W2VAK"
+      ],
+      "freshness": "superseded",
+      "outcome": "superseded",
+      "path": "design/package-design-v3.md",
+      "stage": 20,
+      "type": "design"
+    },
+    {
+      "artifact_id": "ar_01M1E9CXJEVY3JBVAAKDC35J9N",
+      "depends_on": [
+        "ar_01M1DY0G9HF11ZFAJKST8W2VAK",
+        "ar_01M1DXZWBW3073G1TNNW48AG5S"
+      ],
+      "freshness": "superseded",
+      "outcome": "superseded",
+      "path": "design/package-design-v4.md",
+      "stage": 20,
+      "type": "design"
+    },
+    {
+      "artifact_id": "ar_01M1GCKQ5K74MTZJ9FFZK74M54",
+      "depends_on": [
+        "ar_01M1GCKPYPHYGFPR60YHRY9K99",
+        "ar_01M1E9CXJEVY3JBVAAKDC35J9N"
+      ],
+      "freshness": "fresh",
+      "outcome": "accepted",
+      "path": "design/package-design-v5.md",
+      "stage": 20,
+      "type": "design"
+    },
+    {
+      "artifact_id": "ar_01M1B7ZXGGS8PTJE5E2A7Y4RYR",
+      "depends_on": [
+        "ar_01M1B7V45143BG88GY2S4W416J",
+        "ar_01M1B7ZVMZARF55F5GS4BRZWWT"
+      ],
+      "freshness": "superseded",
+      "outcome": "superseded",
+      "path": "design.md",
+      "stage": 20,
+      "type": "design"
+    },
+    {
+      "artifact_id": "ar_01M1K2962MV7BJDAWW3KPG1TAP",
+      "depends_on": [
+        "ar_01M1GCKQ5K74MTZJ9FFZK74M54",
+        "ar_01M1GD7JRRHR8QXDXHPXFTJ2Q8"
+      ],
+      "freshness": "fresh",
+      "outcome": "complete",
+      "path": "implementation.md",
+      "stage": 50,
+      "type": "implementation"
+    },
+    {
+      "artifact_id": "ar_01M1K296MG12RFN2Y3V9GAQK2J",
+      "depends_on": [],
+      "freshness": "fresh",
+      "outcome": "passed",
+      "path": "manual-test.md",
+      "stage": 70,
+      "type": "manual-test"
+    },
+    {
+      "artifact_id": "ar_01M1GD7JRRHR8QXDXHPXFTJ2Q8",
+      "depends_on": [
+        "ar_01M1GCKQ5K74MTZJ9FFZK74M54",
+        "ar_01M1GCKPYPHYGFPR60YHRY9K99"
+      ],
+      "freshness": "fresh",
+      "outcome": "ready",
+      "path": "plan.md",
+      "stage": 30,
+      "type": "plan"
+    },
+    {
+      "artifact_id": "ar_01M1B7ZSSZ97KJQHC3X8NKATM9",
+      "depends_on": [],
+      "freshness": "fresh",
+      "outcome": "complete",
+      "path": "research/compatibility-research.md",
+      "stage": 10,
+      "type": "research"
+    },
+    {
+      "artifact_id": "ar_01M1B7ZNFFN4YRFFT2ZMC958VA",
+      "depends_on": [],
+      "freshness": "fresh",
+      "outcome": "complete",
+      "path": "research/delivery-research.md",
+      "stage": 10,
+      "type": "research"
+    },
+    {
+      "artifact_id": "ar_01M1B7ZQW49AZ2AA11QV6BZ1NE",
+      "depends_on": [],
+      "freshness": "fresh",
+      "outcome": "complete",
+      "path": "research/execution-research.md",
+      "stage": 10,
+      "type": "research"
+    },
+    {
+      "artifact_id": "ar_01M1GCKPYPHYGFPR60YHRY9K99",
+      "depends_on": [],
+      "freshness": "fresh",
+      "outcome": "complete",
+      "path": "research/package-scope-research.md",
+      "stage": 10,
+      "type": "research"
+    },
+    {
+      "artifact_id": "ar_01M1B7ZA1ZDR02TGP7GHJ4M0YH",
+      "depends_on": [],
+      "freshness": "fresh",
+      "outcome": "complete",
+      "path": "research/profile-research.md",
+      "stage": 10,
+      "type": "research"
+    },
+    {
+      "artifact_id": "ar_01M1B7ZHG8VNX6YR9J5P36EYMQ",
+      "depends_on": [],
+      "freshness": "fresh",
+      "outcome": "complete",
+      "path": "research/source-research.md",
+      "stage": 10,
+      "type": "research"
+    },
+    {
+      "artifact_id": "ar_01M1B7ZKEHST4M0DAW8DGX3P4H",
+      "depends_on": [],
+      "freshness": "fresh",
+      "outcome": "complete",
+      "path": "research/uat-research.md",
+      "stage": 10,
+      "type": "research"
+    },
+    {
+      "artifact_id": "ar_01M1DY0G9HF11ZFAJKST8W2VAK",
+      "depends_on": [],
+      "freshness": "fresh",
+      "outcome": "complete",
+      "path": "research/ue-native-packaging-v2-research.md",
+      "stage": 10,
+      "type": "research"
+    },
+    {
+      "artifact_id": "ar_01M1B7ZVMZARF55F5GS4BRZWWT",
+      "depends_on": [
+        "ar_01M1B7ZA1ZDR02TGP7GHJ4M0YH",
+        "ar_01M1B7ZHG8VNX6YR9J5P36EYMQ",
+        "ar_01M1B7ZKEHST4M0DAW8DGX3P4H",
+        "ar_01M1B7ZNFFN4YRFFT2ZMC958VA",
+        "ar_01M1B7ZQW49AZ2AA11QV6BZ1NE",
+        "ar_01M1B7ZSSZ97KJQHC3X8NKATM9"
+      ],
+      "freshness": "fresh",
+      "outcome": "complete",
+      "path": "research/verification-research.md",
+      "stage": 10,
+      "type": "research"
+    },
+    {
+      "artifact_id": "ar_01M1K29683S5YVZ66ZA7K6R0ZX",
+      "depends_on": [
+        "ar_01M1GCKQ5K74MTZJ9FFZK74M54",
+        "ar_01M1GD7JRRHR8QXDXHPXFTJ2Q8"
+      ],
+      "freshness": "fresh",
+      "outcome": "approved",
+      "path": "reviews/code-review.md",
+      "stage": 60,
+      "type": "review"
+    },
+    {
+      "artifact_id": "ar_01M1K2QHGRNN8NH4XE5G1B7D5H",
+      "depends_on": [
+        "ar_01M1GCKQ5K74MTZJ9FFZK74M54"
+      ],
+      "freshness": "fresh",
+      "outcome": "approved",
+      "path": "reviews/design-review.md",
+      "stage": 25,
+      "type": "review"
+    },
+    {
+      "artifact_id": "ar_01M1K2QHNR4DGW6X9BT3AXHKBQ",
+      "depends_on": [
+        "ar_01M1GCKQ5K74MTZJ9FFZK74M54"
+      ],
+      "freshness": "fresh",
+      "outcome": "approved",
+      "path": "reviews/interface-review.md",
+      "stage": 25,
+      "type": "review"
+    },
+    {
+      "artifact_id": "ar_01M1K296E4SMC060K71PQ91SB7",
+      "depends_on": [
+        "ar_01M1K2962MV7BJDAWW3KPG1TAP",
+        "ar_01M1K29683S5YVZ66ZA7K6R0ZX",
+        "ar_01M1K296MG12RFN2Y3V9GAQK2J"
+      ],
+      "freshness": "stale-upstream",
+      "outcome": "passed",
+      "path": "validation.md",
+      "stage": 70,
+      "type": "validation"
+    },
+    {
+      "artifact_id": "ar_01M1B7V45143BG88GY2S4W416J",
+      "depends_on": [
+        "ar_01M1B7ZVMZARF55F5GS4BRZWWT"
+      ],
+      "freshness": "fresh",
+      "outcome": "handed_off",
+      "path": "wayfinder.md",
+      "stage": 35,
+      "type": "wayfinder"
+    }
+  ],
+  "computed_from": {
+    "change_set": {
+      "content_digest": "sha256:169f8e6829e36f04a2286d4b419f80c9abdd76033d5d043a05d1f8eb599b7055",
+      "revision": "71085c0b785e41317d03c43fa4d9747c58b8c125",
+      "tree": "08907cbb20d394efbb6ec06b13d3fcca9454c266"
+    },
+    "documents": {
+      "change-note.md": "sha256:7d0aabf19cfd1f1dec8b71fef10cee6bdbf3e8fb79c70e18d1f90da6c1bfd61f",
+      "debug.md": "sha256:ca847b47191c1f6eaf8def6a29277753338470fed0f0c09eaabc6c19a0ba08ff",
+      "delivery.md": "sha256:9bda1c9ba5e4c3f4eec66928f611c551f2abbe10df2ef817633113cbdbf3a6a9",
+      "design.md": "sha256:9ea5a755f3d4980c4b32dadb9b28d96d2b37ee589f3c01548335e0e8ae72920b",
+      "design/package-design-v2.md": "sha256:f63e210f0bfbe36ecd29d3e9af3d86d2f86ad6a677b348be3fd2db6f51383d04",
+      "design/package-design-v3.md": "sha256:1674ea553ea67316cded360987bbba453068bfe6bd9da35c406690103f40cb0e",
+      "design/package-design-v4.md": "sha256:612e76233b455a79439ebf66fac2149c391db74fc291190cc121698608bb2a3e",
+      "design/package-design-v5.md": "sha256:583a135e6e9173b0c64b153b25963192c068c3a2b2c0500a9060dc108db4c011",
+      "implementation.md": "sha256:50c1957428193337d7ca7fdeb3297856dba8c684f9176183bedeb853f9413d28",
+      "manual-test.md": "sha256:45e9afb0ab937f3b307f16dd71923e628cc4ad4ab1ded5382883455c7730addd",
+      "plan.md": "sha256:f7a24b8fdaa0091073853572b6bcd82ecf0786d3780c22182635407c34250cfe",
+      "research/compatibility-research.md": "sha256:847158488b8ad79496be6ffa32661d996d67174699a6a83596b71f724a2d9cc9",
+      "research/delivery-research.md": "sha256:df9fe669ec58453470caed1d49e0d00f3ba1e95791f7aa0b6ae5ac8cebb3b3ce",
+      "research/execution-research.md": "sha256:53d844b4fc608b81122ea15131645495b0e16ed5dc1d7993751388ceef85e880",
+      "research/package-scope-research.md": "sha256:a3377fe20ac0ce18d6b03b357559230c3feabaecc8494ba0adf63cc83a5cf70b",
+      "research/profile-research.md": "sha256:994b65274a213e854c649a4aed1974a8117073c8f47ecce54dcdc0a977dd2686",
+      "research/source-research.md": "sha256:0372f133a24ea3bc3d92ed74f566c27cd595a00ecb0c953af5299862fa314edb",
+      "research/uat-research.md": "sha256:94de4d9f83368f93e81fb754d41f8fc0566248a5dda72ad06b111d973bd82f12",
+      "research/ue-native-packaging-v2-research.md": "sha256:7f350c5ecd43711b67cfa9441a7d9313e3b1c48f8abfeab8359b8a7c58360856",
+      "research/verification-research.md": "sha256:fd5c77ba115c9e3884be8518c980c3f437838b4fff606f816262b3e2e9c5d234",
+      "reviews/code-review.md": "sha256:85d075fec8f8431a157b51242c9a0b815e87d1d5d74ae0bc858f02858de71c07",
+      "reviews/design-review.md": "sha256:12caf859c778d5a17a223be03c199897c4ab2359c20b8c3fab3e1056f62f9a37",
+      "reviews/interface-review.md": "sha256:278ff9ee48a3ca9bd5b3b91a72b959049c81973544215d3dfc9133fbe4cbf113",
+      "validation.md": "sha256:2e17ca697d0b4bb4845a51428e79fcb682f67459fab5fd61d8e6e53bf4598633",
+      "wayfinder.md": "sha256:656e5e27b381dca7935be5b78c7c1b0f368ce40678e71a0b4384088815ae0709",
+      "work-item.md": "sha256:be25a14a475dd73a60eab36ab716eabcad65fe1832fc534de493ad6367cd0f57"
+    }
+  },
+  "generated_at": "2026-09-03T08:26:50.352020Z",
+  "generated_by": {
+    "tool_revision": "sha256:afb33f6823cc"
+  },
+  "manual_test": {
+    "failed": 0,
+    "open": 0,
+    "passed": 11
+  },
+  "next": "已收口",
+  "protocol": "1.3.0",
+  "schema_version": 1,
+  "stage": {
+    "next_skill": "aes-retrospect",
+    "reached": "delivery",
+    "reached_stage": 80,
+    "waiting_on": null
+  },
+  "wayfinder": {
+    "artifact_id": "ar_01M1B7V45143BG88GY2S4W416J",
+    "destination": "确定任务打包配置、项目来源、插件排除、安全交付和执行诊断的设计，让后续实现可以按证据推进。",
+    "domains": [
+      {
+        "completion": "research/profile-research.md 及独立复核有证据，调查票已解决",
+        "depends_on": [],
+        "id": "profile",
+        "title": "配置保存与更新"
+      },
+      {
+        "completion": "research/source-research.md 及独立复核有证据，调查票已解决",
+        "depends_on": [],
+        "id": "source",
+        "title": "项目来源与插件排除"
+      },
+      {
+        "completion": "research/uat-research.md 及独立复核有证据，调查票已解决",
+        "depends_on": [],
+        "id": "uat",
+        "title": "参数与引擎行为"
+      },
+      {
+        "completion": "research/delivery-research.md 及独立复核有证据，调查票已解决",
+        "depends_on": [],
+        "id": "delivery",
+        "title": "交付与外部数据"
+      },
+      {
+        "completion": "research/execution-research.md 及独立复核有证据，调查票已解决",
+        "depends_on": [],
+        "id": "execution",
+        "title": "状态与诊断"
+      },
+      {
+        "completion": "research/compatibility-research.md 及独立复核有证据，调查票已解决",
+        "depends_on": [],
+        "id": "compatibility",
+        "title": "兼容与验证范围"
+      }
+    ],
+    "edges": [],
+    "freshness": "fresh",
+    "frontier": [],
+    "handoff": {
+      "confirmation": "confirmed",
+      "route": "aes-brainstorm",
+      "summary": "用户本轮明确：如果没有需要讨论的就可以写设计。六张票已关闭，独立复核通过；授权仅覆盖进入设计，不代表设计已接受或允许实施。"
+    },
+    "nodes": [],
+    "path": "workflow/task-package-profiles/wayfinder.md",
+    "resume": {
+      "claimed_tasks": [],
+      "next": "aes-brainstorm 写 proposed 设计，不启动实施",
+      "position": "handoff",
+      "session": "aw-1sntnf-u0x1p"
+    },
+    "route": "调查已复核，按用户预授权交给 aes-brainstorm 写设计",
+    "state": "handed_off",
+    "tasks": []
+  },
+  "work_item": {
+    "acceptance_ids": [
+      "AC-001",
+      "AC-002",
+      "AC-003",
+      "AC-004",
+      "AC-005",
+      "AC-006",
+      "AC-007",
+      "AC-008",
+      "AC-009",
+      "AC-010",
+      "AC-011",
+      "AC-012",
+      "AC-013",
+      "AC-014",
+      "AC-015"
+    ],
+    "branch": "feature/task-package-profiles",
+    "contract_digest": "sha256:f7aeaedd7b0a0eaf96f1cd22835f0b0889bd2f4f33e23993948dab53de528229",
+    "home_repository": "https://github.com/pb763396199/UnrealDevFlow.git",
+    "id": "wi_01M1B7SC2BD0Y4GMA8KG2EGBWQ",
+    "kind": "feature",
+    "short_id": "8g746my6",
+    "slug": "task-package-profiles",
+    "status": "done",
+    "title": "为任务保存可复用且可追溯的项目打包配置"
+  }
+}
