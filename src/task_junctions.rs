@@ -45,13 +45,24 @@ pub fn cleanup_for_task(
         .filter_map(|dependency| dependency.junction.as_ref())
         .map(|relative| host_dir.join(relative))
         .collect();
-    cleanup_for_host_roots(config, task_ref, &roots, task_uid, host_junctions)
+    let task_project = meta
+        .context
+        .as_ref()
+        .map(|context| context.default_project.clone());
+    cleanup_for_host_roots(
+        config,
+        task_ref,
+        &roots,
+        task_uid,
+        task_project.as_deref(),
+        host_junctions,
+    )
 }
 
 /// Recovery variant used when the Host itself is already missing.
 pub fn cleanup_for_missing_task(config: &Config, task_ref: &str) -> Result<CleanupReport> {
     let roots = candidate_task_hosts(config, task_ref);
-    cleanup_for_host_roots(config, task_ref, &roots, None, Vec::new())
+    cleanup_for_host_roots(config, task_ref, &roots, None, None, Vec::new())
 }
 
 fn candidate_task_hosts(config: &Config, task_ref: &str) -> Vec<PathBuf> {
@@ -135,8 +146,15 @@ fn add_project_path(projects: &mut Vec<PathBuf>, path: PathBuf) {
     }
 }
 
-fn configured_project_paths(config: &Config, state: &GlobalState) -> Vec<PathBuf> {
+fn configured_project_paths(
+    config: &Config,
+    state: &GlobalState,
+    task_project: Option<&Path>,
+) -> Vec<PathBuf> {
     let mut projects = Vec::new();
+    if let Some(task_project) = task_project {
+        add_project_path(&mut projects, task_project.to_path_buf());
+    }
     add_project_path(&mut projects, config.default_project.clone());
     for workspace in config.workspaces.values() {
         add_project_path(&mut projects, workspace.default_project.clone());
@@ -151,6 +169,7 @@ fn collect_project_candidates(
     config: &Config,
     state: &GlobalState,
     roots: &[PathBuf],
+    task_project: Option<&Path>,
 ) -> (Vec<PathBuf>, Vec<(PathBuf, PathBuf)>) {
     let mut candidates = Vec::new();
     let mut seen = BTreeSet::new();
@@ -177,7 +196,7 @@ fn collect_project_candidates(
     // Junction left behind before the first state save is still recoverable.
     // Only inspect immediate Plugins children; never recurse into arbitrary
     // project content.
-    for project_path in configured_project_paths(config, state) {
+    for project_path in configured_project_paths(config, state, task_project) {
         let plugins_dir = project_path.join("Plugins");
         let Ok(entries) = std::fs::read_dir(plugins_dir) else {
             continue;
@@ -217,10 +236,11 @@ fn cleanup_for_host_roots(
     task_ref: &str,
     roots: &[PathBuf],
     task_uid: Option<&str>,
+    task_project: Option<&Path>,
     extra_candidates: Vec<PathBuf>,
 ) -> Result<CleanupReport> {
     let mut state = GlobalState::load()?;
-    let (mut candidates, records) = collect_project_candidates(config, &state, roots);
+    let (mut candidates, records) = collect_project_candidates(config, &state, roots, task_project);
     let mut seen = candidates.iter().map(|path| normalize(path)).collect();
     for path in extra_candidates {
         add_candidate(&mut candidates, &mut seen, path);
@@ -314,7 +334,7 @@ fn cleanup_for_host_roots(
 mod tests {
     use super::*;
     use crate::config::WorkspaceConfig;
-    use crate::host::{DependencyPlugin, DependencySource, PrimaryPlugin};
+    use crate::host::{DependencyPlugin, DependencySource, PrimaryPlugin, TaskContext};
     use crate::state::{GlobalState, JunctionState, ProjectState};
     use std::collections::HashMap;
     use tempfile::tempdir;
@@ -471,6 +491,44 @@ mod tests {
         assert_eq!(
             report.removed, 1,
             "configured project junction was not found"
+        );
+        assert!(std::fs::symlink_metadata(&project_link).is_err());
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn cleanup_scans_task_context_project_when_workspace_path_changed() {
+        let root = tempdir().expect("temp dir");
+        let bound_project = root.path().join("BoundProject");
+        let host = root.path().join("Hosts/W-test/T-context_Host");
+        let project_link = bound_project.join("Plugins/AesWorld");
+        let target = host.join("Plugins/AesWorld");
+        std::fs::create_dir_all(&target).expect("target");
+        std::fs::create_dir_all(bound_project.join("Plugins")).expect("bound project plugins");
+        crate::junction::create(&target, &project_link).expect("project junction");
+        std::fs::remove_dir_all(&target).expect("remove Host before cleanup");
+        std::fs::create_dir_all(root.path().join("config")).expect("config");
+        unsafe {
+            std::env::set_var("UNREALDEVFLOW_CONFIG_DIR", root.path().join("config"));
+        }
+        let config = config_for(root.path());
+        config.save().expect("config");
+        let mut task_meta = meta();
+        task_meta.context = Some(TaskContext {
+            workspace: "test".to_string(),
+            hosts_root: root.path().join("Hosts"),
+            plugin_path: None,
+            default_project: bound_project.clone(),
+            engine_path: root.path().join("Engine"),
+            plugins_root: Some(root.path().join("Plugins")),
+            plugin_overrides: HashMap::new(),
+        });
+
+        let report = cleanup_for_task(&config, "test/context", &host, &task_meta).expect("cleanup");
+
+        assert_eq!(
+            report.removed, 1,
+            "task context project junction was not found"
         );
         assert!(std::fs::symlink_metadata(&project_link).is_err());
     }
