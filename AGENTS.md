@@ -201,7 +201,7 @@ udf task merge <task-ref> --all --strategy rebase               # 全部逆序
 
 ## 📜 命令速查
 
-顶层只有四个组：`workspace`、`task`、`build`、`skill`。
+顶层有六个组：`workspace`、`task`、`build`、`run`、`package`、`skill`。
 
 | 命令 | 必须询问用户 | 用途 |
 |---|---|---|
@@ -222,6 +222,9 @@ udf task merge <task-ref> --all --strategy rebase               # 全部逆序
 | `build check [task-ref]` | — | 只回答现在能不能编，不启动编译 |
 | `build gate "<命令>"` | — | 检查某条命令有没有绕过受控构建 |
 | `build status [task-ref]` | — | 查编译状态，省略时按最近任务 |
+| `run list/configure/check/plan/start` | — | 复用已登记的 UE 原生 Editor、Commandlet、Gauntlet 入口 |
+| `run status [execution-id]` | — | 查原生日志、报告、UAT/UE 退出码和有限结果 |
+| `run compare <before> <after>` | — | 对照两次执行；可选 `--expect pass-after-fail` |
 | `skill install` / `list` / `remove` | — | 管理装到四个 AI provider 的 skill |
 
 完整版（参数、返回值、错误码）见后文「命令速查」章节。

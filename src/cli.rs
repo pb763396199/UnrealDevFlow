@@ -3,7 +3,7 @@
 //! 帮助文本一律写中文。这个工具的使用者是中文开发者和替他们干活的 AI 助手，
 //! 命令名、参数名和取值保持英文（它们是要照着敲的），说明文字用中文。
 
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 use std::path::PathBuf;
 
 /// clap 自带的段落标题和 -h/-V 说明是英文硬编码的。`next_help_heading` 换掉
@@ -125,6 +125,12 @@ pub enum Commands {
     Build {
         #[command(subcommand)]
         action: BuildAction,
+    },
+
+    /// 按已保存的用途配置调用 UE 原生 Editor、Commandlet 或 Gauntlet。
+    Run {
+        #[command(subcommand)]
+        action: RunAction,
     },
 
     /// 生成可保存、传递或发布的制品。
@@ -263,6 +269,109 @@ pub enum BuildAction {
         /// 任务引用，形如 workspace/task-id。不给就按最近动过的任务。
         task_ref: Option<String>,
     },
+}
+
+/// UE 原生运行入口。所有执行叶子都要求显式给出 workspace 或 task，
+/// 不能按最近会话猜项目、地图或宿主。
+#[derive(Subcommand)]
+pub enum RunAction {
+    /// 列出当前作用域可复用的运行配置和内置模板
+    List {
+        #[command(flatten)]
+        scope: RunScope,
+    },
+
+    /// 校验并登记一份完整运行配置
+    Configure {
+        /// 配置名，例如 editor-exit 或 automation-smoke。
+        name: String,
+        #[command(flatten)]
+        scope: RunScope,
+        /// 候选 JSON 文件。
+        #[arg(long)]
+        file: PathBuf,
+        /// 修改既有配置时的原因。
+        #[arg(long)]
+        reason: Option<String>,
+    },
+
+    /// 只读检查项目、引擎、地图和原生入口是否具备
+    #[command(about = EXECUTION_CHECK_ABOUT)]
+    Check {
+        /// 已登记的配置名。
+        name: String,
+        #[command(flatten)]
+        scope: RunScope,
+    },
+
+    /// 展示实际会调用的原生程序、参数和结果路径
+    #[command(about = EXECUTION_PLAN_ABOUT)]
+    Plan {
+        /// 已登记的配置名。
+        name: String,
+        #[command(flatten)]
+        scope: RunScope,
+        /// 同时列出可复用的已打开 Editor 实例；只读，不发送命令。
+        #[arg(long)]
+        existing_editor: bool,
+        /// 指定已有 Editor PID，避免多实例时猜第一个。
+        #[arg(long, requires = "existing_editor")]
+        pid: Option<u32>,
+    },
+
+    /// 按配置调用一次原生入口并保存有限执行记录
+    Start {
+        /// 已登记的配置名。
+        name: String,
+        #[command(flatten)]
+        scope: RunScope,
+    },
+
+    /// 查看一次原生执行及其日志、报告和退出结果
+    #[command(about = EXECUTION_STATUS_ABOUT)]
+    Status {
+        /// execution ID。不提供时按作用域选择最近一次。
+        execution_id: Option<String>,
+        #[command(flatten)]
+        scope: OptionalRunScope,
+    },
+
+    /// 对照两次执行，并可断言“失败后通过”
+    Compare {
+        /// 先发生的 execution ID。
+        before_id: String,
+        /// 后发生的 execution ID。
+        after_id: String,
+        /// 可选：pass-after-fail。
+        #[arg(long, value_parser = ["pass-after-fail"])]
+        expect: Option<String>,
+    },
+}
+
+/// 运行配置的互斥作用域。命令层只收参数，解析和绑定由 run command 统一完成。
+#[derive(Args, Debug, Clone)]
+pub struct RunScope {
+    /// workspace 配置，例如 neon-dev。
+    #[arg(long, conflicts_with = "task", required_unless_present = "task")]
+    pub workspace: Option<String>,
+    /// 任务引用，例如 neon-dev/udf-run-acceptance。
+    #[arg(
+        long,
+        conflicts_with = "workspace",
+        required_unless_present = "workspace"
+    )]
+    pub task: Option<String>,
+}
+
+/// status 允许只给 execution ID；给作用域时用于选择最近记录。
+#[derive(Args, Debug, Clone, Default)]
+pub struct OptionalRunScope {
+    /// workspace 配置。
+    #[arg(long, conflicts_with = "task")]
+    pub workspace: Option<String>,
+    /// 任务引用。
+    #[arg(long, conflicts_with = "workspace")]
+    pub task: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, clap::ValueEnum, PartialEq)]

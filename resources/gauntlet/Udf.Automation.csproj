@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Configuration Condition=" '$(Configuration)' == '' ">Development</Configuration>
+    <OutputType>Library</OutputType>
+    <AssemblyName>Udf.Automation</AssemblyName>
+    <RootNamespace>Udf</RootNamespace>
+    <Configurations>Debug;Development;Release</Configurations>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <GenerateTargetFrameworkAttribute>false</GenerateTargetFrameworkAttribute>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <OutputPath>bin\</OutputPath>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="Gauntlet.Automation">
+      <HintPath>$(EngineDir)\Binaries\DotNET\AutomationTool\AutomationScripts\Gauntlet\Gauntlet.Automation.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="AutomationUtils.Automation">
+      <HintPath>$(EngineDir)\Binaries\DotNET\AutomationTool\AutomationUtils\AutomationUtils.Automation.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnrealBuildTool">
+      <HintPath>$(EngineDir)\Binaries\DotNET\AutomationTool\UnrealBuildTool.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="EpicGames.Core">
+      <HintPath>$(EngineDir)\Binaries\DotNET\AutomationTool\EpicGames.Core.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="EpicGames.Build">
+      <HintPath>$(EngineDir)\Binaries\DotNET\AutomationTool\EpicGames.Build.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+</Project>

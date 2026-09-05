@@ -239,6 +239,9 @@ Task#001 添加建筑轮廓线拍平功能
 | `build check [workspace/task]` | 只回答现在能不能编；`ready`/`deferred`/`blocked`/`needsUserInput` |
 | `build gate "<完整命令>"` | 检查命令有没有绕过受控构建，拦下时退出码 1 |
 | `build project [--workspace <w>]` | 编主项目而不是任务宿主 |
+| `run list/configure/check/plan/start` | 复用已登记的 UE 原生运行与测试入口；必须显式给 `--workspace` 或 `--task` |
+| `run status [<execution-id>]` | 查询原生执行、日志、报告和退出码 |
+| `run compare <before> <after> --expect pass-after-fail` | 对照两次执行并做可选回归判定 |
 | `skill install/list/remove` | 管理 AI skill |
 
 ## 示例：完整任务流程

@@ -18,7 +18,9 @@ mod build_profile {
 mod cli;
 
 use clap::{CommandFactory, Parser};
-use cli::{BuildAction, Cli, Commands, PackageAction, PackageAdvancedAction, WorkspaceAction};
+use cli::{
+    BuildAction, Cli, Commands, PackageAction, PackageAdvancedAction, RunAction, WorkspaceAction,
+};
 
 fn help_for(path: &[&str]) -> String {
     let mut command = Cli::command();
@@ -55,6 +57,21 @@ fn top_level_contains_package() {
     let help = help_for(&[]);
     assert!(help.contains("package"));
     assert!(help.contains("生成可保存、传递或发布的制品"));
+}
+
+#[test]
+fn top_level_contains_native_run_and_requires_an_explicit_scope() {
+    let parsed = Cli::parse_from(["udf", "run", "plan", "editor", "--workspace", "neon-dev"]);
+    assert!(matches!(
+        parsed.command,
+        Commands::Run {
+            action: RunAction::Plan { .. }
+        }
+    ));
+    let help = help_for(&[]);
+    assert!(help.contains("run"));
+    assert!(help_for(&["run"]).contains("原生 Editor"));
+    assert!(Cli::try_parse_from(["udf", "run", "list"]).is_err());
 }
 
 #[test]

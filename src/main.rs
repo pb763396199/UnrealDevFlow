@@ -21,6 +21,7 @@ mod package_profile;
 mod package_storage;
 mod plugin;
 mod project_packaging;
+mod run_profile;
 mod source_context;
 mod state;
 mod task_junctions;
@@ -50,7 +51,9 @@ fn main() {
     match run(cli) {
         Ok(()) => output::flush_unemitted(command),
         Err(error) => {
-            output::emit_failure(command, &format!("{}", error));
+            if !output::was_emitted() {
+                output::emit_failure(command, &format!("{}", error));
+            }
             std::process::exit(1);
         }
     }
@@ -121,6 +124,15 @@ fn command_name(command: &Commands) -> &'static str {
             cli::BuildAction::Plan { .. } => "build plan",
             cli::BuildAction::Gate { .. } => "build gate",
             cli::BuildAction::Status { .. } => "build status",
+        },
+        Commands::Run { action } => match action {
+            cli::RunAction::List { .. } => "run list",
+            cli::RunAction::Configure { .. } => "run configure",
+            cli::RunAction::Check { .. } => "run check",
+            cli::RunAction::Plan { .. } => "run plan",
+            cli::RunAction::Start { .. } => "run start",
+            cli::RunAction::Status { .. } => "run status",
+            cli::RunAction::Compare { .. } => "run compare",
         },
         Commands::Package { action } => match action {
             cli::PackageAction::Recover { .. } => "package recover",
@@ -319,6 +331,36 @@ fn run(cli: Cli) -> Result<()> {
             } => commands::build_policy::plan(task_ref, workspace, profile)?,
             cli::BuildAction::Gate { command } => commands::build_policy::gate(command)?,
             cli::BuildAction::Status { task_ref } => commands::build_status::run(task_ref)?,
+        },
+        Commands::Run { action } => match action {
+            cli::RunAction::List { scope } => commands::run::list(scope.workspace, scope.task)?,
+            cli::RunAction::Configure {
+                name,
+                scope,
+                file,
+                reason,
+            } => commands::run::configure(name, scope.workspace, scope.task, file, reason)?,
+            cli::RunAction::Check { name, scope } => {
+                commands::run::check(name, scope.workspace, scope.task)?
+            }
+            cli::RunAction::Plan {
+                name,
+                scope,
+                existing_editor,
+                pid,
+            } => commands::run::plan(name, scope.workspace, scope.task, existing_editor, pid)?,
+            cli::RunAction::Start { name, scope } => {
+                commands::run::start(name, scope.workspace, scope.task)?
+            }
+            cli::RunAction::Status {
+                execution_id,
+                scope,
+            } => commands::run::status(execution_id, scope.workspace, scope.task)?,
+            cli::RunAction::Compare {
+                before_id,
+                after_id,
+                expect,
+            } => commands::run::compare(before_id, after_id, expect)?,
         },
         Commands::Package { action } => match action {
             cli::PackageAction::Configure {

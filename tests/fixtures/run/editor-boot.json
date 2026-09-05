@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "description": "UE 原生 Editor 启动探针",
+  "useWhen": "确认 Editor 能启动并自然结束",
+  "project": "host",
+  "backend": "gauntlet",
+  "gauntlet": {
+    "test": "UE.EditorBootTest",
+    "build": "editor",
+    "platform": "Win64",
+    "configuration": "Development",
+    "nullRhi": true,
+    "unattended": true,
+    "execCmds": [],
+    "maxDurationSeconds": 120
+  }
+}

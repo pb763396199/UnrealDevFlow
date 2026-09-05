@@ -181,6 +181,25 @@ udf package recover <execution-id>
 `package configure --name <名称> --reason <原因>` 固定 lineage；执行前检查空间、同任务版本和预计新增占用。
 `package clean` 无参数只盘点可回收空间，显式 execution ID 才能清理 UDF 临时材料，最终包不会被自动删除。
 
+### 原生运行与测试（`run`）
+
+`run` 只负责作用域绑定、参数数组和有限执行记录，实际测试继续交给 UE 原生 Editor、Commandlet、
+RunUAT/Gauntlet。每条命令都要明确 `--workspace` 或 `--task`，不能按最近会话猜项目。
+
+```powershell
+udf run list --task <workspace/task>
+udf run configure <name> --task <workspace/task> --file <candidate.json>
+udf run check <name> --task <workspace/task>
+udf run plan <name> --task <workspace/task>
+udf run start <name> --task <workspace/task>
+udf run status [<execution-id>]
+udf run compare <before-id> <after-id> --expect pass-after-fail
+```
+
+`check`/`plan` 不启动进程；`plan.nativeArgv` 是原生参数数组，`displayCommand` 只用于展示，
+不要再次交给 shell 解析。普通 Editor 返回 `started`，严格退出用随附 `Udf.EditorExit` 节点，
+分别记录 UAT 退出码和原始 UE 退出码；没有最终报告时返回 `unknown`。
+
 ### 4. SWITCH — 没有用户明确授权，绝不执行
 
 **⛔ 硬规则：用户没明确说要切，你就不许跑 `udf task switch`。**

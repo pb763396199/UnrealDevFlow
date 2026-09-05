@@ -119,6 +119,10 @@ udf task merge <task-ref> --all --strategy rebase   # 逆序逐个
 | 能不能编 | `udf build check <workspace/task> [--format json]` |
 | 命令是否绕过受控构建 | `udf build gate "<完整命令>"` |
 | 编主项目 | `udf build project [--workspace <w>]` |
+| 原生运行配置 | `udf run list --workspace <w> | --task <workspace/task>` |
+| 原生参数预览 | `udf run plan <name> --workspace <w> | --task <workspace/task>` |
+| 原生运行 | `udf run start <name> --workspace <w> | --task <workspace/task>` |
+| 运行状态/对照 | `udf run status [execution-id]` / `udf run compare <before> <after>` |
 | 通知用户验收 | 告诉用户 `udf task switch <workspace/task>` + 重启 Editor |
 | 合并向导 | `udf task finish <workspace/task>` |
 | 合并（必问策略） | `udf task merge <workspace/task> --strategy <s> [--plugin <name> \| --all]` |

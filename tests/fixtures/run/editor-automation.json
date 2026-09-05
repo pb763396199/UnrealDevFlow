@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "description": "UE Automation 精确用例",
+  "useWhen": "验证项目内已登记的 Automation 测试",
+  "project": "host",
+  "backend": "gauntlet",
+  "gauntlet": {
+    "test": "UE.EditorAutomation",
+    "build": "editor",
+    "platform": "Win64",
+    "configuration": "Development",
+    "nullRhi": true,
+    "unattended": true,
+    "execCmds": [],
+    "maxDurationSeconds": 300,
+    "runTest": "Earth.Elevation.SpatialElementConstruction"
+  }
+}

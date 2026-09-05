@@ -102,6 +102,31 @@ pub fn emit_failure(command: &str, error: &str) {
     }
 }
 
+/// A failed command may still have useful execution data (execution ID,
+/// report path, native exit code).  Keep that data in the same single JSON
+/// envelope instead of dropping it and making the caller scrape stderr.
+pub fn emit_failure_with_data<T: Serialize>(command: &str, data: T, error: &str) {
+    EMITTED.with(|emitted| *emitted.borrow_mut() = true);
+    if is_json() {
+        write_envelope(&Envelope {
+            command,
+            ok: false,
+            data: Some(data),
+            error: Some(error.to_string()),
+            messages: take_messages(),
+        });
+    } else {
+        eprintln!("✗ {}", error);
+    }
+}
+
+/// Whether this process has already emitted its final answer.  The top-level
+/// error boundary uses this to avoid printing a second JSON document after a
+/// command intentionally returned a non-zero result with data.
+pub fn was_emitted() -> bool {
+    EMITTED.with(|emitted| *emitted.borrow())
+}
+
 /// Safety net for commands that have not been migrated to `emit` yet.
 ///
 /// Without it their progress lines would be collected in JSON mode and then

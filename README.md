@@ -11,7 +11,7 @@ UE 插件多任务并行开发工具。基于 Git Worktree + NTFS Junction，实
 - **状态追踪**：任务状态、编译状态、Junction 状态一目了然
 - **v2 多插件**：单任务跨多插件协同开发（主插件可写 + 依赖插件只读 + 智能扫描依赖）
 - **多 Workspace**：同一台机器可同时管理多个 UE 项目，任务创建后冻结项目/Engine/Hosts 上下文，避免不同 session 串项目
-- **五个名词组**：`workspace` / `task` / `build` / `package` / `skill`；编译开发产物与生成发布制品分开表达
+- **六个名词组**：`workspace` / `task` / `build` / `run` / `package` / `skill`；原生运行入口与编译、发布制品分开表达
 
 ## 安装
 
@@ -232,7 +232,7 @@ udf task finish neon-dev/prefab-save-bug
 
 ## 命令参考
 
-顶层只有五个名词组。先想「我在操作什么」，再想「做什么」。
+顶层只有六个名词组。先想「我在操作什么」，再想「做什么」。
 
 | 组 | 命令 | 说明 |
 |---|---|---|
@@ -258,6 +258,13 @@ udf task finish neon-dev/prefab-save-bug
 | | `build status` | 查看已经启动的编译及其状态、日志和诊断 |
 | | `build engine` | 从源码构建 Unreal Engine；安装版引擎只能先查看计划 |
 | | `build plan` | 展示启动后会执行的步骤、参数和输出位置；不执行、不生成执行记录 |
+| run | `run list` | 列出作用域内已登记的原生运行配置和内置模板 |
+| | `run configure` | 校验并登记完整的 Editor、Commandlet 或 Gauntlet 配置 |
+| | `run check` | 只检查项目、引擎、地图和原生入口；不启动进程 |
+| | `run plan` | 展示实际原生 executable、argv、地图和结果路径；不执行 |
+| | `run start` | 复用已登记配置调用 UE 原生工具并保存 execution 记录 |
+| | `run status` | 查询原生日志、报告、UAT/UE 退出码和有限结果 |
+| | `run compare` | 对照两次执行；可用 `--expect pass-after-fail` 做 CI 判定 |
 | package | `package project` | 对 workspace 主项目或任务 Host 执行 BuildCookRun，生成可运行项目包 |
 | | `package configure` | 首次保存或更新 task 的固定项目打包配置 |
 | | `package advanced plugin/engine` | 显式执行插件包或 Installed Build 高级工具链；普通项目任务不会进入 |
@@ -267,6 +274,33 @@ udf task finish neon-dev/prefab-save-bug
 | | `package clean` | 默认只盘点可回收空间；显式 execution ID 才清理 UDF 临时材料，不删除最终包 |
 | | `package recover` | 只恢复有完整事务日志的未完成交付，不重新 Cook |
 | skill | `skill install/list/remove` | 管理装到四个 AI provider 的 skill |
+
+## Run 使用
+
+`run` 是 UE 原生工具的受控入口，不重新实现 Gauntlet、Automation 或 Editor 的测试框架。
+每次执行必须明确 `--workspace` 或 `--task`，配置名来自一次登记的 JSON；UDF 负责解析项目/Host、
+构造参数数组、保存有限证据，测试发现和业务断言仍由 UE 原生工具完成。
+
+```powershell
+# 先看当前任务可复用什么，再核对真实原生命令
+udf run list --task neon-dev/udf-run-acceptance
+udf run plan editor-exit --task neon-dev/udf-run-acceptance
+
+# 配置只写一次；修改既有配置必须说明原因
+udf run configure editor-exit --task neon-dev/udf-run-acceptance `
+    --file .\workflow\ue-test-run-cli\assets\editor-exit-native-v3.json
+
+# check/plan 不启动；start 才调用 UAT/Editor/Commandlet
+udf run check editor-exit --task neon-dev/udf-run-acceptance
+udf --format json run start editor-exit --task neon-dev/udf-run-acceptance
+udf run status <execution-id>
+udf run compare <before-id> <after-id> --expect pass-after-fail
+```
+
+`plan` 的 `nativeArgv` 是参数数组，不要把 `displayCommand` 再交给 shell 解析；这保证 PowerShell、
+`cmd.exe` 和 Git Bash 传递 `/Game/...` 地图时不会发生路径转换。普通 Editor 启动只返回 `started`，
+不把进程创建当作测试通过；严格退出验证使用随附的 `Udf.EditorExit` Gauntlet 节点，分别记录 UAT
+退出码和原始 UE 退出码。没有最终原生报告时 `status` 返回 `unknown`，不会用 PID 消失推断成功。
 
 ## Package 使用
 
