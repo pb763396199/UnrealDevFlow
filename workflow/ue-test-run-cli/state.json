@@ -1,0 +1,293 @@
+{
+  "artifacts": [
+    {
+      "artifact_id": "ar_01M1R037AQKA7EH2JC1880FZGM",
+      "depends_on": [
+        "ar_01M1QW61K3PD4D6D4YDB1X8GC5",
+        "ar_01M1QPYQJSMRQ3VT6JK5E65CVM",
+        "ar_01M1QXNMGGPM9QVQR8WM2RFFYC"
+      ],
+      "freshness": "fresh",
+      "outcome": "complete",
+      "path": "change-note.md",
+      "stage": 45,
+      "type": "change-note"
+    },
+    {
+      "artifact_id": "ar_01M1R5MHZ3XXZ2DQEFXQR9B48B",
+      "depends_on": [
+        "ar_01M1R1SCTEG1CEFHEFA14M4YA7",
+        "ar_01M1R3NR34YH4MM9Q22AR1CCC8",
+        "ar_01M1R3NQVY5WV7TVJ3GZ3D4JZQ",
+        "ar_01M1R3NQMXWPA586JQHB1HCKF0"
+      ],
+      "freshness": "fresh",
+      "outcome": "delivered",
+      "path": "delivery.md",
+      "stage": 80,
+      "type": "delivery"
+    },
+    {
+      "artifact_id": "ar_01M1QPYQJSMRQ3VT6JK5E65CVM",
+      "depends_on": [
+        "ar_01M1QPYQE0DJC6XBFBKJQ601FE"
+      ],
+      "freshness": "fresh",
+      "outcome": "accepted",
+      "path": "design/run-native-tools-design-v3.md",
+      "stage": 20,
+      "type": "design"
+    },
+    {
+      "artifact_id": "ar_01M1QM97EAQG8PYJ6ZQESV3P8S",
+      "depends_on": [
+        "ar_01M1QM979QM0FKYH0C0M7NXSDJ"
+      ],
+      "freshness": "superseded",
+      "outcome": "superseded",
+      "path": "design/run-verification-design-v2.md",
+      "stage": 20,
+      "type": "design"
+    },
+    {
+      "artifact_id": "ar_01M13QAFX4ABBWNZWXC9969XYN",
+      "depends_on": [
+        "ar_01M13QAFD65F1AQ966G9Y67WPX"
+      ],
+      "freshness": "superseded",
+      "outcome": "superseded",
+      "path": "design.md",
+      "stage": 20,
+      "type": "design"
+    },
+    {
+      "artifact_id": "ar_01M1R037FYYKNP9ZZJB90GFW52",
+      "depends_on": [
+        "ar_01M1R037AQKA7EH2JC1880FZGM",
+        "ar_01M1QW61K3PD4D6D4YDB1X8GC5"
+      ],
+      "freshness": "fresh",
+      "outcome": "complete",
+      "path": "implementation.md",
+      "stage": 50,
+      "type": "implementation"
+    },
+    {
+      "artifact_id": "ar_01M1R3NQMXWPA586JQHB1HCKF0",
+      "depends_on": [
+        "ar_01M1R3NQVY5WV7TVJ3GZ3D4JZQ",
+        "ar_01M1R1SCTEG1CEFHEFA14M4YA7"
+      ],
+      "freshness": "fresh",
+      "outcome": "passed",
+      "path": "manual-test.md",
+      "stage": 70,
+      "type": "manual-test"
+    },
+    {
+      "artifact_id": "ar_01M1QW61K3PD4D6D4YDB1X8GC5",
+      "depends_on": [
+        "ar_01M1QPYQJSMRQ3VT6JK5E65CVM"
+      ],
+      "freshness": "fresh",
+      "outcome": "ready",
+      "path": "plan.md",
+      "stage": 30,
+      "type": "plan"
+    },
+    {
+      "artifact_id": "ar_01M1QM979QM0FKYH0C0M7NXSDJ",
+      "depends_on": [],
+      "freshness": "fresh",
+      "outcome": "complete",
+      "path": "research/lifecycle-and-dev-research.md",
+      "stage": 10,
+      "type": "research"
+    },
+    {
+      "artifact_id": "ar_01M1QXNMGGPM9QVQR8WM2RFFYC",
+      "depends_on": [],
+      "freshness": "fresh",
+      "outcome": "complete",
+      "path": "research/native-probe-research.md",
+      "stage": 10,
+      "type": "research"
+    },
+    {
+      "artifact_id": "ar_01M1QPYQE0DJC6XBFBKJQ601FE",
+      "depends_on": [],
+      "freshness": "fresh",
+      "outcome": "complete",
+      "path": "research/native-tools-research.md",
+      "stage": 10,
+      "type": "research"
+    },
+    {
+      "artifact_id": "ar_01M13QAFD65F1AQ966G9Y67WPX",
+      "depends_on": [],
+      "freshness": "fresh",
+      "outcome": "complete",
+      "path": "research/ue-launch-research.md",
+      "stage": 10,
+      "type": "research"
+    },
+    {
+      "artifact_id": "ar_01M1R1SCTEG1CEFHEFA14M4YA7",
+      "depends_on": [
+        "ar_01M1QPYQJSMRQ3VT6JK5E65CVM",
+        "ar_01M1QW61K3PD4D6D4YDB1X8GC5"
+      ],
+      "freshness": "fresh",
+      "outcome": "approved",
+      "path": "reviews/code-review.md",
+      "stage": 60,
+      "type": "review"
+    },
+    {
+      "artifact_id": "ar_01M1R3NR34YH4MM9Q22AR1CCC8",
+      "depends_on": [
+        "ar_01M1QW61K3PD4D6D4YDB1X8GC5",
+        "ar_01M1QPYQJSMRQ3VT6JK5E65CVM"
+      ],
+      "freshness": "fresh",
+      "outcome": "approved",
+      "path": "reviews/construction-plan-current-review.md",
+      "stage": 60,
+      "type": "review"
+    },
+    {
+      "artifact_id": "ar_01M1QWFBQX9PGFQCAKPTXGXCKN",
+      "depends_on": [
+        "ar_01M1QW61K3PD4D6D4YDB1X8GC5",
+        "ar_01M1QPYQJSMRQ3VT6JK5E65CVM"
+      ],
+      "freshness": "superseded",
+      "outcome": "approved",
+      "path": "reviews/construction-plan-review.md",
+      "stage": 60,
+      "type": "review"
+    },
+    {
+      "artifact_id": "ar_01M1QM97JZX2KDWQ1ZKFVH5E12",
+      "depends_on": [
+        "ar_01M1QM97EAQG8PYJ6ZQESV3P8S"
+      ],
+      "freshness": "superseded",
+      "outcome": "approved",
+      "path": "reviews/design-review.md",
+      "stage": 25,
+      "type": "review"
+    },
+    {
+      "artifact_id": "ar_01M1QPYQQK9SMGH5B482XV80TW",
+      "depends_on": [
+        "ar_01M1QPYQJSMRQ3VT6JK5E65CVM"
+      ],
+      "freshness": "superseded",
+      "outcome": "approved",
+      "path": "reviews/native-tools-design-review.md",
+      "stage": 25,
+      "type": "review"
+    },
+    {
+      "artifact_id": "ar_01M1R3NQVY5WV7TVJ3GZ3D4JZQ",
+      "depends_on": [
+        "ar_01M1QPYQJSMRQ3VT6JK5E65CVM",
+        "ar_01M1QW61K3PD4D6D4YDB1X8GC5",
+        "ar_01M1R037AQKA7EH2JC1880FZGM",
+        "ar_01M1R037FYYKNP9ZZJB90GFW52",
+        "ar_01M1R1SCTEG1CEFHEFA14M4YA7"
+      ],
+      "freshness": "fresh",
+      "outcome": "passed",
+      "path": "validation.md",
+      "stage": 70,
+      "type": "validation"
+    }
+  ],
+  "computed_from": {
+    "change_set": {
+      "content_digest": "sha256:8d547cc41dda5b6ba67dfed8d70b61ce82e5d2145311d05f6a64671b68481fa4",
+      "revision": "6097f4187a766476eae1231eaa8eab0e6499c4e1",
+      "tree": "e1760916841fb034c5b04c1406e99b1dec639dd1"
+    },
+    "documents": {
+      "change-note.md": "sha256:2e43e491e155c6b65bbcf08b60c134e944014bac76763cf7fddafc7b3f140731",
+      "delivery.md": "sha256:cb502cfc1cfea5fbf5947416986f5c8e635c6a513c9f9d301f100ffba1a109af",
+      "design.md": "sha256:401654813e863d8e56bf170406ec9b7bb77f9b6cdad02844af7e681abd3d29c8",
+      "design/run-native-tools-design-v3.md": "sha256:3147912db32f156b8f4490ca7ebe0f5d029526e9448959031f2132cbdd6ab236",
+      "design/run-verification-design-v2.md": "sha256:1f44b27e128320cc4235292eb272381345becf088772e44a683e3c94066b5d62",
+      "implementation.md": "sha256:1a392ee1a155f1b5b914f47ee2394d194a6a42d7a0de3f3374d7eb9e0e52cad8",
+      "manual-test.md": "sha256:2faab49547b3e4a7e2c62857a532ba9e534e4f31d317964c18ff61b494a4bfbc",
+      "plan.md": "sha256:686392b9a0f26c94e9cf663df711384d6cf6c94e1b58c4dc82577f4c820cb398",
+      "research/lifecycle-and-dev-research.md": "sha256:6db3b95013220262bac1bc82b50570b619730b86c8149edb96664b042f29936c",
+      "research/native-probe-research.md": "sha256:e19399b1818496f5040796f81adda9f5c2eb16e0dc41dcffdece67b18de295d3",
+      "research/native-tools-research.md": "sha256:f964413c7c206f8b7df0eefaa2593a8e1c855ae8769cd2714465d582d1a4ae60",
+      "research/ue-launch-research.md": "sha256:273ff6a8447b00b29485729756f640eb298908f28bc14055079e11e81badd996",
+      "reviews/code-review.md": "sha256:9d4a03adedc48fd8ea4323ad17b893d44076939d28700d663fbc1da3256fefcd",
+      "reviews/construction-plan-current-review.md": "sha256:e95cbb839038a77cd475b38ea996066101bc347bb8c92c7351df2382089fb3a7",
+      "reviews/construction-plan-review.md": "sha256:dc12b46e841326f96e81bc5c9abbd5b5d613af8c03275f7827d338750d6a8fb9",
+      "reviews/design-review.md": "sha256:7e076d1d1a323117ae59c61d76cf7f77d9af4ebe3d941ca65726ddf859e27ede",
+      "reviews/native-tools-design-review.md": "sha256:8af0474c50039413951d594d9940fdd47ac8460edef35ec0e1820ba9639d2c6b",
+      "validation.md": "sha256:abd19a7de8aef6231897550c9b5cd0423a14d122489fb02fa4d2eabe0b4e558a",
+      "work-item.md": "sha256:61fc5e8ea00644f58017a9ad2be55e349133bc89f79044cd3bfd698fda504eb9"
+    }
+  },
+  "generated_at": "2026-09-05T06:59:37.796076Z",
+  "generated_by": {
+    "tool_revision": "sha256:afb33f6823cc"
+  },
+  "manual_test": {
+    "failed": 0,
+    "open": 0,
+    "passed": 7
+  },
+  "next": "已收口",
+  "protocol": "1.3.0",
+  "schema_version": 1,
+  "stage": {
+    "next_skill": "aes-retrospect",
+    "reached": "delivery",
+    "reached_stage": 80,
+    "waiting_on": null
+  },
+  "wayfinder": null,
+  "work_item": {
+    "acceptance_ids": [
+      "AC-001",
+      "AC-002",
+      "AC-003",
+      "AC-004",
+      "AC-005",
+      "AC-006",
+      "AC-007",
+      "AC-008",
+      "AC-009",
+      "AC-010",
+      "AC-011",
+      "AC-012",
+      "AC-013",
+      "AC-014",
+      "AC-015",
+      "AC-016",
+      "AC-017",
+      "AC-018",
+      "AC-019",
+      "AC-020",
+      "AC-021",
+      "AC-022",
+      "AC-023",
+      "AC-024",
+      "AC-025"
+    ],
+    "branch": "feature/ue-test-run-cli",
+    "contract_digest": "sha256:8b7494c6794d990e361b561d6a51aebdba648e15478dafeb1864d64cebf7f68c",
+    "home_repository": "https://github.com/pb763396199/UnrealDevFlow.git",
+    "id": "wi_01M13Q10GG3EFA5ESAMMTXZWSA",
+    "kind": "feature",
+    "short_id": "d9j60tjs",
+    "slug": "ue-test-run-cli",
+    "status": "done",
+    "title": "让 UDF 正确选择并复用 UE 原生运行与测试工具"
+  }
+}

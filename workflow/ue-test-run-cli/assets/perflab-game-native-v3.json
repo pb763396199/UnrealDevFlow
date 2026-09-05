@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "description": "打开 AesPerfLab 使用的项目关卡",
+  "useWhen": "启动实际关卡供性能采集；这里只验证启动，不自动判定性能测试通过",
+  "project": "main",
+  "map": "/Game/Maps/UGA_local/aes6_sh_sz_q1",
+  "backend": "editor",
+  "editor": {
+    "mode": "game",
+    "rhi": "default",
+    "window": {
+      "mode": "windowed",
+      "width": 1366,
+      "height": 1024
+    },
+    "nativeArgs": []
+  }
+}

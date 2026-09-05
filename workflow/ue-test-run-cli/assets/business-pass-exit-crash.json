@@ -1,0 +1,46 @@
+{
+  "command": "run start",
+  "ok": false,
+  "error": "clean_exit_failed",
+  "data": {
+    "schemaVersion": 1,
+    "executionId": "example-business-read",
+    "terminal": true,
+    "phase": "finished",
+    "outcome": "failed",
+    "actionResult": {
+      "status": "passed",
+      "assertion": "settings-value",
+      "evidence": "Type=int32 Value=20"
+    },
+    "exitResult": {
+      "status": "failed",
+      "termination": "natural",
+      "rawExitCode": 3,
+      "rawExitCodeHex": "0x00000003",
+      "crashException": "EXCEPTION_ACCESS_VIOLATION"
+    },
+    "assertionResults": [
+      {
+        "id": "settings-value",
+        "status": "passed",
+        "required": true
+      },
+      {
+        "id": "editor-exited",
+        "status": "failed",
+        "required": true,
+        "reason": "fatal_during_pre_exit"
+      }
+    ],
+    "coverage": [
+      "editor-settings-read",
+      "editor-shutdown"
+    ],
+    "provenance": {
+      "kind": "illustrative",
+      "notes": "拟定 JSON 结果示例，数据关系来自真实日志；不是已执行的 UDF 命令输出"
+    }
+  },
+  "messages": []
+}

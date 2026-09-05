@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "description": "EarthModeler Host 启动及自然退出验证",
+  "useWhen": "检查退出路径；不代表完整主项目或 Details 交互回归",
+  "project": "host",
+  "backend": "gauntlet",
+  "gauntlet": {
+    "test": "Udf.EditorExit",
+    "build": "editor",
+    "platform": "Win64",
+    "configuration": "Development",
+    "nullRhi": true,
+    "unattended": true,
+    "execCmds": ["stat unit"],
+    "maxDurationSeconds": 120
+  }
+}

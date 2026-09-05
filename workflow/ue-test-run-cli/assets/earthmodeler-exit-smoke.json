@@ -1,0 +1,73 @@
+{
+  "schema": "udf.run.scenario.v1",
+  "name": "earthmodeler-exit-smoke",
+  "project": "host",
+  "mode": "editor",
+  "shell": "cmd",
+  "rhi": "null",
+  "map": {
+    "requirement": "none"
+  },
+  "preconditions": {
+    "requiredModules": [
+      "EarthModeler",
+      "PropertyEditor"
+    ],
+    "requiredEditorState": []
+  },
+  "workload": {
+    "kind": "startup-smoke",
+    "startupCommands": [
+      "stat unit"
+    ],
+    "completion": {
+      "kind": "dispatch-only"
+    }
+  },
+  "shutdown": {
+    "strategy": "queued-editor-quit",
+    "command": "QUIT_EDITOR"
+  },
+  "assertions": [
+    {
+      "id": "editor-exited",
+      "kind": "clean-exit",
+      "required": true,
+      "allowedExitCodes": [
+        0
+      ]
+    },
+    {
+      "id": "content-health",
+      "kind": "no-log-errors",
+      "required": false
+    }
+  ],
+  "timeouts": {
+    "startupSeconds": 180,
+    "workloadSeconds": 30,
+    "shutdownSeconds": 120,
+    "collectionSeconds": 15
+  },
+  "coverage": [
+    "editor-host-startup-shutdown"
+  ],
+  "exclusions": [
+    "details-selection-regression",
+    "main-project",
+    "gpu",
+    "content-health"
+  ],
+  "regression": {
+    "allowedVariants": [
+      "plugin:AesWorld"
+    ],
+    "failureSignature": {
+      "lifecycleStage": "shutdown",
+      "exception": "EXCEPTION_ACCESS_VIOLATION",
+      "requiredFrames": [
+        "FEarthModelerModule::OnPreExit"
+      ]
+    }
+  }
+}
