@@ -208,8 +208,8 @@
   "computed_from": {
     "change_set": {
       "content_digest": "sha256:8d547cc41dda5b6ba67dfed8d70b61ce82e5d2145311d05f6a64671b68481fa4",
-      "revision": "6097f4187a766476eae1231eaa8eab0e6499c4e1",
-      "tree": "e1760916841fb034c5b04c1406e99b1dec639dd1"
+      "revision": "f8838fbd7e1bfbdc375c284951eb610de03f6db9",
+      "tree": "4257c3bbe1d17c0cf62623ac465900bf800a5a82"
     },
     "documents": {
       "change-note.md": "sha256:2e43e491e155c6b65bbcf08b60c134e944014bac76763cf7fddafc7b3f140731",
@@ -233,7 +233,7 @@
       "work-item.md": "sha256:61fc5e8ea00644f58017a9ad2be55e349133bc89f79044cd3bfd698fda504eb9"
     }
   },
-  "generated_at": "2026-09-05T06:59:37.796076Z",
+  "generated_at": "2026-09-05T07:01:23.408908Z",
   "generated_by": {
     "tool_revision": "sha256:afb33f6823cc"
   },
