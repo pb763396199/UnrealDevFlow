@@ -1631,6 +1631,57 @@ fn stage_read_only_directory(source: &Path, destination: &Path) -> Result<()> {
     })
 }
 
+fn copy_private_plugin_tree(
+    source: &Path,
+    destination: &Path,
+    visiting: &mut BTreeSet<PathBuf>,
+) -> Result<()> {
+    let resolved = if crate::junction::exists(source).unwrap_or(false) {
+        crate::junction::get_target(source)?
+    } else {
+        source.to_path_buf()
+    };
+    let canonical = dunce::canonicalize(&resolved).unwrap_or(resolved.clone());
+    if !visiting.insert(canonical.clone()) {
+        return Err(UdfError::Other(format!(
+            "插件 Binaries 包含循环 Junction：{}",
+            resolved.display()
+        )));
+    }
+    let result = if resolved.is_dir() {
+        fs::create_dir_all(destination)?;
+        for entry in fs::read_dir(&resolved)? {
+            let entry = entry?;
+            copy_private_plugin_tree(
+                &entry.path(),
+                &destination.join(entry.file_name()),
+                visiting,
+            )?;
+        }
+        Ok(())
+    } else if resolved.is_file() {
+        if let Some(parent) = destination.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::copy(&resolved, destination).map_err(|error| {
+            UdfError::Other(format!(
+                "复制私有插件 Binaries 文件失败：{} -> {}：{}",
+                resolved.display(),
+                destination.display(),
+                error
+            ))
+        })?;
+        Ok(())
+    } else {
+        Err(UdfError::Other(format!(
+            "插件 Binaries 输入不存在：{}",
+            resolved.display()
+        )))
+    };
+    visiting.remove(&canonical);
+    result
+}
+
 /// Build a plugin root that gives UBT private generated directories without
 /// copying Source, Content, or third-party data for every package execution.
 fn prepare_private_plugin_root(source: &Path, destination: &Path) -> Result<()> {
@@ -1645,7 +1696,7 @@ fn prepare_private_plugin_root(source: &Path, destination: &Path) -> Result<()> 
             if name_text.eq_ignore_ascii_case("Binaries") && source_path.is_dir() {
                 // Precompiled third-party DLLs can live here. Keep a private
                 // copy so UBT may write its outputs without touching source.
-                copy_tree(&source_path, &destination_path, true)?;
+                copy_private_plugin_tree(&source_path, &destination_path, &mut BTreeSet::new())?;
             } else {
                 fs::create_dir_all(&destination_path)?;
             }
@@ -3053,6 +3104,8 @@ mod tests {
         fs::create_dir_all(source.join("Intermediate/Old")).unwrap();
         fs::create_dir_all(source.join("Binaries/Old")).unwrap();
         fs::create_dir_all(source.join("Saved/Old")).unwrap();
+        let external_binary = root.path().join("ExternalBinary");
+        fs::create_dir_all(&external_binary).unwrap();
         fs::write(source.join("AesWorld.uplugin"), "{}").unwrap();
         fs::write(source.join("Source/Runtime/A.cpp"), "// source").unwrap();
         fs::write(source.join("Content/Maps/Test.umap"), "content").unwrap();
@@ -3060,6 +3113,8 @@ mod tests {
         fs::write(source.join("Intermediate/Old/stale.obj"), "old").unwrap();
         fs::write(source.join("Binaries/Required.dll"), "required").unwrap();
         fs::write(source.join("Saved/Old/stale.log"), "old").unwrap();
+        fs::write(external_binary.join("Shared.dll"), "shared").unwrap();
+        crate::junction::create(&external_binary, &source.join("Binaries/Shared")).unwrap();
 
         prepare_plugin_stage(
             &plugins,
@@ -3095,6 +3150,11 @@ mod tests {
         assert_eq!(
             fs::read_to_string(staged.join("Binaries/Required.dll")).unwrap(),
             "required"
+        );
+        assert!(!crate::junction::exists(&staged.join("Binaries/Shared")).unwrap_or(false));
+        assert_eq!(
+            fs::read_to_string(staged.join("Binaries/Shared/Shared.dll")).unwrap(),
+            "shared"
         );
         assert!(!staged.join("Saved/Old/stale.log").exists());
         assert_eq!(
