@@ -181,7 +181,9 @@ udf package recover <execution-id>
 `udf package advanced engine --output <包根目录> --name <目录名>`。
 旧的顶层 `package plugin/engine` 仅返回迁移提示，不会启动 UBT/BuildGraph。比较包必须先用
 `package configure --name <名称> --reason <原因>` 固定 lineage；执行前检查空间、同任务版本和预计新增占用。
-`package clean` 无参数只盘点可回收空间，显式 execution ID 才能清理 UDF 临时材料，最终包不会被自动删除。
+`package clean` 无参数只读盘点 staging、Cook cache、日志、交付备份、profile、execution record 和最终输出。`--stale`、`--legacy`、`--cache <cache-id>` 支持按状态或缓存槽清理；范围删除必须带 `--yes`，否则输出同一份 dry-run 清单。精确 execution ID 仍会通过固定 UDF 根、targetKind、manifest 和活动 lease 检查。最终包和带 `.udf-manifest.json` 的输出永远是 protected，不会自动删除。
+
+Cook cache 槽 key 只包含 task/workspace、项目、引擎、平台、configuration 和 container；profile revision、name、output、reason 只写入状态和 execution 证据。任务插件 overlay 摘要在复用判断前计算，变化会在同一槽完整重建。UDF task 与 AES Work Item 不同，除非调用方显式桥接，否则 inventory 会显示未绑定，不做猜测。
 
 ### 原生运行与测试（`run`）
 

@@ -271,7 +271,7 @@ udf task finish neon-dev/prefab-save-bug
 | | `package check` | 只回答现在能不能启动打包；不执行、不生成执行记录 |
 | | `package plan` | 展示启动后会执行的命令、阶段和输出位置；不执行、不生成执行记录 |
 | | `package status` | 按 execution ID 查看真实执行；省略时查看最近一次真实 package 执行 |
-| | `package clean` | 默认只盘点可回收空间；显式 execution ID 才清理 UDF 临时材料，不删除最终包 |
+| | `package clean` | 默认盘点 staging、Cook cache、日志、备份和最终包；`--stale/--legacy/--cache` 仅在 `--yes` 下删除可再生数据，最终包永不自动删除 |
 | | `package recover` | 只恢复有完整事务日志的未完成交付，不重新 Cook |
 | skill | `skill install/list/remove` | 管理装到四个 AI provider 的 skill |
 
@@ -342,9 +342,16 @@ udf package advanced engine --workspace neon-dev
 udf --format json package status [execution-id]
 udf --format json package clean --dry-run
 udf --format json package clean <execution-id>
+udf --format json package clean --stale --workspace neon-dev --dry-run
+udf package clean --stale --workspace neon-dev --yes
+udf package clean --legacy --yes
 ```
 
 项目包默认输出到项目或 Host 的 `Saved/UnrealDevFlow/Packages/Win64`。插件包输出到相邻的 `Artifacts/UnrealDevFlow/Plugins`；任务来源则输出到任务 Host 内。每次执行都会记录命令、日志、输出与 manifest，`clean` 不会删除未记账或不在 `UnrealDevFlow` 制品目录内的路径。
+
+`package clean` 的无参数调用永远是只读 inventory：会列出 `totalBytes`、`reclaimableBytes`、`protectedBytes`、`unknownBytes` 以及每项的归属、状态、租约和清理理由。`--task`、`--workspace`、`--stale`、`--legacy` 是范围清理，缺少 `--yes` 时自动退回 dry-run；`--cache <id>` 或精确 execution ID 只允许删除固定 UDF 根内的可再生目录。`C:\Package`、带 `.udf-manifest.json` 的最终输出、当前 profile 槽和活动租约始终 protected。
+
+Cook cache 目录 key 只由 UDF task/workspace、项目、引擎、平台、配置和容器组成；profile revision、包名、输出路径和修改理由不会再生成新槽。`.udf-cook-cache-lease.json` 记录 PID、进程启动时间和 execution ID，活动 Cook 不会被 cleaner 误判为 stale。UDF task 与 AES Work Item 是两套身份；没有显式桥接时 package inventory 标为未绑定，不会猜测绑定关系。
 
 `check`、`plan` 和 `status` 对 Build 与 Package 使用同一组词义：`check` 检查当前能否启动，`plan` 展示未来步骤，`status` 只读取已经启动的执行。运行 `check` 或 `plan` 不会改变 `status` 默认指向的最近执行。
 
