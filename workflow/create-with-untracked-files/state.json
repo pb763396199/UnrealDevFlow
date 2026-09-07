@@ -1,0 +1,136 @@
+{
+  "artifacts": [
+    {
+      "artifact_id": "ar_01M1XER6M7CEM7AEARPPVGGSD0",
+      "depends_on": [
+        "ar_01M07D1QYWP0T1SQ4FD3NK8D3E",
+        "ar_01M07D3FX5KFH7GMQHA9MKY2X0",
+        "ar_01M07DQR79CRXM4G43GPSF7290",
+        "ar_01M07DRF56PHTDJQPBVQ3ZEWE5"
+      ],
+      "freshness": "stale-subject",
+      "outcome": "delivered",
+      "path": "delivery.md",
+      "stage": 80,
+      "type": "delivery"
+    },
+    {
+      "artifact_id": "ar_01M07CQNFVDJEE2DGP5Q9YY6EB",
+      "depends_on": [],
+      "freshness": "fresh",
+      "outcome": "accepted",
+      "path": "design.md",
+      "stage": 20,
+      "type": "design"
+    },
+    {
+      "artifact_id": "ar_01M07D1QYWP0T1SQ4FD3NK8D3E",
+      "depends_on": [
+        "ar_01M07CS7QJSFGHKWX3P2WYRPB1"
+      ],
+      "freshness": "stale-subject",
+      "outcome": "complete",
+      "path": "implementation.md",
+      "stage": 50,
+      "type": "implementation"
+    },
+    {
+      "artifact_id": "ar_01M07DRF56PHTDJQPBVQ3ZEWE5",
+      "depends_on": [
+        "ar_01M07DQR79CRXM4G43GPSF7290"
+      ],
+      "freshness": "fresh",
+      "outcome": "passed",
+      "path": "manual-test.md",
+      "stage": 70,
+      "type": "manual-test"
+    },
+    {
+      "artifact_id": "ar_01M07CS7QJSFGHKWX3P2WYRPB1",
+      "depends_on": [
+        "ar_01M07CQNFVDJEE2DGP5Q9YY6EB"
+      ],
+      "freshness": "fresh",
+      "outcome": "ready",
+      "path": "plan.md",
+      "stage": 30,
+      "type": "plan"
+    },
+    {
+      "artifact_id": "ar_01M07D3FX5KFH7GMQHA9MKY2X0",
+      "depends_on": [
+        "ar_01M07D1QYWP0T1SQ4FD3NK8D3E"
+      ],
+      "freshness": "stale-subject",
+      "outcome": "approved",
+      "path": "reviews/code-review.md",
+      "stage": 60,
+      "type": "review"
+    },
+    {
+      "artifact_id": "ar_01M07DQR79CRXM4G43GPSF7290",
+      "depends_on": [
+        "ar_01M07D3FX5KFH7GMQHA9MKY2X0"
+      ],
+      "freshness": "stale-subject",
+      "outcome": "passed",
+      "path": "validation.md",
+      "stage": 70,
+      "type": "validation"
+    }
+  ],
+  "computed_from": {
+    "change_set": {
+      "content_digest": "sha256:8d547cc41dda5b6ba67dfed8d70b61ce82e5d2145311d05f6a64671b68481fa4",
+      "revision": "284525b422739bd6b2689bf1e7aca9c08fc1835a",
+      "tree": "71a6b3cfad1dd3992fffb3c44d2cad067dac9614"
+    },
+    "documents": {
+      "delivery.md": "sha256:513c4c74c89c6703f1420feea0bea7a6bad68ac1cd4f769b162b9ab4028cdb93",
+      "design.md": "sha256:d5655c777035fa07015a73396b841a11d3c26b1b2fbbe4666c5e28667b6e118d",
+      "implementation.md": "sha256:addecc47b9ba0b5676df0cce67f8516fbdfa59e944c4e66b83c4912473062ffb",
+      "manual-test.md": "sha256:d383eb44d5a939fdbd4865bdb0c92ecfdc21d251aa78334e575644defcf2a72f",
+      "plan.md": "sha256:3cb1b3c270447a2c252a4400ecedf88c1405de6031e7f1785a98198c166e06d6",
+      "reviews/code-review.md": "sha256:ed7cbc7dd8069c4ad66f025bd909433297fd9f3394164d8fc4578d12f5f855b8",
+      "validation.md": "sha256:591ec56ffd4fec1af36e802ba89bd2508ea53ae6d60eedd4c28ec077705e78be",
+      "work-item.md": "sha256:39c7d6a43522e7f74f4395e97f5392b917d1c579c81cb386c82e314390b85982"
+    }
+  },
+  "generated_at": "2026-09-07T08:11:55.959276Z",
+  "generated_by": {
+    "tool_revision": "sha256:c6285ce5fa09"
+  },
+  "manual_test": {
+    "failed": 0,
+    "open": 0,
+    "passed": 1
+  },
+  "next": "已收口",
+  "protocol": "1.3.0",
+  "schema_version": 1,
+  "stage": {
+    "next_skill": "aes-finish",
+    "reached": "manual-test",
+    "reached_stage": 70,
+    "waiting_on": null
+  },
+  "wayfinder": null,
+  "work_item": {
+    "acceptance_ids": [
+      "AC-001",
+      "AC-002",
+      "AC-003",
+      "AC-004",
+      "AC-005"
+    ],
+    "branch": "feature/create-with-untracked-files",
+    "contract_digest": "sha256:d444f7a30ab66f3cab02a47ea7ae326e65adacd42265fe8feaf42c8b4353500f",
+    "home_repository": "https://github.com/pb763396199/UnrealDevFlow.git",
+    "id": "wi_01M07CNY9RM7B36W3AK11ZVZ7F",
+    "kind": "feature",
+    "short_id": "2b054ckt",
+    "slug": "create-with-untracked-files",
+    "status": "done",
+    "title": "创建任务时忽略未跟踪临时文件"
+  }
+}
