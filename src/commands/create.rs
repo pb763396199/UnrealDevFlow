@@ -717,18 +717,26 @@ fn prepare_primary_plans(
                     name, current_branch, CREATE_BASE_BRANCH
                 )));
             }
-            let tracked_status = git::status_porcelain_tracked(&source_repo)?;
-            if !tracked_status.is_empty() {
+            let unmerged_paths = git::unmerged_paths(&source_repo)?;
+            if !unmerged_paths.is_empty() {
                 return Err(UdfError::Other(format!(
-                    "主插件 '{}' 的主仓工作区不干净，不能创建任务：\n{}",
-                    name, tracked_status
+                    "主插件 '{}' 的主仓存在未合并冲突，不能创建任务：\n{}\n\
+                     请先完成或中止当前 Git 操作，再重试。",
+                    name, unmerged_paths
+                )));
+            }
+            if let Some(operation) = git::repository_operation(&repo) {
+                return Err(UdfError::Other(format!(
+                    "主插件 '{}' 的主仓有未完成的 Git 操作（{}），不能创建任务。\n\
+                     请先完成或中止该操作，再重试。",
+                    name, operation
                 )));
             }
             let status = git::status_porcelain(&source_repo)?;
             if !status.is_empty() {
                 output::print_warning(&format!(
-                    "主插件 '{}' 的主仓工作区有未提交修改；本次任务将从当前 dev 提交创建，\
-                     这些修改会保留在主仓，不会带入 Host：\n{}",
+                    "主插件 '{}' 的主仓有普通未提交修改；本次任务仍从当前 dev 的 HEAD 创建。\
+                     这些修改会保留在主仓，不会带入 Host，也不会被自动提交：\n{}",
                     name, status
                 ));
             }

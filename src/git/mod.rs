@@ -181,11 +181,32 @@ pub fn status_porcelain(repo_path: &Path) -> Result<String> {
     git_stdout(repo_path, &["status", "--porcelain"])
 }
 
-/// Return only tracked/index/conflict changes, excluding untracked files.
+/// Return paths that currently have unresolved merge entries in the index.
+pub fn unmerged_paths(repo_path: &Path) -> Result<String> {
+    git_stdout(repo_path, &["diff", "--name-only", "--diff-filter=U"])
+}
+
+/// Return the Git operation that is still in progress, if any.
+pub fn repository_operation(repo: &Repository) -> Option<&'static str> {
+    match repo.state() {
+        git2::RepositoryState::Clean => None,
+        git2::RepositoryState::Merge => Some("merge"),
+        git2::RepositoryState::Revert => Some("revert"),
+        git2::RepositoryState::RevertSequence => Some("revert sequence"),
+        git2::RepositoryState::CherryPick => Some("cherry-pick"),
+        git2::RepositoryState::CherryPickSequence => Some("cherry-pick sequence"),
+        git2::RepositoryState::Bisect => Some("bisect"),
+        git2::RepositoryState::Rebase => Some("rebase"),
+        git2::RepositoryState::RebaseInteractive => Some("interactive rebase"),
+        git2::RepositoryState::RebaseMerge => Some("rebase merge"),
+        git2::RepositoryState::ApplyMailbox => Some("apply mailbox"),
+        git2::RepositoryState::ApplyMailboxOrRebase => Some("apply mailbox or rebase"),
+    }
+}
+
+/// Return tracked, staged, and conflict changes while excluding untracked files.
 ///
-/// Task creation uses this boundary because untracked files are not part of
-/// the commit from which a new worktree is created, and moving them would
-/// introduce destructive stash/restore behavior.
+/// Commands that rewrite a checked-out branch use this stricter boundary.
 pub fn status_porcelain_tracked(repo_path: &Path) -> Result<String> {
     git_stdout(
         repo_path,

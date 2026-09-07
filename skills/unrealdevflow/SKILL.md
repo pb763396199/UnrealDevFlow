@@ -80,8 +80,10 @@ udf task create "<任务描述>" `
 - `--primary` 接逗号分隔的多个插件名（v2 多插件）。
 - `--override-dep` 解决引擎和项目里同名插件的冲突（`<名字>=engine|project|<绝对路径>`）。
 - `--id` 只能用小写英文字母、数字和连字符，不能有 `/`、`\`、`..`、空格或中文。
-- 每个主插件的主检出必须停在干净的 `dev` 分支上才能建任务。不要从 feature/task 分支、
-  游离 HEAD、Host worktree 或 DEV 项目的 Junction 上建。
+- 每个主插件的主检出必须位于 `dev`。未跟踪、未暂存或已暂存的普通修改可以保留；任务
+  worktree 始终从当前 `HEAD` 创建，这些修改不会带入 Host，也不会被自动提交。存在未合并
+  冲突或未完成的 Git 操作时，`task create` 会拒绝。不要从 feature/task 分支、游离 HEAD、
+  Host worktree 或 DEV 项目的 Junction 上建。
 - `plugins_root` 必须是稳定的主插件仓库根目录，不能是 `<UE项目>/Plugins`、Host 目录、
   Junction/符号链接/重解析点，也不能是任何含有重名插件的路径。
 - 工具会自动解析每个主插件的 `.uplugin`，扫描引擎和项目的插件根目录，给项目内依赖建 Junction。

@@ -35,6 +35,10 @@ fn git_stdout(dir: &Path, args: &[&str]) -> String {
     String::from_utf8_lossy(&output.stdout).trim().to_string()
 }
 
+fn normalize_newlines(text: &str) -> String {
+    text.replace("\r\n", "\n")
+}
+
 fn toml_path(path: &Path) -> String {
     path.to_string_lossy().replace('\\', "\\\\")
 }
@@ -205,7 +209,7 @@ fn setup_main_plugin_repo(root: &Path) -> PathBuf {
 }
 
 #[test]
-fn create_allows_untracked_files_in_primary_source_without_copying_them() {
+fn task_create_allows_untracked_main_checkout_changes() {
     let temp = TempDir::new().expect("temp dir");
     let root = temp.path();
     let config_dir = root.join("config");
@@ -235,7 +239,8 @@ fn create_allows_untracked_files_in_primary_source_without_copying_them() {
             "--yes",
         ])
         .assert()
-        .success();
+        .success()
+        .stdout(predicate::str::contains("不会带入 Host"));
 
     let worktree = root
         .join("Hosts")
@@ -259,14 +264,15 @@ fn create_allows_untracked_files_in_primary_source_without_copying_them() {
 }
 
 #[test]
-fn create_still_rejects_tracked_changes_when_untracked_files_are_present() {
+fn task_create_allows_unstaged_tracked_main_checkout_changes() {
     let temp = TempDir::new().expect("temp dir");
     let root = temp.path();
     let config_dir = root.join("config");
     let main_repo = setup_main_plugin_repo(root);
-    fs::write(main_repo.join("AesWorld.uplugin"), "tracked change\n").expect("tracked change");
-    git(&main_repo, &["add", "AesWorld.uplugin"]);
-    fs::write(main_repo.join("editor-temp.txt"), "local-only\n").expect("temporary file");
+    let descriptor = main_repo.join("AesWorld.uplugin");
+    let committed_content = fs::read_to_string(&descriptor).expect("committed descriptor");
+    let local_content = committed_content.replace("\"test\"", "\"unstaged\"");
+    fs::write(&descriptor, &local_content).expect("unstaged tracked change");
     let source_status_before = git_stdout(&main_repo, &["status", "--porcelain"]);
     let project = root.join("UGA").join("DEV");
     let plugins_root = main_repo.parent().expect("plugins root");
@@ -278,18 +284,182 @@ fn create_still_rejects_tracked_changes_when_untracked_files_are_present() {
         .args([
             "task",
             "create",
-            "tracked source",
+            "unstaged tracked source",
             "--workspace",
             "bad",
             "--id",
-            "tracked-source",
+            "unstaged-tracked-source",
+            "--primary",
+            "AesWorld",
+            "--yes",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("不会带入 Host"));
+
+    assert_eq!(
+        git_stdout(&main_repo, &["status", "--porcelain"]),
+        source_status_before
+    );
+    let task_worktree = root
+        .join("Hosts")
+        .join("W-bad")
+        .join("T-unstaged-tracked-source_Host")
+        .join("Plugins")
+        .join("AesWorld");
+    assert_eq!(
+        normalize_newlines(
+            &fs::read_to_string(task_worktree.join("AesWorld.uplugin")).expect("task descriptor")
+        ),
+        normalize_newlines(&committed_content)
+    );
+    assert_eq!(
+        fs::read_to_string(&descriptor).expect("main descriptor"),
+        local_content
+    );
+
+    Command::cargo_bin("udf")
+        .expect("binary")
+        .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
+        .args([
+            "task",
+            "delete",
+            "bad/unstaged-tracked-source",
+            "--yes",
+            "--force",
+        ])
+        .assert()
+        .success();
+}
+
+#[test]
+fn task_create_allows_staged_tracked_main_checkout_changes() {
+    let temp = TempDir::new().expect("temp dir");
+    let root = temp.path();
+    let config_dir = root.join("config");
+    let main_repo = setup_main_plugin_repo(root);
+    let descriptor = main_repo.join("AesWorld.uplugin");
+    let committed_content = fs::read_to_string(&descriptor).expect("committed descriptor");
+    let local_content = committed_content.replace("\"test\"", "\"staged\"");
+    fs::write(&descriptor, &local_content).expect("staged tracked change");
+    git(&main_repo, &["add", "AesWorld.uplugin"]);
+    let source_status_before = git_stdout(&main_repo, &["status", "--porcelain"]);
+    let project = root.join("UGA").join("DEV");
+    let plugins_root = main_repo.parent().expect("plugins root");
+    write_workspace_config(&config_dir, root, &project, plugins_root);
+
+    Command::cargo_bin("udf")
+        .expect("binary")
+        .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
+        .args([
+            "task",
+            "create",
+            "staged tracked source",
+            "--workspace",
+            "bad",
+            "--id",
+            "staged-tracked-source",
+            "--primary",
+            "AesWorld",
+            "--yes",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("不会带入 Host"));
+
+    assert_eq!(
+        git_stdout(&main_repo, &["status", "--porcelain"]),
+        source_status_before
+    );
+    let task_worktree = root
+        .join("Hosts")
+        .join("W-bad")
+        .join("T-staged-tracked-source_Host")
+        .join("Plugins")
+        .join("AesWorld");
+    assert_eq!(
+        normalize_newlines(
+            &fs::read_to_string(task_worktree.join("AesWorld.uplugin")).expect("task descriptor")
+        ),
+        normalize_newlines(&committed_content)
+    );
+    assert_eq!(
+        fs::read_to_string(&descriptor).expect("main descriptor"),
+        local_content
+    );
+
+    Command::cargo_bin("udf")
+        .expect("binary")
+        .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
+        .args([
+            "task",
+            "delete",
+            "bad/staged-tracked-source",
+            "--yes",
+            "--force",
+        ])
+        .assert()
+        .success();
+}
+
+#[test]
+fn task_create_rejects_unmerged_conflicts() {
+    let temp = TempDir::new().expect("temp dir");
+    let root = temp.path();
+    let config_dir = root.join("config");
+    let main_repo = setup_main_plugin_repo(root);
+    let descriptor = main_repo.join("AesWorld.uplugin");
+    let committed_content = fs::read_to_string(&descriptor).expect("committed descriptor");
+
+    git(&main_repo, &["checkout", "-b", "conflicting-change"]);
+    fs::write(
+        &descriptor,
+        committed_content.replace("\"test\"", "\"feature\""),
+    )
+    .expect("feature descriptor");
+    git(&main_repo, &["add", "AesWorld.uplugin"]);
+    git(&main_repo, &["commit", "-m", "feature descriptor"]);
+    git(&main_repo, &["checkout", "dev"]);
+    fs::write(
+        &descriptor,
+        committed_content.replace("\"test\"", "\"dev\""),
+    )
+    .expect("dev descriptor");
+    git(&main_repo, &["add", "AesWorld.uplugin"]);
+    git(&main_repo, &["commit", "-m", "dev descriptor"]);
+
+    let merge = std::process::Command::new("git")
+        .args(["merge", "conflicting-change"])
+        .current_dir(&main_repo)
+        .output()
+        .expect("run conflicting merge");
+    assert!(
+        !merge.status.success(),
+        "merge should leave an unmerged conflict"
+    );
+    let source_status_before = git_stdout(&main_repo, &["status", "--porcelain"]);
+    let project = root.join("UGA").join("DEV");
+    let plugins_root = main_repo.parent().expect("plugins root");
+    write_workspace_config(&config_dir, root, &project, plugins_root);
+
+    Command::cargo_bin("udf")
+        .expect("binary")
+        .env("UNREALDEVFLOW_CONFIG_DIR", &config_dir)
+        .args([
+            "task",
+            "create",
+            "conflicted source",
+            "--workspace",
+            "bad",
+            "--id",
+            "conflicted-source",
             "--primary",
             "AesWorld",
             "--yes",
         ])
         .assert()
         .failure()
-        .stderr(predicate::str::contains("工作区不干净"))
+        .stderr(predicate::str::contains("未合并冲突"))
         .stderr(predicate::str::contains("AesWorld.uplugin"));
 
     assert_eq!(
@@ -300,9 +470,31 @@ fn create_still_rejects_tracked_changes_when_untracked_files_are_present() {
         !root
             .join("Hosts")
             .join("W-bad")
-            .join("T-tracked-source_Host")
+            .join("T-conflicted-source_Host")
             .exists()
     );
+    git(&main_repo, &["merge", "--abort"]);
+}
+
+#[test]
+fn task_create_dirty_checkout_docs_are_consistent() {
+    let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    for relative_path in [
+        "README.md",
+        "docs/releases/v0.5.0.md",
+        "skills/unrealdevflow/SKILL.md",
+    ] {
+        let content = fs::read_to_string(repo.join(relative_path)).expect("document");
+        let compact = content.split_whitespace().collect::<String>();
+        assert!(
+            compact.contains("未跟踪、未暂存或已暂存"),
+            "{relative_path} should list every allowed ordinary change state"
+        );
+        assert!(
+            compact.contains("未合并冲突或未完成的Git操作"),
+            "{relative_path} should name the unsafe states that still block creation"
+        );
+    }
 }
 
 #[test]
