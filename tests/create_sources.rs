@@ -271,7 +271,10 @@ fn task_create_allows_unstaged_tracked_main_checkout_changes() {
     let main_repo = setup_main_plugin_repo(root);
     let descriptor = main_repo.join("AesWorld.uplugin");
     let committed_content = fs::read_to_string(&descriptor).expect("committed descriptor");
-    let local_content = committed_content.replace("\"test\"", "\"unstaged\"");
+    let local_content = committed_content.replace(
+        "\"Plugins\": []",
+        "\"Plugins\": [{ \"Name\": \"DirtyOnlyMissing\", \"Enabled\": true }]",
+    );
     fs::write(&descriptor, &local_content).expect("unstaged tracked change");
     let source_status_before = git_stdout(&main_repo, &["status", "--porcelain"]);
     let project = root.join("UGA").join("DEV");
@@ -340,7 +343,10 @@ fn task_create_allows_staged_tracked_main_checkout_changes() {
     let main_repo = setup_main_plugin_repo(root);
     let descriptor = main_repo.join("AesWorld.uplugin");
     let committed_content = fs::read_to_string(&descriptor).expect("committed descriptor");
-    let local_content = committed_content.replace("\"test\"", "\"staged\"");
+    let local_content = committed_content.replace(
+        "\"Plugins\": []",
+        "\"Plugins\": [{ \"Name\": \"DirtyOnlyMissing\", \"Enabled\": true }]",
+    );
     fs::write(&descriptor, &local_content).expect("staged tracked change");
     git(&main_repo, &["add", "AesWorld.uplugin"]);
     let source_status_before = git_stdout(&main_repo, &["status", "--porcelain"]);

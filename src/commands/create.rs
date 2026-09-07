@@ -125,19 +125,16 @@ pub fn run(
     let mut all_dep_names: Vec<String> = Vec::new();
     let mut seen_deps: HashSet<String> = HashSet::new();
     let mut primary_descriptor_names = Vec::new();
-    for primary_name in &primary_names {
-        let primary_dir = project_plugins
-            .get(primary_name)
-            .ok_or_else(|| UdfError::Other(format!("主插件目录不存在：{}", primary_name)))?;
-        primary_descriptor_names.extend(uplugin::read_plugin_names(primary_dir)?);
+    for plan in &primary_plans {
+        primary_descriptor_names.extend(uplugin::read_plugin_names_at_revision(
+            &plan.source_repo,
+            &plan.based_on,
+        )?);
     }
     primary_descriptor_names.sort();
     primary_descriptor_names.dedup();
-    for primary_name in &primary_names {
-        let primary_dir = project_plugins
-            .get(primary_name)
-            .ok_or_else(|| UdfError::Other(format!("主插件目录不存在：{}", primary_name)))?;
-        let deps = uplugin::read_dependencies(primary_dir)?;
+    for plan in &primary_plans {
+        let deps = uplugin::read_dependencies_at_revision(&plan.source_repo, &plan.based_on)?;
         for d in deps {
             if !seen_deps.contains(&d) && !primary_descriptor_names.contains(&d) {
                 seen_deps.insert(d.clone());

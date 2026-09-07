@@ -27,17 +27,29 @@ def cargo_test(test_name: str, test_target: str, *, exact: bool = True) -> None:
 
 
 class CreateAcceptance(unittest.TestCase):
-    def test_create_allows_untracked_files_in_primary_source_without_copying_them(self) -> None:
+    def test_task_create_allows_untracked_main_checkout_changes(self) -> None:
         cargo_test(
-            "create_allows_untracked_files_in_primary_source_without_copying_them",
+            "task_create_allows_untracked_main_checkout_changes",
             "create_sources",
         )
 
-    def test_create_still_rejects_tracked_changes_when_untracked_files_are_present(self) -> None:
+    def test_task_create_allows_unstaged_tracked_main_checkout_changes(self) -> None:
         cargo_test(
-            "create_still_rejects_tracked_changes_when_untracked_files_are_present",
+            "task_create_allows_unstaged_tracked_main_checkout_changes",
             "create_sources",
         )
+
+    def test_task_create_allows_staged_tracked_main_checkout_changes(self) -> None:
+        cargo_test(
+            "task_create_allows_staged_tracked_main_checkout_changes",
+            "create_sources",
+        )
+
+    def test_task_create_rejects_unmerged_conflicts(self) -> None:
+        cargo_test("task_create_rejects_unmerged_conflicts", "create_sources")
+
+    def test_task_create_dirty_checkout_docs_are_consistent(self) -> None:
+        cargo_test("task_create_dirty_checkout_docs_are_consistent", "create_sources")
 
     def test_create_sources_regression_suite(self) -> None:
         cargo_test("create_", "create_sources", exact=False)
