@@ -1,6 +1,8 @@
 use crate::config::Config;
 use crate::error::{Result, UdfError};
 use crate::output;
+use crate::package_cache::{self, CacheIdentity};
+use crate::package_inventory::{self, InventoryFilter, PackageInventoryItem};
 use crate::package_profile;
 use crate::package_storage::StorageReport;
 use crate::project_packaging::{self, PackageContainer as ProjectContainer};
@@ -28,15 +30,55 @@ fn plugin_stage_root(execution_id: &str) -> PathBuf {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct CookCacheState {
     schema_version: u32,
+    #[serde(default)]
+    cache_id: String,
+    #[serde(default)]
+    task_uid: String,
     project: PathBuf,
     engine: PathBuf,
+    #[serde(default = "default_platform")]
+    platform: String,
     configuration: String,
     container: String,
     project_settings_digest: String,
     source_fingerprint: String,
+    #[serde(default)]
+    overlay_fingerprint: String,
+    #[serde(default)]
+    state: String,
+    #[serde(default)]
+    created_at: String,
+    #[serde(default)]
+    last_used_at: String,
+    #[serde(default)]
+    last_success_at: String,
+    #[serde(default)]
+    execution_id: String,
+    #[serde(default)]
+    producer_version: String,
+}
+
+fn default_platform() -> String {
+    "Win64".into()
 }
 
 fn cook_cache_root(profile: &package_profile::PackageProfile) -> Result<PathBuf> {
+    let identity = CacheIdentity::new(
+        profile.task_uid.clone(),
+        &profile.project,
+        &profile.engine,
+        "Win64",
+        profile.configuration.clone(),
+        container_name(match profile.container {
+            package_profile::Container::Loose => PackageContainer::Loose,
+            package_profile::Container::Pak => PackageContainer::Pak,
+            package_profile::Container::Iostore => PackageContainer::Iostore,
+        }),
+    );
+    Ok(identity.cache_root(&Config::config_dir()?))
+}
+
+fn legacy_cook_cache_root(profile: &package_profile::PackageProfile) -> Result<PathBuf> {
     let value = format!(
         "{}|{}|{}|{}|{:?}|{}|{}",
         profile.task_uid,
@@ -52,6 +94,39 @@ fn cook_cache_root(profile: &package_profile::PackageProfile) -> Result<PathBuf>
         .join("package")
         .join("cook-cache")
         .join(digest))
+}
+
+fn migrate_legacy_cache(
+    profile: &package_profile::PackageProfile,
+    stable_root: &Path,
+) -> Result<()> {
+    if stable_root.exists() {
+        return Ok(());
+    }
+    let legacy_root = legacy_cook_cache_root(profile)?;
+    if legacy_root == stable_root || !legacy_root.is_dir() {
+        return Ok(());
+    }
+    let Some(state) = read_cache_state(&legacy_root) else {
+        return Ok(());
+    };
+    if state.project != profile.project
+        || state.engine != profile.engine
+        || state.configuration != profile.configuration
+        || state.container
+            != container_name(match profile.container {
+                package_profile::Container::Loose => PackageContainer::Loose,
+                package_profile::Container::Pak => PackageContainer::Pak,
+                package_profile::Container::Iostore => PackageContainer::Iostore,
+            })
+    {
+        return Ok(());
+    }
+    if let Some(parent) = stable_root.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::rename(&legacy_root, stable_root)?;
+    Ok(())
 }
 
 fn update_source_fingerprint(
@@ -129,6 +204,32 @@ fn source_fingerprint(project_root: &Path) -> Result<String> {
     Ok(format!("md5:{:x}", digest.finalize()))
 }
 
+fn overlay_fingerprint(
+    overlays: &[(String, PathBuf)],
+    disabled_plugins: &[String],
+) -> Result<String> {
+    let mut digest = Md5::new();
+    digest.update(b"overlay-schema=1");
+    let mut disabled = disabled_plugins.to_vec();
+    disabled.sort();
+    for plugin in disabled {
+        digest.update(b"disabled:");
+        digest.update(plugin.as_bytes());
+    }
+    let mut entries = overlays.to_vec();
+    entries.sort_by(|left, right| left.0.cmp(&right.0));
+    for (name, path) in entries {
+        digest.update(b"plugin:");
+        digest.update(name.as_bytes());
+        digest.update(path.to_string_lossy().as_bytes());
+        if path.exists() {
+            let mut visited = HashSet::new();
+            update_source_fingerprint(&path, &mut visited, &mut digest)?;
+        }
+    }
+    Ok(format!("md5:{:x}", digest.finalize()))
+}
+
 fn cache_state_path(root: &Path) -> PathBuf {
     root.join(".udf-cook-cache.json")
 }
@@ -154,22 +255,28 @@ fn container_name(container: PackageContainer) -> &'static str {
 }
 
 fn is_managed_cleanup_target(path: &Path) -> bool {
-    if path.components().any(|part| {
-        let name = part.as_os_str().to_string_lossy();
-        name.eq_ignore_ascii_case("UnrealDevFlow") || name.eq_ignore_ascii_case(".unrealdevflow")
-    }) {
+    let config_dir = Config::config_dir().ok();
+    let temp_dir = std::env::temp_dir();
+    if let Some(config_dir) = config_dir
+        && package_inventory::is_fixed_root_path(path, &config_dir, &temp_dir)
+    {
         return true;
     }
-
-    let temp_stage_root = std::env::temp_dir().join("UDF");
-    if path.starts_with(temp_stage_root) && path != std::env::temp_dir().join("UDF") {
-        return true;
+    // Execution logs historically lived below a project Saved/UnrealDevFlow
+    // directory.  The caller must have obtained this path from an execution
+    // record; the suffix check only preserves compatibility for that exact
+    // recorded root and no longer accepts arbitrary similarly named folders.
+    let lower = path.to_string_lossy().to_ascii_lowercase();
+    if !(lower.contains("\\saved\\unrealdevflow\\") || lower.contains("/saved/unrealdevflow/")) {
+        return false;
     }
-    // Older package executions kept their logs below the configured output
-    // root. They are still safe to remove because the recorded target must
-    // be inside this dedicated hidden log directory.
-    path.components()
-        .any(|part| part.as_os_str() == ".udf-logs")
+    path.components().any(|component| {
+        component
+            .as_os_str()
+            .to_string_lossy()
+            .to_ascii_lowercase()
+            .starts_with("package-")
+    })
 }
 
 fn warning_diagnostics(logs: &[PathBuf]) -> Vec<String> {
@@ -640,8 +747,33 @@ fn publish_directory(
             }
         }
     }
+    // A successful copy is not enough: verify every resulting file before
+    // declaring the transaction delivered.  This closes the window where a
+    // partial copy could be marked delivered and its only recovery backup
+    // discarded.
+    for entry in &journal.entries {
+        let target = output.join(&entry.relative);
+        if entry.removed {
+            if target.exists() {
+                return Err(UdfError::Other(format!(
+                    "交付校验发现应删除文件仍存在：{}",
+                    target.display()
+                )));
+            }
+        } else if !target.is_file() || file_digest(&target)? != entry.new_digest {
+            return Err(UdfError::Other(format!(
+                "交付校验摘要不匹配：{}",
+                target.display()
+            )));
+        }
+    }
     journal.state = "delivered".into();
     write_journal(&journal_path, &journal)?;
+    // Once the target digest is verified, the backup is no longer needed.
+    // Keep the journal itself for audit/recover diagnostics; recover only
+    // accepts `delivering`, so a delivered transaction cannot be rolled back
+    // against a deliberately removed backup.
+    remove_owned_tree(&journal.backup_root)?;
     Ok(())
 }
 
@@ -915,6 +1047,12 @@ fn render(result: &PackageResult) -> String {
 
 fn execution_root() -> Result<PathBuf> {
     Ok(Config::config_dir()?.join("executions").join("package"))
+}
+
+fn package_temp_dir() -> PathBuf {
+    std::env::var_os("UNREALDEVFLOW_TEMP_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir)
 }
 
 fn save_result(result: &PackageResult) -> Result<()> {
@@ -1392,7 +1530,17 @@ fn prepare_project_stage(
         )));
     }
     if stage_root.exists() {
-        remove_owned_tree(stage_root)?;
+        // The cache lease lives beside the staged project.  Preserve the
+        // lock/lease files while replacing the disposable Cook inputs so a
+        // concurrent cleaner cannot observe an unlocked half-built slot.
+        for entry in fs::read_dir(stage_root)? {
+            let entry = entry?;
+            let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
+            if name == ".udf-cook-cache.lock" || name == ".udf-cook-cache-lease.json" {
+                continue;
+            }
+            remove_owned_tree(&entry.path())?;
+        }
     }
     let source_root = project
         .parent()
@@ -1590,10 +1738,44 @@ pub fn project(workspace: Option<String>, task: Option<String>, mode: PackageMod
     } else {
         None
     };
+    if mode.executes() && requested_iterate {
+        migrate_legacy_cache(
+            saved_profile.as_ref().expect("iterate requires profile"),
+            persistent_stage_root.as_ref().expect("iterate cache root"),
+        )?;
+    }
+    let overlays = if let Some(task_ref) = requested_task.as_deref() {
+        let (host_dir, meta, _) = crate::host::resolve_task(&config, task_ref)?;
+        meta.primary_plugins
+            .iter()
+            .map(|plugin| (plugin.name.clone(), host_dir.join(&plugin.worktree)))
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
     let current_source_fingerprint = if requested_iterate && mode != PackageMode::Check {
         Some(source_fingerprint(project.parent().ok_or_else(|| {
             UdfError::Other(format!("项目路径没有父目录：{}", project.display()))
         })?)?)
+    } else {
+        None
+    };
+    let current_overlay_fingerprint = if requested_iterate && mode != PackageMode::Check {
+        Some(overlay_fingerprint(
+            &overlays,
+            &saved_profile
+                .as_ref()
+                .map(|profile| profile.disabled_plugins.clone())
+                .unwrap_or_default(),
+        )?)
+    } else {
+        None
+    };
+    let _cache_lease = if mode.executes() && requested_iterate {
+        Some(package_cache::acquire_lease(
+            persistent_stage_root.as_ref().expect("iterate cache root"),
+            execution_id.clone(),
+        )?)
     } else {
         None
     };
@@ -1610,6 +1792,8 @@ pub fn project(workspace: Option<String>, task: Option<String>, mode: PackageMod
                     && state.engine == engine_root
                     && state.configuration == configuration_name.as_str()
                     && state.container == container_name(container)
+                    && current_overlay_fingerprint.as_deref()
+                        == Some(state.overlay_fingerprint.as_str())
             });
     let execution_stage_root = persistent_stage_root
         .clone()
@@ -1626,19 +1810,6 @@ pub fn project(workspace: Option<String>, task: Option<String>, mode: PackageMod
     }
     let staged_project = if mode.executes() {
         if let Some(profile) = saved_profile.as_ref() {
-            let overlays = requested_task
-                .as_deref()
-                .map(|task_ref| {
-                    let (host_dir, meta, _) = crate::host::resolve_task(&config, task_ref)?;
-                    Ok::<_, UdfError>(
-                        meta.primary_plugins
-                            .iter()
-                            .map(|plugin| (plugin.name.clone(), host_dir.join(&plugin.worktree)))
-                            .collect::<Vec<_>>(),
-                    )
-                })
-                .transpose()?
-                .unwrap_or_default();
             if can_iterate {
                 let archive = execution_stage_root.join("Archive");
                 if archive.exists() {
@@ -1702,7 +1873,10 @@ pub fn project(workspace: Option<String>, task: Option<String>, mode: PackageMod
     let log_dir = log_dir_for_execution(&project_root, &execution_id);
     let mut cleanup_targets = if profile_output {
         if requested_iterate {
-            vec![log_dir.clone()]
+            // Archive is a disposable delivery staging area, not Cook state.
+            // Keep it in the execution ledger only until digest verification
+            // and publish complete.
+            vec![log_dir.clone(), execution_archive_dir.clone()]
         } else {
             vec![log_dir.clone(), execution_stage_root.clone()]
         }
@@ -1711,10 +1885,14 @@ pub fn project(workspace: Option<String>, task: Option<String>, mode: PackageMod
         // even when it was produced without a saved profile.
         vec![log_dir.clone()]
     };
-    let storage = crate::package_storage::assess(
+    let storage = crate::package_storage::assess_global(
         &archive_dir,
         &[execution_stage_root.clone(), log_dir.clone()],
-        None,
+        Some(crate::package_storage::source_input_estimate(
+            source_project
+                .parent()
+                .ok_or_else(|| UdfError::Other("项目文件没有父目录".into()))?,
+        )),
     );
     if mode.executes() && storage.blocked() {
         return Err(UdfError::Other(format!(
@@ -1858,20 +2036,46 @@ pub fn project(workspace: Option<String>, task: Option<String>, mode: PackageMod
     } else {
         Vec::new()
     };
+    if mode.executes() && profile_output && requested_iterate {
+        match remove_owned_tree(&execution_archive_dir) {
+            Ok(()) => cleanup_targets.retain(|target| target != &execution_archive_dir),
+            Err(error) => {
+                package_diagnostics.push(format!("交付成功，但 Archive 自动清理失败：{error}"))
+            }
+        }
+    }
     if mode.executes()
         && requested_iterate
         && let Some(source_fingerprint) = current_source_fingerprint.as_ref()
     {
+        let now = Utc::now().to_rfc3339();
         write_cache_state(
             &execution_stage_root,
             &CookCacheState {
-                schema_version: 1,
+                schema_version: package_cache::CACHE_SCHEMA_VERSION,
+                cache_id: execution_stage_root
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or_default()
+                    .to_string(),
+                task_uid: saved_profile
+                    .as_ref()
+                    .map(|profile| profile.task_uid.clone())
+                    .unwrap_or_default(),
                 project: source_project,
                 engine: engine_root.clone(),
+                platform: "Win64".into(),
                 configuration: configuration_name.clone(),
                 container: container_name(container).to_string(),
                 project_settings_digest: project_settings.digest.clone(),
                 source_fingerprint: source_fingerprint.clone(),
+                overlay_fingerprint: current_overlay_fingerprint.clone().unwrap_or_default(),
+                state: "ready".into(),
+                created_at: now.clone(),
+                last_used_at: now.clone(),
+                last_success_at: now,
+                execution_id: id.clone(),
+                producer_version: env!("CARGO_PKG_VERSION").into(),
             },
         )?;
     }
@@ -2004,8 +2208,11 @@ pub fn plugin(
         .iter()
         .map(|plugin| output_dir.join(plugin))
         .collect::<Vec<_>>();
-    let storage =
-        crate::package_storage::assess(&output_dir, &[stage_root.clone(), log_dir.clone()], None);
+    let storage = crate::package_storage::assess_global(
+        &output_dir,
+        &[stage_root.clone(), log_dir.clone()],
+        None,
+    );
     if mode.executes() && storage.blocked() {
         return Err(UdfError::Other(format!(
             "package advanced plugin 空间预检阻止执行：{}",
@@ -2113,6 +2320,7 @@ pub fn plugin(
             cook_reuse_reason: None,
             metadata: {
                 let mut metadata = PackageMetadata::target("plugin");
+                metadata.task_ref = requested_task.clone();
                 metadata.storage = Some(storage);
                 metadata.cleanup_policy =
                     Some("keep-final-plugin-package-remove-stage-manually".into());
@@ -2146,7 +2354,7 @@ pub fn engine(
         output_dir: output_dir.clone(),
         platform: UePlatform::Windows,
     });
-    let storage = crate::package_storage::assess(&output_dir, &[execution_root()?], None);
+    let storage = crate::package_storage::assess_global(&output_dir, &[execution_root()?], None);
     if mode.executes() && storage.blocked() {
         return Err(UdfError::Other(format!(
             "package advanced engine 空间预检阻止执行：{}",
@@ -2348,8 +2556,12 @@ pub fn status(execution_id: Option<String>) -> Result<()> {
 struct CleanReport {
     dry_run: bool,
     scope: String,
+    total_bytes: u64,
     reclaimable_bytes: u64,
+    protected_bytes: u64,
+    unknown_bytes: u64,
     targets: Vec<PathBuf>,
+    items: Vec<PackageInventoryItem>,
     diagnostics: Vec<String>,
 }
 
@@ -2365,107 +2577,253 @@ fn package_records() -> Result<Vec<PackageResult>> {
         .collect())
 }
 
+fn update_cleaned_records(
+    deleted_execution_ids: &HashSet<String>,
+    deleted_paths: &BTreeSet<PathBuf>,
+) -> Result<usize> {
+    let root = execution_root()?;
+    let mut updated = 0;
+    for entry in fs::read_dir(&root).into_iter().flatten().flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
+            continue;
+        }
+        let Ok(bytes) = fs::read(&path) else { continue };
+        let Ok(mut value) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
+            continue;
+        };
+        let execution_id = value
+            .get("executionId")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default();
+        let path_match = value
+            .get("cleanupTargets")
+            .and_then(serde_json::Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(serde_json::Value::as_str)
+            .map(PathBuf::from)
+            .any(|recorded| {
+                let recorded = dunce::canonicalize(&recorded).unwrap_or(recorded);
+                deleted_paths.iter().any(|removed| {
+                    recorded
+                        .to_string_lossy()
+                        .eq_ignore_ascii_case(&removed.to_string_lossy())
+                })
+            });
+        if !deleted_execution_ids.contains(execution_id) && !path_match {
+            continue;
+        }
+        value["state"] = serde_json::Value::String("cleaned".into());
+        value["cleanupResult"] = serde_json::Value::String("manual-clean".into());
+        fs::write(path, serde_json::to_vec_pretty(&value)?)?;
+        updated += 1;
+    }
+    Ok(updated)
+}
+
+#[allow(clippy::too_many_arguments)]
 pub fn clean(
     execution_id: Option<String>,
     task_ref: Option<String>,
     workspace: Option<String>,
+    cache_id: Option<String>,
+    stale: bool,
+    legacy: bool,
+    yes: bool,
     dry_run: bool,
 ) -> Result<()> {
-    let explicit = execution_id.is_some();
-    let inventory_only = !explicit && task_ref.is_none() && workspace.is_none();
-    let mut records = if let Some(id) = execution_id.as_deref() {
-        vec![load_result(Some(id))?]
-    } else {
-        package_records()?
+    let explicit_execution = execution_id.is_some();
+    let scoped = explicit_execution
+        || cache_id.is_some()
+        || task_ref.is_some()
+        || workspace.is_some()
+        || stale
+        || legacy;
+    let inventory_only = !scoped;
+    let filter = InventoryFilter {
+        task_ref: task_ref.clone(),
+        workspace: workspace.clone(),
     };
-    records.retain(|result| {
-        task_ref
-            .as_deref()
-            .is_none_or(|task| result.metadata.task_ref.as_deref() == Some(task))
-            && workspace
-                .as_deref()
-                .is_none_or(|name| result.workspace == name)
-    });
-    let scope = if let Some(id) = execution_id {
+    let inventory = package_inventory::scan(&Config::config_dir()?, &package_temp_dir(), &filter);
+    let scope = if let Some(id) = execution_id.as_deref() {
         format!("execution {id}")
-    } else if let Some(task) = task_ref {
+    } else if let Some(id) = cache_id.as_deref() {
+        format!("cache {id}")
+    } else if let Some(task) = task_ref.as_deref() {
         format!("task {task}")
-    } else if let Some(workspace) = workspace {
-        format!("workspace {workspace}")
+    } else if let Some(name) = workspace.as_deref() {
+        format!("workspace {name}")
+    } else if stale {
+        "stale package data".into()
+    } else if legacy {
+        "legacy package data".into()
     } else {
-        "all package executions".into()
+        "all package data".into()
     };
-    let mut targets = BTreeSet::new();
-    let mut reclaimable_bytes = 0;
-    let mut diagnostics = Vec::new();
-    for result in &records {
-        if result.metadata.target_kind.is_empty() {
-            if explicit {
-                return Err(UdfError::Other(format!(
-                    "执行记录 '{}' 缺少可信 targetKind，拒绝猜测性清理",
-                    result.execution_id
-                )));
-            }
-            diagnostics.push(format!(
-                "忽略旧执行记录 '{}'：缺少可信 targetKind",
-                result.execution_id
-            ));
-            continue;
+    let mut diagnostics = inventory.diagnostics.clone();
+    let mut selected = Vec::new();
+    for item in &inventory.items {
+        let matches = if let Some(id) = cache_id.as_deref() {
+            item.category == "cook-cache"
+                && item.path.file_name().and_then(|name| name.to_str()) == Some(id)
+        } else if let Some(id) = execution_id.as_deref() {
+            item.execution_ids.iter().any(|execution| execution == id)
+        } else {
+            let scope_candidate =
+                (task_ref.is_some() || workspace.is_some()) && item.reclaim_reason.is_some();
+            let stale_candidate = stale
+                && matches!(
+                    item.state.as_str(),
+                    "stale" | "stale-running" | "failed" | "orphan"
+                )
+                && item.protection.is_none()
+                && !item.active;
+            let legacy_candidate = legacy
+                && item.confidence == "legacy-matched"
+                && item.protection.is_none()
+                && !item.active;
+            (stale_candidate || legacy_candidate || scope_candidate)
+                && item.protection.is_none()
+                && !item.active
+                && item.category != "final-output"
+                && item.category != "profile"
+                && item.category != "record"
+        };
+        if matches {
+            selected.push(item.clone());
+        }
+    }
+    selected.sort_by(|left, right| left.path.cmp(&right.path));
+    selected.dedup_by(|left, right| left.path == right.path);
+
+    if let Some(id) = execution_id.as_deref() {
+        let result = load_result(Some(id))?;
+        if result.metadata.target_kind.is_empty() && !legacy {
+            return Err(UdfError::Other(format!(
+                "执行记录 '{}' 缺少可信 targetKind，拒绝猜测性清理",
+                id
+            )));
         }
         for target in &result.cleanup_targets {
             let resolved = dunce::canonicalize(target).unwrap_or_else(|_| target.clone());
-            if !is_managed_cleanup_target(&resolved) {
-                if explicit {
-                    return Err(UdfError::Other(format!(
-                        "拒绝清理未位于 UnrealDevFlow 制品目录内的路径：{}",
-                        target.display()
-                    )));
-                }
-                diagnostics.push(format!(
-                    "忽略未位于 UnrealDevFlow 制品目录内的路径：{}",
+            if !is_managed_cleanup_target(&resolved)
+                || selected
+                    .iter()
+                    .any(|item| item.category == "final-output" && item.path == resolved)
+            {
+                return Err(UdfError::Other(format!(
+                    "拒绝清理未位于固定 UnrealDevFlow 制品根内的路径：{}",
                     target.display()
-                ));
+                )));
+            }
+            if !selected.iter().any(|item| item.path == resolved) && target.exists() {
+                selected.push(PackageInventoryItem {
+                    category: "execution-stage".into(),
+                    path: resolved.clone(),
+                    bytes: crate::package_storage::tree_bytes(target),
+                    last_modified: None,
+                    owner_kind: "execution".into(),
+                    owner_id: id.into(),
+                    execution_ids: vec![id.into()],
+                    state: result.state.clone(),
+                    active: false,
+                    protection: None,
+                    reclaim_reason: Some("execution cleanup target".into()),
+                    confidence: if result.metadata.target_kind.is_empty() {
+                        "legacy-matched"
+                    } else {
+                        "verified"
+                    }
+                    .into(),
+                    outcome: None,
+                });
+            }
+        }
+    }
+
+    let can_delete =
+        !dry_run && !inventory_only && (yes || explicit_execution || cache_id.is_some());
+    if !dry_run && !inventory_only && !can_delete {
+        diagnostics.push("这是范围清理；未提供 --yes，已退回 dry-run，未删除任何文件".into());
+    }
+    let mut deleted = BTreeSet::new();
+    if can_delete {
+        let config_dir = Config::config_dir()?;
+        let temp_dir = package_temp_dir();
+        for item in &selected {
+            if item.active || item.protection.is_some() {
+                diagnostics.push(format!("保护项未删除：{}", item.path.display()));
                 continue;
             }
-            if targets.insert(target.clone()) {
-                reclaimable_bytes += crate::package_storage::tree_bytes(target);
+            if !is_managed_cleanup_target(&item.path)
+                && !package_inventory::is_fixed_root_path(&item.path, &config_dir, &temp_dir)
+            {
+                diagnostics.push(format!("路径不在固定受管根，跳过：{}", item.path.display()));
+                continue;
+            }
+            if let Err(error) = remove_owned_tree(&item.path) {
+                diagnostics.push(format!("删除失败 {}：{}", item.path.display(), error));
+            } else {
+                deleted.insert(item.path.clone());
             }
         }
+        let deleted_execution_ids = selected
+            .iter()
+            .filter(|item| deleted.contains(&item.path))
+            .flat_map(|item| item.execution_ids.iter().cloned())
+            .collect::<HashSet<_>>();
+        diagnostics.push(format!(
+            "删除关联 execution 数：{}",
+            deleted_execution_ids.len()
+        ));
+        // Update every execution which referenced a removed target.  The old
+        // implementation updated only records.first_mut(), which left the
+        // remaining records claiming ownership of deleted bytes.
+        let updated_records = update_cleaned_records(&deleted_execution_ids, &deleted)?;
+        diagnostics.push(format!("更新 execution 记录数：{updated_records}"));
     }
-    // No-argument clean is intentionally an inventory command. It must never
-    // choose the latest execution and delete final packages by accident.
-    if inventory_only && !dry_run {
-        diagnostics.push("未指定 execution ID；仅报告可回收空间，未删除任何文件".into());
-    } else if !dry_run {
-        for target in &targets {
-            if target.is_dir() {
-                remove_owned_tree(target)?;
-            } else if target.is_file() {
-                fs::remove_file(target)?;
-            }
-        }
-        if let Some(result) = records.first_mut() {
-            result.state = "cleaned".to_string();
-            result.metadata.cleanup_result = Some("manual-clean".into());
-            save_result(result)?;
+    if inventory_only {
+        diagnostics
+            .push("未指定 execution ID 或 scope；仅报告 package inventory，未删除任何文件".into());
+    }
+    let selected_paths = selected
+        .iter()
+        .map(|item| item.path.clone())
+        .collect::<BTreeSet<_>>();
+    let mut report_items = inventory.items.clone();
+    for item in &mut report_items {
+        if deleted.contains(&item.path) {
+            item.outcome = Some("deleted".into());
+        } else if selected_paths.contains(&item.path) {
+            item.outcome = Some(if item.active || item.protection.is_some() {
+                "protected".into()
+            } else if can_delete {
+                "skipped".into()
+            } else {
+                "would-delete".into()
+            });
+        } else if item.active || item.protection.is_some() {
+            item.outcome = Some("protected".into());
         }
     }
-    output::emit(
-        "package clean",
-        CleanReport {
-            dry_run: dry_run || inventory_only,
-            scope,
-            reclaimable_bytes,
-            targets: targets.into_iter().collect(),
-            diagnostics,
-        },
-        |report| {
-            format!(
-                "package clean: {} bytes 可回收（{}）",
-                report.reclaimable_bytes, report.scope
-            )
-        },
-    );
+    let report = CleanReport {
+        dry_run: inventory_only || dry_run || !can_delete,
+        scope,
+        total_bytes: inventory.total_bytes,
+        reclaimable_bytes: inventory.reclaimable_bytes,
+        protected_bytes: inventory.protected_bytes,
+        unknown_bytes: inventory.unknown_bytes,
+        targets: selected.iter().map(|item| item.path.clone()).collect(),
+        items: report_items,
+        diagnostics,
+    };
+    output::emit("package clean", report, |report| {
+        format!(
+            "package clean: {} bytes 可回收（{}，保护 {} bytes）",
+            report.reclaimable_bytes, report.scope, report.protected_bytes
+        )
+    });
     Ok(())
 }
 
@@ -2739,6 +3097,7 @@ mod tests {
         assert_eq!(journal.state, "delivered");
         assert_eq!(journal.entries.len(), 1);
         assert!(journal.entries[0].backup.is_some());
+        assert!(!logs.join("delivery-backup").exists());
     }
 
     #[test]

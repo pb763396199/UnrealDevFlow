@@ -17,6 +17,8 @@ mod host;
 mod junction;
 mod migration;
 mod output;
+mod package_cache;
+mod package_inventory;
 mod package_profile;
 mod package_storage;
 mod plugin;
@@ -470,8 +472,21 @@ fn run(cli: Cli) -> Result<()> {
                 execution_id,
                 task,
                 workspace,
+                cache,
+                stale,
+                legacy,
+                yes,
                 dry_run,
-            } => commands::package::clean(execution_id, task, workspace, dry_run)?,
+            } => commands::package::clean(
+                execution_id,
+                task,
+                workspace,
+                cache,
+                stale,
+                legacy,
+                yes,
+                dry_run,
+            )?,
         },
         Commands::Skill { action } => match action {
             cli::SkillAction::Install { global, project } => {

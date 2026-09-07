@@ -513,7 +513,7 @@ pub enum PackageAction {
     /// 清理由 package 创建并记账的可再生文件
     Clean {
         /// 要清理的 execution ID；省略时只报告可回收空间。
-        #[arg(conflicts_with_all = ["task", "workspace"])]
+        #[arg(conflicts_with_all = ["task", "workspace", "cache", "stale", "legacy"])]
         execution_id: Option<String>,
         /// 只查看或清理某个任务的 UDF 临时材料。
         #[arg(long, conflicts_with = "workspace")]
@@ -521,6 +521,18 @@ pub enum PackageAction {
         /// 只查看或清理某个 workspace 的 UDF 临时材料。
         #[arg(long)]
         workspace: Option<String>,
+        /// 只清理指定的 Cook cache 槽。
+        #[arg(long, conflicts_with_all = ["execution_id", "task", "workspace", "stale", "legacy"], value_name = "CACHE_ID")]
+        cache: Option<String>,
+        /// 选择超过保留期、失败或 orphan 的缓存和 staging。
+        #[arg(long)]
+        stale: bool,
+        /// 允许清理缺少新版 targetKind 的旧 execution 记录。
+        #[arg(long)]
+        legacy: bool,
+        /// 确认执行多项删除；省略时只返回 dry-run 清单。
+        #[arg(long)]
+        yes: bool,
         /// 只报告，不删除任何 UDF 临时材料。
         #[arg(long)]
         dry_run: bool,

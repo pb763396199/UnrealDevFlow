@@ -109,6 +109,25 @@ fn package_contains_recover() {
 }
 
 #[test]
+fn package_clean_exposes_explicit_cache_cleanup_switches() {
+    let parsed = Cli::parse_from(["udf", "package", "clean", "--cache", "cache-1", "--yes"]);
+    assert!(matches!(
+        parsed.command,
+        Commands::Package {
+            action: PackageAction::Clean {
+                cache: Some(cache),
+                stale: false,
+                legacy: false,
+                yes: true,
+                ..
+            }
+        } if cache == "cache-1"
+    ));
+    assert!(Cli::try_parse_from(["udf", "package", "clean", "--stale", "--yes"]).is_ok());
+    assert!(Cli::try_parse_from(["udf", "package", "clean", "--legacy", "--yes"]).is_ok());
+}
+
+#[test]
 fn package_separates_normal_and_advanced_targets() {
     let parsed = Cli::parse_from(["udf", "package", "advanced", "plugin", "AesWorld", "--plan"]);
     assert!(matches!(

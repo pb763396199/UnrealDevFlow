@@ -54,6 +54,7 @@ impl Fixture {
     fn command(&self) -> Command {
         let mut command = Command::cargo_bin("udf").expect("udf binary");
         command.env("UNREALDEVFLOW_CONFIG_DIR", &self.config_dir);
+        command.env("UNREALDEVFLOW_TEMP_DIR", self._temp.path());
         command
     }
 
@@ -276,6 +277,75 @@ fn clean_without_scope_is_an_inventory_only_operation() {
             .iter()
             .any(|value| value.as_str().unwrap().contains("未指定 execution ID"))
     );
+}
+
+#[test]
+fn clean_inventory_reports_categories_and_protects_final_outputs() {
+    let fixture = Fixture::new();
+    let cache = fixture.config_dir.join("package/cook-cache/cache-1");
+    fs::create_dir_all(&cache).unwrap();
+    fs::write(cache.join("payload.bin"), vec![0_u8; 17]).unwrap();
+    let final_output = fixture.project.join("Saved/UnrealDevFlow/Packages/Final");
+    fs::create_dir_all(&final_output).unwrap();
+    fs::write(final_output.join(".udf-manifest.json"), "{\"files\":[]}").unwrap();
+    let records = fixture.config_dir.join("executions/package");
+    fs::create_dir_all(&records).unwrap();
+    fs::write(
+        records.join("package-project-final.json"),
+        serde_json::json!({
+            "executionId": "package-project-final",
+            "workspace": "test",
+            "state": "succeeded",
+            "targetKind": "project",
+            "cleanupTargets": [],
+            "outputs": [final_output],
+            "logs": []
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let report = fixture.run_json(&["package", "clean", "--dry-run"]);
+    assert!(report["data"]["items"].as_array().is_some());
+    let text = serde_json::to_string(&report).unwrap();
+    assert!(text.contains("cook-cache"));
+    assert!(text.contains("protected"));
+    assert!(text.contains("Final"));
+}
+
+#[test]
+fn scoped_stale_cleanup_requires_yes_and_updates_each_record() {
+    let fixture = Fixture::new();
+    let cache = fixture.config_dir.join("package/cook-cache/orphan-cache");
+    fs::create_dir_all(&cache).unwrap();
+    fs::write(cache.join("payload.bin"), vec![0_u8; 13]).unwrap();
+    let records = fixture.config_dir.join("executions/package");
+    fs::create_dir_all(&records).unwrap();
+    let record = records.join("package-project-orphan.json");
+    fs::write(
+        &record,
+        serde_json::json!({
+            "executionId": "package-project-orphan",
+            "workspace": "test",
+            "state": "orphan",
+            "targetKind": "project",
+            "cleanupTargets": [cache],
+            "outputs": [],
+            "logs": []
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let dry_run = fixture.run_json(&["package", "clean", "--stale"]);
+    assert_eq!(dry_run["data"]["dryRun"], true);
+    assert!(cache.exists());
+
+    let cleaned = fixture.run_json(&["package", "clean", "--stale", "--yes"]);
+    assert_eq!(cleaned["data"]["dryRun"], false);
+    assert!(!cache.exists());
+    let record: Value = serde_json::from_slice(&fs::read(record).unwrap()).unwrap();
+    assert_eq!(record["state"], "cleaned");
 }
 
 #[test]
