@@ -351,7 +351,7 @@ udf package clean --legacy --yes
 
 `package clean` 的无参数调用永远是只读 inventory：会列出 `totalBytes`、`reclaimableBytes`、`protectedBytes`、`unknownBytes` 以及每项的归属、状态、租约和清理理由。`--task`、`--workspace`、`--stale`、`--legacy` 是范围清理，缺少 `--yes` 时自动退回 dry-run；`--cache <id>` 或精确 execution ID 只允许删除固定 UDF 根内的可再生目录。`C:\Package`、带 `.udf-manifest.json` 的最终输出、当前 profile 槽和活动租约始终 protected。
 
-Cook cache 目录 key 只由 UDF task/workspace、项目、引擎、平台、配置和容器组成；profile revision、包名、输出路径和修改理由不会再生成新槽。`.udf-cook-cache-lease.json` 记录 PID、进程启动时间和 execution ID，活动 Cook 不会被 cleaner 误判为 stale。UDF task 与 AES Work Item 是两套身份；没有显式桥接时 package inventory 标为未绑定，不会猜测绑定关系。
+Cook cache 目录 key 只由 UDF task/workspace、项目、引擎、平台、配置和容器组成；profile revision、包名、输出路径和修改理由不会再生成新槽。`.udf-cook-cache-lease.json` 记录 PID、进程启动时间和 execution ID，活动 Cook 不会被 cleaner 误判为 stale。插件包仍需要短路径私有 staging，但只保留每次编译的 `Intermediate`、`Binaries`、`Saved`；Source、Content、Config、Resources、Shaders 和 ThirdParty 通过 Junction 读取源插件。最终输出摘要校验通过后，插件 staging 会立即删除。UDF task 与 AES Work Item 是两套身份；没有显式桥接时 package inventory 标为未绑定，不会猜测绑定关系。
 
 `check`、`plan` 和 `status` 对 Build 与 Package 使用同一组词义：`check` 检查当前能否启动，`plan` 展示未来步骤，`status` 只读取已经启动的执行。运行 `check` 或 `plan` 不会改变 `status` 默认指向的最近执行。
 

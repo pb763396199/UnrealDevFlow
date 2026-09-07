@@ -42,3 +42,9 @@ class PackageCacheLifecycleAcceptance(unittest.TestCase):
 
     def test_scoped_stale_cleanup_requires_yes_and_updates_each_record(self) -> None:
         self.assert_cargo_case("--test", "package_lifecycle", "scoped_stale_cleanup_requires_yes_and_updates_each_record")
+
+    def test_successful_plugin_delivery_removes_private_stage(self) -> None:
+        self.assert_cargo_case("successful_plugin_delivery_removes_private_stage")
+
+    def test_plugin_stage_uses_read_only_junctions_and_private_generated_dirs(self) -> None:
+        self.assert_cargo_case("plugin_stage_uses_read_only_junctions_and_private_generated_dirs")

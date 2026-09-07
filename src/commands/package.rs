@@ -1594,11 +1594,7 @@ fn prepare_plugin_stage(
     for plugin in closure {
         if let Some(relative_dir) = index.get(plugin) {
             let source = plugins_root.join(relative_dir);
-            copy_tree(
-                &source,
-                &stage_root.join("Plugins").join(relative_dir),
-                true,
-            )?;
+            prepare_private_plugin_root(&source, &stage_root.join("Plugins").join(relative_dir))?;
         }
     }
     let enabled = closure
@@ -1610,6 +1606,88 @@ fn prepare_plugin_stage(
         serde_json::to_vec_pretty(&serde_json::json!({"FileVersion": 3, "Plugins": enabled}))?,
     )?;
     Ok(())
+}
+
+fn is_private_plugin_stage_directory(name: &str) -> bool {
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        "intermediate" | "binaries" | "saved"
+    )
+}
+
+fn stage_read_only_directory(source: &Path, destination: &Path) -> Result<()> {
+    let target = if crate::junction::exists(source).unwrap_or(false) {
+        crate::junction::get_target(source)?
+    } else {
+        source.to_path_buf()
+    };
+    crate::junction::create(&target, destination).map_err(|error| {
+        UdfError::Other(format!(
+            "创建插件 staging 只读 Junction 失败：{} -> {}：{}",
+            destination.display(),
+            target.display(),
+            error
+        ))
+    })
+}
+
+/// Build a plugin root that gives UBT private generated directories without
+/// copying Source, Content, or third-party data for every package execution.
+fn prepare_private_plugin_root(source: &Path, destination: &Path) -> Result<()> {
+    fs::create_dir_all(destination)?;
+    for entry in fs::read_dir(source)? {
+        let entry = entry?;
+        let name = entry.file_name();
+        let name_text = name.to_string_lossy();
+        let source_path = entry.path();
+        let destination_path = destination.join(&name);
+        if is_private_plugin_stage_directory(&name_text) {
+            if name_text.eq_ignore_ascii_case("Binaries") && source_path.is_dir() {
+                // Precompiled third-party DLLs can live here. Keep a private
+                // copy so UBT may write its outputs without touching source.
+                copy_tree(&source_path, &destination_path, true)?;
+            } else {
+                fs::create_dir_all(&destination_path)?;
+            }
+            continue;
+        }
+        if excluded_entry(&name_text) || excluded_file(&name_text) {
+            continue;
+        }
+        if entry.file_type()?.is_dir() {
+            stage_read_only_directory(&source_path, &destination_path)?;
+        } else if entry.file_type()?.is_file() {
+            fs::copy(&source_path, &destination_path).map_err(|error| {
+                UdfError::Other(format!(
+                    "复制插件 staging 根文件失败：{} -> {}：{}",
+                    source_path.display(),
+                    destination_path.display(),
+                    error
+                ))
+            })?;
+        }
+    }
+    for name in ["Intermediate", "Binaries", "Saved"] {
+        fs::create_dir_all(destination.join(name))?;
+    }
+    Ok(())
+}
+
+fn cleanup_plugin_stage_after_success(
+    stage_root: &Path,
+    cleanup_targets: &mut Vec<PathBuf>,
+    diagnostics: &mut Vec<String>,
+) -> String {
+    match remove_owned_tree(stage_root) {
+        Ok(()) => {
+            cleanup_targets.retain(|target| target != stage_root);
+            "succeeded".into()
+        }
+        Err(error) => {
+            diagnostics.push(format!("插件交付成功，但 staging 自动清理失败：{error}"));
+            "warning".into()
+        }
+    }
 }
 
 fn direct_plugin_commands(
@@ -2204,6 +2282,11 @@ pub fn plugin(
     let commands =
         direct_plugin_commands(&engine_root, &stage_root, &seed_plugins, &selected_index);
     let log_dir = execution_root()?.join(&id);
+    let mut cleanup_targets = if mode.executes() {
+        vec![stage_root.clone(), log_dir.clone()]
+    } else {
+        Vec::new()
+    };
     let package_dirs = plugins
         .iter()
         .map(|plugin| output_dir.join(plugin))
@@ -2245,14 +2328,13 @@ pub fn plugin(
             Some(storage.clone()),
         );
     }
-    let logs = if mode.executes() {
+    let mut package_diagnostics = Vec::new();
+    let (logs, cleanup_result) = if mode.executes() {
         prepare_plugin_stage(&plugins_root, &stage_root, &closure, &selected_index)?;
         let package_dirs = plugins
             .iter()
             .map(|plugin| output_dir.join(plugin))
             .collect::<Vec<_>>();
-        let mut failure_cleanup = vec![stage_root.clone()];
-        failure_cleanup.push(log_dir.clone());
         let logs = run_package_commands(
             &commands,
             &log_dir,
@@ -2261,7 +2343,7 @@ pub fn plugin(
             &name,
             source,
             package_dirs,
-            failure_cleanup,
+            cleanup_targets.clone(),
             PackageEvidence {
                 metadata: PackageMetadata::target("plugin"),
                 ..PackageEvidence::default()
@@ -2277,9 +2359,15 @@ pub fn plugin(
             delivery_logs.push(plugin_log_dir.join(".udf-delivery-journal.json"));
         }
         // Keep the per-plugin transaction journals discoverable by recover.
-        logs.into_iter().chain(delivery_logs).collect()
+        let logs = logs.into_iter().chain(delivery_logs).collect();
+        let cleanup_result = cleanup_plugin_stage_after_success(
+            &stage_root,
+            &mut cleanup_targets,
+            &mut package_diagnostics,
+        );
+        (logs, cleanup_result)
     } else {
-        Vec::new()
+        (Vec::new(), "not-applicable".to_string())
     };
     let manifests = if mode.executes() {
         plugins
@@ -2293,11 +2381,6 @@ pub fn plugin(
         .iter()
         .map(|plugin| output_dir.join(plugin))
         .collect::<Vec<_>>();
-    let mut cleanup_targets = vec![stage_root];
-    cleanup_targets.push(log_dir);
-    if !mode.executes() {
-        cleanup_targets.clear();
-    }
     finish_execution(
         "package plugin",
         PackageResult {
@@ -2313,7 +2396,7 @@ pub fn plugin(
             logs,
             manifests,
             cleanup_targets,
-            diagnostics: Vec::new(),
+            diagnostics: package_diagnostics,
             project_settings: None,
             cook_mode: None,
             cook_reused: None,
@@ -2322,8 +2405,8 @@ pub fn plugin(
                 let mut metadata = PackageMetadata::target("plugin");
                 metadata.task_ref = requested_task.clone();
                 metadata.storage = Some(storage);
-                metadata.cleanup_policy =
-                    Some("keep-final-plugin-package-remove-stage-manually".into());
+                metadata.cleanup_result = Some(cleanup_result);
+                metadata.cleanup_policy = Some("remove-private-plugin-stage-on-success".into());
                 metadata
             },
         },
@@ -2953,6 +3036,90 @@ mod tests {
         assert!(!stage.to_string_lossy().contains("Artifacts"));
         assert!(is_managed_cleanup_target(&stage));
         assert!(!is_managed_cleanup_target(&std::env::temp_dir()));
+    }
+
+    #[test]
+    fn plugin_stage_uses_read_only_junctions_and_private_generated_dirs() {
+        let root = tempfile::tempdir().unwrap();
+        let plugins = root.path().join("Plugins");
+        let source = plugins.join("AesWorld");
+        let stage = root.path().join("Stage");
+        fs::create_dir_all(source.join("Source/Runtime")).unwrap();
+        fs::create_dir_all(source.join("Content/Maps")).unwrap();
+        fs::create_dir_all(source.join("Config")).unwrap();
+        fs::create_dir_all(source.join("Resources")).unwrap();
+        fs::create_dir_all(source.join("Shaders")).unwrap();
+        fs::create_dir_all(source.join("ThirdParty/SDK")).unwrap();
+        fs::create_dir_all(source.join("Intermediate/Old")).unwrap();
+        fs::create_dir_all(source.join("Binaries/Old")).unwrap();
+        fs::create_dir_all(source.join("Saved/Old")).unwrap();
+        fs::write(source.join("AesWorld.uplugin"), "{}").unwrap();
+        fs::write(source.join("Source/Runtime/A.cpp"), "// source").unwrap();
+        fs::write(source.join("Content/Maps/Test.umap"), "content").unwrap();
+        fs::write(source.join("Config/Default.ini"), "config").unwrap();
+        fs::write(source.join("Intermediate/Old/stale.obj"), "old").unwrap();
+        fs::write(source.join("Binaries/Required.dll"), "required").unwrap();
+        fs::write(source.join("Saved/Old/stale.log"), "old").unwrap();
+
+        prepare_plugin_stage(
+            &plugins,
+            &stage,
+            &["AesWorld".to_string()],
+            &BTreeMap::from([("AesWorld".to_string(), PathBuf::from("AesWorld"))]),
+        )
+        .unwrap();
+
+        let staged = stage.join("Plugins/AesWorld");
+        assert!(!crate::junction::exists(&staged).unwrap_or(false));
+        for name in [
+            "Source",
+            "Content",
+            "Config",
+            "Resources",
+            "Shaders",
+            "ThirdParty",
+        ] {
+            assert!(
+                crate::junction::exists(&staged.join(name)).unwrap(),
+                "{name}"
+            );
+        }
+        for name in ["Intermediate", "Binaries", "Saved"] {
+            assert!(staged.join(name).is_dir(), "{name}");
+            assert!(
+                !crate::junction::exists(&staged.join(name)).unwrap_or(false),
+                "{name}"
+            );
+        }
+        assert!(!staged.join("Intermediate/Old/stale.obj").exists());
+        assert_eq!(
+            fs::read_to_string(staged.join("Binaries/Required.dll")).unwrap(),
+            "required"
+        );
+        assert!(!staged.join("Saved/Old/stale.log").exists());
+        assert_eq!(
+            fs::read_to_string(staged.join("AesWorld.uplugin")).unwrap(),
+            "{}"
+        );
+    }
+
+    #[test]
+    fn successful_plugin_delivery_removes_private_stage() {
+        let root = tempfile::tempdir().unwrap();
+        let stage = root.path().join("plugin-stage");
+        let logs = root.path().join("logs");
+        fs::create_dir_all(&stage).unwrap();
+        fs::write(stage.join("output.bin"), "output").unwrap();
+        let mut cleanup_targets = vec![stage.clone(), logs.clone()];
+        let mut diagnostics = Vec::new();
+
+        let result =
+            cleanup_plugin_stage_after_success(&stage, &mut cleanup_targets, &mut diagnostics);
+
+        assert_eq!(result, "succeeded");
+        assert!(!stage.exists());
+        assert!(!cleanup_targets.contains(&stage));
+        assert!(diagnostics.is_empty());
     }
 
     #[test]

@@ -183,7 +183,7 @@ udf package recover <execution-id>
 `package configure --name <名称> --reason <原因>` 固定 lineage；执行前检查空间、同任务版本和预计新增占用。
 `package clean` 无参数只读盘点 staging、Cook cache、日志、交付备份、profile、execution record 和最终输出。`--stale`、`--legacy`、`--cache <cache-id>` 支持按状态或缓存槽清理；范围删除必须带 `--yes`，否则输出同一份 dry-run 清单。精确 execution ID 仍会通过固定 UDF 根、targetKind、manifest 和活动 lease 检查。最终包和带 `.udf-manifest.json` 的输出永远是 protected，不会自动删除。
 
-Cook cache 槽 key 只包含 task/workspace、项目、引擎、平台、configuration 和 container；profile revision、name、output、reason 只写入状态和 execution 证据。任务插件 overlay 摘要在复用判断前计算，变化会在同一槽完整重建。UDF task 与 AES Work Item 不同，除非调用方显式桥接，否则 inventory 会显示未绑定，不做猜测。
+Cook cache 槽 key 只包含 task/workspace、项目、引擎、平台、configuration 和 container；profile revision、name、output、reason 只写入状态和 execution 证据。任务插件 overlay 摘要在复用判断前计算，变化会在同一槽完整重建。插件包的 staging 只保存私有 `Intermediate`、`Binaries`、`Saved`，其余插件输入目录通过 Junction 使用源目录；交付摘要验证成功后立即删除该 staging，失败时保留给诊断和 recover。UDF task 与 AES Work Item 不同，除非调用方显式桥接，否则 inventory 会显示未绑定，不做猜测。
 
 ### 原生运行与测试（`run`）
 
