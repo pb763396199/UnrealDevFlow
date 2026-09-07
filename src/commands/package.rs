@@ -2813,8 +2813,17 @@ pub fn clean(
                 )
                 && item.protection.is_none()
                 && !item.active;
+            // `%TEMP%\\UDF` predates the package lifecycle ledger.  Some
+            // historical executions were later enriched with `targetKind`,
+            // which makes their confidence `verified` rather than
+            // `legacy-matched`.  That must not strand a completed stage:
+            // `--legacy --yes` explicitly authorizes cleanup of this fixed,
+            // managed legacy root, while the active/recent-failure guards
+            // below still protect an in-flight or diagnostic stage.
             let legacy_candidate = legacy
-                && item.confidence == "legacy-matched"
+                && item.category == "execution-stage"
+                && item.reclaim_reason.as_deref()
+                    == Some("旧 execution 记录可追溯，已过渡到 legacy 清理")
                 && item.protection.is_none()
                 && !item.active;
             (stale_candidate || legacy_candidate || scope_candidate)

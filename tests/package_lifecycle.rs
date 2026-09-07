@@ -349,6 +349,39 @@ fn scoped_stale_cleanup_requires_yes_and_updates_each_record() {
 }
 
 #[test]
+fn legacy_cleanup_removes_verified_stage_from_the_old_temp_root() {
+    let fixture = Fixture::new();
+    let stage = fixture._temp.path().join("UDF").join("old-plugin-stage");
+    fs::create_dir_all(&stage).unwrap();
+    fs::write(stage.join("payload.bin"), b"old-stage").unwrap();
+    let records = fixture.config_dir.join("executions/package");
+    fs::create_dir_all(&records).unwrap();
+    let record = records.join("package-plugin-old-stage.json");
+    fs::write(
+        &record,
+        serde_json::json!({
+            "executionId": "package-plugin-old-stage",
+            "workspace": "test",
+            "state": "succeeded",
+            "targetKind": "plugin",
+            "cleanupTargets": [stage],
+            "outputs": [],
+            "logs": [],
+            "commands": [["RunUAT.bat", "package-plugin-old-stage"]]
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let cleaned = fixture.run_json(&["package", "clean", "--legacy", "--yes"]);
+
+    assert_eq!(cleaned["data"]["dryRun"], false);
+    assert!(!stage.exists());
+    let record: Value = serde_json::from_slice(&fs::read(record).unwrap()).unwrap();
+    assert_eq!(record["state"], "cleaned");
+}
+
+#[test]
 fn status_reads_only_real_executions() {
     let fixture = Fixture::new();
     let root = fixture.config_dir.join("executions/package");
