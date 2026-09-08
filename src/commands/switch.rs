@@ -28,27 +28,6 @@ pub fn run(
     if !force && editor::is_editor_running() {
         output::print_warning("UnrealEditor is currently running.");
         output::print_warning("Junction switch will only take effect on next Editor launch.");
-
-        let should_continue = dialoguer::Confirm::new()
-            .with_prompt("Continue with switch?")
-            .default(true)
-            .interact()
-            .map_err(|e| UdfError::Other(format!("Dialog error: {}", e)))?;
-
-        if !should_continue {
-            output::emit(
-                "task switch",
-                SwitchOutcome {
-                    task_ref: task_id.to_string(),
-                    cancelled: true,
-                    projects: Vec::new(),
-                    junctions: Vec::new(),
-                    project_files_regenerated: false,
-                },
-                render_switch,
-            );
-            return Ok(());
-        }
     }
 
     // === Resolve switch targets ===

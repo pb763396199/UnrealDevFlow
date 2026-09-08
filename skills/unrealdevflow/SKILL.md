@@ -5,7 +5,7 @@ user-invocable: true
 argument-hint: "<任务描述>"
 ---
 
-# UnrealDevFlow — UE 插件多任务并行开发
+# UnrealDevFlow：UE 插件多任务并行开发
 
 ## 什么时候用
 
@@ -51,7 +51,7 @@ udf task finish <workspace>/<task-id>
 
 ## 五步标准工作流（给 AI 助手看的）
 
-### 1. CREATE — 建一个隔离的任务工作区
+### 1. CREATE，建一个隔离的任务工作区
 
 ```powershell
 udf task create "<任务描述>" `
@@ -97,7 +97,7 @@ udf task create "<任务描述>" `
 `branch.<分支名>.udftask` 里记着它属于哪个任务，所以 Host 目录丢了之后
 `task cleanup` 照样找得回这个分支。这条记录在 `git branch -D` 时由 git 自己带走。
 
-### 2. WORK — 只在 worktree 里改代码
+### 2. WORK，只在 worktree 里改代码
 
 ```
 任务 worktree：{hosts_root}/W-<workspace>/T-<id>_Host/Plugins/<插件名>/Source/...
@@ -110,7 +110,7 @@ udf task create "<任务描述>" `
 - ❌ 绝不改 `{plugins_root}/<插件>/`（主插件仓库）。
 - ❌ 绝不改别的任务的 worktree，也不改 DEV 项目。
 
-### 3. BUILD — 用严格参数编译（默认就是严格的）
+### 3. BUILD，用严格参数编译（默认就是严格的）
 
 ```powershell
 udf build task <task-ref>                    # 默认档位 light
@@ -204,25 +204,19 @@ udf run compare <before-id> <after-id> --expect pass-after-fail
 不要再次交给 shell 解析。普通 Editor 返回 `started`，严格退出用随附 `Udf.EditorExit` 节点，
 分别记录 UAT 退出码和原始 UE 退出码；没有最终报告时返回 `unknown`。
 
-### 4. SWITCH — 没有用户明确授权，绝不执行
+### 4. SWITCH，用户提到就执行
 
-**⛔ 硬规则：用户没明确说要切，你就不许跑 `udf task switch`。**
+用户表达对当前任务执行 `switch` 的意图，就视为已经授权。agent 直接运行 `udf task switch`，不再复述完整命令或询问确认。包括“switch 一下”“帮我切过去”和直接给出命令。纯粹询问命令含义、引用示例或讨论别的任务不触发执行。
 
-这不是建议，是禁令。理由：
-
-- `switch` 会改写正在运行的 UE 编辑器依赖的 NTFS Junction
-- 编辑器开着的时候切，会搞坏这个编辑器会话
-- 必须用户先关掉 UE 编辑器，再授权切换
-
-编译成功之后，**告诉用户**，然后**等他明确发话**：
+编译成功后，用户还没有提出切换时，告诉他可以直接发出切换指令：
 
 ```
 ✅ 任务 <id> 编译通过。
 
-要验收的话，请：
-1. 关掉 UE 编辑器（如果开着）
-2. 告诉我执行：udf task switch <task-ref>
-3. 然后重启 UE 编辑器验证功能
+要验收的话，请告诉我 switch 到这个任务。我会直接执行：
+udf task switch <task-ref>
+
+命令完成后重启 UE 编辑器验证功能。
 
 验收通过之后：
   udf task finish <task-ref>
@@ -232,10 +226,9 @@ udf run compare <before-id> <after-id> --expect pass-after-fail
   udf task delete <task-ref> --yes --force
 ```
 
-就算用户说了「帮我切」，执行前也要把完整命令念一遍确认，因为 switch 对正在运行的
-编辑器会话是破坏性的。
+编辑器仍在运行时，CLI 会警告 Junction 变更在下次启动后生效并继续执行，不会再打开确认对话框。`--force` 仅用于省略这条警告，旧脚本可以继续使用。
 
-### 5. MERGE — 用户确认之后才做
+### 5. MERGE，用户确认之后才做
 
 **⚠️ 注意：`udf task merge` 会先自动从 origin 拉一次再合。**
 
@@ -266,7 +259,7 @@ udf task cleanup <task-ref>
 
 | ❌ 禁止 | ✅ 改用 |
 |---|---|
-| **没有用户明确授权就跑 `udf task switch`** | **把命令告诉用户，等他说「跑吧」** |
+| 用户已经提出当前任务的 `switch`，agent 又要求确认 | 直接运行 `udf task switch <task-ref>`；该消息已经授权 |
 | `git merge` / `git rebase` / `git cherry-pick` | `udf task merge` |
 | `git branch -D` / `git worktree remove` / `git reset --hard` | `udf task cleanup` / `delete` |
 | 合并完直接自动 `cleanup` | 等用户明确确认 |
@@ -279,7 +272,7 @@ udf task cleanup <task-ref>
 
 | 症状 | 怎么修 |
 |---|---|
-| `switch` 报「目录被占用」 | 关掉 Rider/VSCode/资源管理器，再跑 `udf task switch <task-ref> --force` |
+| `switch` 报「目录被占用」 | 关掉 Rider、VSCode 或资源管理器，再跑 `udf task switch <task-ref>` |
 | 报「Build.bat 不存在」 | 重跑 `udf workspace add --engine-path "正确路径"` |
 | `build` 像是卡在别人的编译后面 | `udf build check <task-ref>`，`deferred` 就是别的 UBT 占着锁 |
 | 合并顺序搞错了 | `git reflog`，然后 `git reset --hard <合并前的提交>`，重跑 `udf task merge` |

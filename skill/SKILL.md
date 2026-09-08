@@ -4,7 +4,7 @@ description: Unreal Engine 插件多任务并行开发工作流。当用户提�
 argument-hint: '描述你要做的任务'
 ---
 
-# UnrealDevFlow — UE 插件并行开发工作流
+# UnrealDevFlow：UE 插件并行开发工作流
 
 ## 跨 Agent 通用入口
 
@@ -41,7 +41,7 @@ udf task finish <workspace>/<task-id>
 | 1. CREATE | `udf task create "<desc>" --workspace <w> --id <id> --primary <Plugin> --yes` | 想显式保存原始需求就加 `--prompt` |
 | 2. WORK | 编辑 `{hosts_root}/W-<workspace>/T-<id>_Host/Plugins/<plugin>/Source/...` | 绝不动主仓库；commit 必须中文 + 反思 |
 | 3. BUILD | `udf build task <workspace>/<id>` （严格模式自动启用） | 严格 flag: `-FailIfGeneratedCodeChanges -NoUBTMakefiles -DisableAdaptiveUnity` |
-| 4. SWITCH | 告诉用户运行 `udf task switch <workspace>/<id>` + 重启 Editor | agent 不自己执行 switch |
+| 4. SWITCH | 用户表达当前任务的切换意图后运行 `udf task switch <workspace>/<id>` | 用户消息就是授权，不再确认 |
 | 5. MERGE → CLEANUP | `udf task finish <workspace>/<id>` 或 `merge ... --strategy <s>` → 用户确认后 `cleanup` | `--strategy` 必须由用户选择；merge 后不要立即 cleanup |
 
 完整说明见后文「完整工作流」章节。
@@ -125,12 +125,9 @@ udf build task {workspace}/{task-id}
 
 编译产物在 `W-{workspace}\T-{task-id}_Host\Plugins\AesWorld\Binaries\Win64\`
 
-### 第五步：通知用户验收
+### 第五步：切换并通知用户验收
 
-告诉用户：
-1. 任务已完成
-2. 运行 `udf task switch {workspace}/{task-id}` 切换
-3. 重启 UE Editor 验收
+用户表达对当前任务执行 `switch` 的意图，就视为已经授权。agent 直接运行 `udf task switch {workspace}/{task-id}`，不再复述命令或询问确认。纯粹询问命令含义、引用示例或讨论别的任务不触发执行。命令完成后告诉用户重启 UE Editor 验收。
 
 ### 第六步：验收后处理
 
@@ -153,12 +150,12 @@ udf task delete {workspace}/{task-id} --yes --force
 
 ## 关键规则
 
-1. **创建任务时必须带 --prompt** — 保存用户原始意图
-2. **所有代码操作在 worktree 路径下** — 不要碰主仓库
-3. **不要自动 switch** — switch 需要用户手动执行（涉及 Editor 重启）
-4. **编译用 build 命令** — 不要自己调 Build.bat
-5. **完成后通知用户** — 告诉用户怎么验收
-6. **Commit message 必须是中文** — 遵循下方格式要求，包含反思内容
+1. **创建任务时必须带 --prompt**：保存用户原始意图
+2. **所有代码操作在 worktree 路径下**：不要碰主仓库
+3. **用户提到当前任务的 switch 就执行**：用户消息已经授权，不再要求第二次确认
+4. **编译用 build 命令**：不要自己调 Build.bat
+5. **完成后通知用户**：告诉用户怎么验收
+6. **Commit message 必须是中文**：遵循下方格式要求，包含反思内容
 
 ## 提交信息格式要求
 

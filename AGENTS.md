@@ -50,7 +50,7 @@ udf task finish <workspace>/<task-id>
 > 如果你是 opencode，看到本文件等于已加载 `skill/SKILL.md` 的全部内容。
 > 如果你是 Claude Code / Copilot / Cursor，看到本文件即获得同等知识。
 
-### 第 1 步：START/CREATE — 创建任务
+### 第 1 步：START/CREATE，创建任务
 
 ```powershell
 udf task create "任务描述" --workspace workspace-name --id task-id --primary AesWorld --yes
@@ -89,7 +89,7 @@ udf task create "任务描述" --workspace workspace-name --id task-id --prompt 
 - 多 workspace：`workspace/task-id`
 - 若同名 task 存在于多个 workspace，短 id 必须报错，不允许猜测。
 
-### 第 2 步：WORK — 在 worktree 中工作
+### 第 2 步：WORK，在 worktree 中工作
 
 ```
 任务路径：{hosts_root}/W-{workspace}/T-{id}_Host/Plugins/<plugin-name>/Source/...
@@ -103,7 +103,7 @@ udf task create "任务描述" --workspace workspace-name --id task-id --prompt 
 - ❌ **不要动其他任务的 worktree**
 - ❌ **不要动 DEV 项目**（Junction 切换由 switch 命令管）
 
-### 第 3 步：BUILD — 编译验证
+### 第 3 步：BUILD，编译验证
 
 ```powershell
 udf build task <task-ref>                          # 前台编译（编全 Host .uproject）
@@ -145,19 +145,15 @@ udf build project [--workspace <name>]        # 编主项目而不是任务宿�
 
 **遇到失败**：先看 `Build_<profile>_<时间>.log`（默认在 `<host>/Logs/UBT/`）；依赖路径 dirty 会警告但**不阻塞**（依赖按 v2 设计是只读的）。
 
-### 第 4 步：SWITCH — 通知用户验收
+### 第 4 步：SWITCH，用户提到就执行
 
-**这一步 agent 不要自己执行**！告诉用户：
+用户表达对当前任务执行 `switch` 的意图，就视为已经授权。agent 直接运行命令，不再复述命令或询问确认：
 
 ```
-✅ 任务 <id> 已完成，请验收：
-1. udf task switch <task-ref>     ← 用户运行
-2. 重启 UE Editor
-3. 验证功能
+udf task switch <task-ref>
 ```
 
-switch 会：清 UBT 缓存 → 多 Junction 切到 Host 下所有主+依赖插件。
-遇到"目录被占用"让用户关 Rider/VSCode 后重试或加 `--force`。
+命令会清 UBT 缓存，并把多组 Junction 切到 Host 下的主插件和依赖插件。纯粹询问命令含义、引用示例或讨论别的任务不触发执行。编辑器仍在运行时，CLI 会警告切换在下次启动后生效，但不会再询问一次。遇到“目录被占用”时，让用户关闭 Rider、VSCode 或资源管理器后重试。
 
 ### 第 5 步：MERGE → CLEANUP（用户确认后才执行）
 
@@ -205,27 +201,27 @@ udf task merge <task-ref> --all --strategy rebase               # 全部逆序
 
 | 命令 | 必须询问用户 | 用途 |
 |---|---|---|
-| `workspace init` | — | 首次初始化 workspace + 安装 skill + doctor |
-| `workspace add` | — | 显式登记一个 UE 项目环境（`--plugins-root` 是关键） |
-| `workspace list` / `doctor` / `remove` | — | 管理多个 UE 项目环境 |
-| `workspace status` | — | 每个 UE 项目当前挂着哪个任务 |
-| `task create <desc> --workspace <w> --id <id> --primary <P> --yes` | — | 创建任务；不给 `--prompt` 时用描述当原始需求 |
-| `task list` | — | 列出所有任务，含损坏任务 |
-| `task next [task-ref]` | — | 根据状态告诉用户下一步 |
-| `task switch <task-ref>` | — | 切 Junction（多 Junction 自动） |
+| `workspace init` | 无需询问 | 首次初始化 workspace + 安装 skill + doctor |
+| `workspace add` | 无需询问 | 显式登记一个 UE 项目环境（`--plugins-root` 是关键） |
+| `workspace list` / `doctor` / `remove` | 无需询问 | 管理多个 UE 项目环境 |
+| `workspace status` | 无需询问 | 每个 UE 项目当前挂着哪个任务 |
+| `task create <desc> --workspace <w> --id <id> --primary <P> --yes` | 无需询问 | 创建任务；不给 `--prompt` 时用描述当原始需求 |
+| `task list` | 无需询问 | 列出所有任务，含损坏任务 |
+| `task next [task-ref]` | 无需询问 | 根据状态告诉用户下一步 |
+| `task switch <task-ref>` | 用户提出后不再询问 | 切 Junction（多 Junction 自动） |
 | `task merge <task-ref> --strategy <s>` | **✅ 策略必问** | 合并（多主插件加 `--plugin` 或 `--all`） |
 | `task finish [task-ref]` | **✅ 策略必问** | 验收通过后的合并向导 |
-| `task cleanup <task-ref>` | — | 合并后用户确认才执行 |
-| `task delete <task-ref>` | — | 验收不通过时删除 |
-| `build task <task-ref>` | — | 编译（严格模式默认，可加 `--background` / `--primary-only`） |
-| `build project` | — | 编主项目而不是任务宿主 |
-| `build check [task-ref]` | — | 只回答现在能不能编，不启动编译 |
-| `build gate "<命令>"` | — | 检查某条命令有没有绕过受控构建 |
-| `build status [task-ref]` | — | 查编译状态，省略时按最近任务 |
-| `run list/configure/check/plan/start` | — | 复用已登记的 UE 原生 Editor、Commandlet、Gauntlet 入口 |
-| `run status [execution-id]` | — | 查原生日志、报告、UAT/UE 退出码和有限结果 |
-| `run compare <before> <after>` | — | 对照两次执行；可选 `--expect pass-after-fail` |
-| `skill install` / `list` / `remove` | — | 管理装到四个 AI provider 的 skill |
+| `task cleanup <task-ref>` | **✅ 清理前确认** | 合并后用户确认才执行 |
+| `task delete <task-ref>` | 无需询问 | 验收不通过时删除 |
+| `build task <task-ref>` | 无需询问 | 编译（严格模式默认，可加 `--background` / `--primary-only`） |
+| `build project` | 无需询问 | 编主项目而不是任务宿主 |
+| `build check [task-ref]` | 无需询问 | 只回答现在能不能编，不启动编译 |
+| `build gate "<命令>"` | 无需询问 | 检查某条命令有没有绕过受控构建 |
+| `build status [task-ref]` | 无需询问 | 查编译状态，省略时按最近任务 |
+| `run list/configure/check/plan/start` | 无需询问 | 复用已登记的 UE 原生 Editor、Commandlet、Gauntlet 入口 |
+| `run status [execution-id]` | 无需询问 | 查原生日志、报告、UAT/UE 退出码和有限结果 |
+| `run compare <before> <after>` | 无需询问 | 对照两次执行；可选 `--expect pass-after-fail` |
+| `skill install` / `list` / `remove` | 无需询问 | 管理装到四个 AI provider 的 skill |
 
 完整版（参数、返回值、错误码）见后文「命令速查」章节。
 
@@ -552,7 +548,7 @@ udf task cleanup <task-ref>
 | `create` | 专业创建任务 | agent 需要显式 prompt/override 时 | ❌ |
 | `build` | 编译任务 | 代码修改完成后 | ❌ |
 | `build status` | 查看编译状态 | 后台编译后检查 | ❌ |
-| `switch` | 切换 Junction | 通知用户验收时 | **✅ 必须用户授权** |
+| `switch` | 切换 Junction | 用户表达当前任务的切换意图后直接执行 | ❌ |
 | `list` | 列出任务 | 用户询问有哪些任务时 | ❌ |
 | `status` | 查看状态 | 用户询问当前状态时 | ❌ |
 | `merge` | 合并任务 | 用户确认验收通过后 | **✅ 必须询问策略** |
@@ -769,7 +765,7 @@ F:\ShanghaiP4\neon\
 
 ## 注意事项
 
-1. **不要自动 switch**：switch 需要用户手动执行（涉及 Editor 重启）
+1. **用户提到当前任务的 switch 就执行**：该消息已经授权，agent 不再要求第二次确认
 2. **不要碰主仓库**：所有代码操作在 worktree 路径下
 3. **编译用 build 命令**：不要自己调 Build.bat
 4. **完成后通知用户**：告诉用户怎么验收

@@ -23,7 +23,7 @@ udf task finish <workspace>/<task-id>
 
 ## 5 步标准工作流
 
-### 1. START/CREATE — 创建任务
+### 1. START/CREATE，创建任务
 ```powershell
 udf task create "任务描述" --workspace workspace-name --id task-id --primary AesWorld --yes
 
@@ -37,7 +37,7 @@ udf task create "任务描述" --workspace workspace-name --id task-id --prompt 
 - 多主插件：`--primary AesWorld,AesWorld_AI`
 - 解决引擎/项目冲突：`--override-dep PCG=project|engine|<path>`
 
-### 2. WORK — 在 worktree 中工作
+### 2. WORK，在 worktree 中工作
 ```
 任务路径：{hosts_root}/W-{workspace}/T-{id}_Host/Plugins/<plugin>/Source/...
 任务引用：{workspace}/{id}
@@ -45,7 +45,7 @@ udf task create "任务描述" --workspace workspace-name --id task-id --prompt 
 - ✅ 改 worktree；commit 用中文格式（含反思）
 - ❌ 不动主仓库 `{plugins_root}/`；不动其他 worktree；不动 DEV 项目
 
-### 3. BUILD — 编译验证
+### 3. BUILD，编译验证
 ```powershell
 udf build task <task-ref>                    # 严格模式默认
 udf build task <task-ref> --background
@@ -64,14 +64,15 @@ udf build project [--workspace <name>]  # 编主项目而不是任务宿主
 - `deferred` 表示别人正在编，等它结束；**不要**改用 `--mutex no-mutex` 绕过去。
 - `build check` 本身永远返回 0，结论就是答案。
 
-### 4. SWITCH — 让用户验收
-**不要自己执行 switch！** 告诉用户：
+### 4. SWITCH，用户提到就执行
+
+用户表达对当前任务执行 `switch` 的意图，就视为已经授权。直接运行命令，不再复述命令或询问确认：
+
 ```
-✅ 任务 <id> 已完成
-1. udf task switch <task-ref>
-2. 重启 UE Editor
-3. 验证
+udf task switch <task-ref>
 ```
+
+纯粹询问命令含义、引用示例或讨论别的任务不触发执行。编辑器仍在运行时，CLI 会警告切换在下次启动后生效并继续执行。
 
 ### 5. MERGE → CLEANUP（用户确认后）
 **`--strategy` 是必填参数，必须询问用户**：
@@ -123,7 +124,7 @@ udf task merge <task-ref> --all --strategy rebase   # 逆序逐个
 | 原生参数预览 | `udf run plan <name> --workspace <w> | --task <workspace/task>` |
 | 原生运行 | `udf run start <name> --workspace <w> | --task <workspace/task>` |
 | 运行状态/对照 | `udf run status [execution-id]` / `udf run compare <before> <after>` |
-| 通知用户验收 | 告诉用户 `udf task switch <workspace/task>` + 重启 Editor |
+| 切换任务 | 用户表达当前任务的 `switch` 意图后直接运行 `udf task switch <workspace/task>` |
 | 合并向导 | `udf task finish <workspace/task>` |
 | 合并（必问策略） | `udf task merge <workspace/task> --strategy <s> [--plugin <name> \| --all]` |
 | 清理 | `udf task cleanup <workspace/task>`（用户确认后） |
@@ -153,7 +154,7 @@ Task#[number] [内容摘要]
 ---
 
 ## 详细文档
-- `AGENTS.md` — 完整规范（含 v2 多插件、错误处理、配置参考、故障排查）
-- `skill/SKILL.md` — opencode skill 系统的等价内容
-- `docs/plans/2026-06-09-001-feat-multi-plugin-support-implementation-plan.md` — v2 多插件设计
-- `docs/insights/2026-06-09-001-ubt-strict-build-flags-reference.md` — UBT 严格编译参数考据
+- `AGENTS.md`：完整规范（含 v2 多插件、错误处理、配置参考、故障排查）
+- `skill/SKILL.md`：opencode skill 系统的等价内容
+- `docs/plans/2026-06-09-001-feat-multi-plugin-support-implementation-plan.md`：v2 多插件设计
+- `docs/insights/2026-06-09-001-ubt-strict-build-flags-reference.md`：UBT 严格编译参数考据

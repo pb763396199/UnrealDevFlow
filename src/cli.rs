@@ -657,7 +657,7 @@ pub enum TaskAction {
         #[arg(long, value_delimiter = ',')]
         project: Option<Vec<PathBuf>>,
 
-        /// 编辑器还开着也照切
+        /// 编辑器运行时省略警告。为旧脚本保留；显式调用 switch 已经视为授权。
         #[arg(long)]
         force: bool,
 
