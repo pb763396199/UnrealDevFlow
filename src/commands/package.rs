@@ -3398,9 +3398,10 @@ mod tests {
 
     #[test]
     fn cleanup_guard_accepts_user_package_execution_logs_but_not_external_output() {
-        assert!(is_managed_cleanup_target(Path::new(
-            "C:/Users/YUMEI/.unrealdevflow/executions/package/package-engine-1"
-        )));
+        let execution_log = Config::config_dir()
+            .unwrap()
+            .join("executions/package/package-engine-1");
+        assert!(is_managed_cleanup_target(&execution_log));
         assert!(!is_managed_cleanup_target(Path::new(
             "C:/Package/UE55-InstalledBuild-Win64"
         )));
