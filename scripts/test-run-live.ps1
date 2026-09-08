@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [ValidateSet('Host', 'Shells', 'All')]
     [string]$Suite = 'All',
