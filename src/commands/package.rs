@@ -256,7 +256,7 @@ fn container_name(container: PackageContainer) -> &'static str {
 
 fn is_managed_cleanup_target(path: &Path) -> bool {
     let config_dir = Config::config_dir().ok();
-    let temp_dir = std::env::temp_dir();
+    let temp_dir = package_temp_dir();
     if let Some(config_dir) = config_dir
         && package_inventory::is_fixed_root_path(path, &config_dir, &temp_dir)
     {
@@ -2765,6 +2765,7 @@ pub fn clean(
     stale: bool,
     legacy: bool,
     yes: bool,
+    force: bool,
     dry_run: bool,
 ) -> Result<()> {
     let explicit_execution = execution_id.is_some();
@@ -2895,7 +2896,7 @@ pub fn clean(
         let config_dir = Config::config_dir()?;
         let temp_dir = package_temp_dir();
         for item in &selected {
-            if item.active || item.protection.is_some() {
+            if item.active || (item.protection.is_some() && !force) {
                 diagnostics.push(format!("保护项未删除：{}", item.path.display()));
                 continue;
             }

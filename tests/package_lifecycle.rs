@@ -67,8 +67,9 @@ impl Fixture {
             .expect("run udf");
         assert!(
             output.status.success(),
-            "command failed: {}",
-            String::from_utf8_lossy(&output.stderr)
+            "command failed: {} {}",
+            String::from_utf8_lossy(&output.stderr),
+            String::from_utf8_lossy(&output.stdout)
         );
         serde_json::from_slice(&output.stdout).expect("json output")
     }
@@ -377,6 +378,62 @@ fn legacy_cleanup_removes_verified_stage_from_the_old_temp_root() {
 
     assert_eq!(cleaned["data"]["dryRun"], false);
     assert!(!stage.exists());
+    let record: Value = serde_json::from_slice(&fs::read(record).unwrap()).unwrap();
+    assert_eq!(record["state"], "cleaned");
+}
+
+#[test]
+fn force_cleanup_of_an_explicit_execution_removes_failed_diagnostic_stage() {
+    let fixture = Fixture::new();
+    let stage = fixture._temp.path().join("UDF").join("failed-plugin-stage");
+    fs::create_dir_all(&stage).unwrap();
+    fs::write(stage.join("payload.bin"), b"failed-stage").unwrap();
+    let records = fixture.config_dir.join("executions/package");
+    fs::create_dir_all(&records).unwrap();
+    let record = records.join("package-plugin-failed-stage.json");
+    fs::write(
+        &record,
+        serde_json::json!({
+            "executionId": "package-plugin-failed-stage",
+            "action": "plugin",
+            "workspace": "test",
+            "source": "workspace",
+            "state": "failed",
+            "targetKind": "plugin",
+            "cleanupTargets": [stage],
+            "outputs": [],
+            "logs": [],
+            "commands": [["RunUAT.bat", "package-plugin-failed-stage"]]
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let protected = fixture.run_json(&["package", "clean", "package-plugin-failed-stage", "--yes"]);
+    assert!(stage.exists());
+    assert_eq!(
+        protected["data"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["path"] == stage.to_string_lossy().as_ref())
+            .unwrap()["outcome"],
+        "protected"
+    );
+
+    let cleaned = fixture.run_json(&[
+        "package",
+        "clean",
+        "package-plugin-failed-stage",
+        "--yes",
+        "--force",
+    ]);
+    assert_eq!(cleaned["data"]["dryRun"], false);
+    assert!(
+        !stage.exists(),
+        "force cleanup left stage: {}",
+        serde_json::to_string_pretty(&cleaned).unwrap()
+    );
     let record: Value = serde_json::from_slice(&fs::read(record).unwrap()).unwrap();
     assert_eq!(record["state"], "cleaned");
 }

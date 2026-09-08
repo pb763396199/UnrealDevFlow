@@ -476,6 +476,7 @@ fn run(cli: Cli) -> Result<()> {
                 stale,
                 legacy,
                 yes,
+                force,
                 dry_run,
             } => commands::package::clean(
                 execution_id,
@@ -485,6 +486,7 @@ fn run(cli: Cli) -> Result<()> {
                 stale,
                 legacy,
                 yes,
+                force,
                 dry_run,
             )?,
         },

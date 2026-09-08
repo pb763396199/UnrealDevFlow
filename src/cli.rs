@@ -533,6 +533,9 @@ pub enum PackageAction {
         /// 确认执行多项删除；省略时只返回 dry-run 清单。
         #[arg(long)]
         yes: bool,
+        /// 仅对指定 execution：删除失败诊断保护期内的受管 stage；活动执行仍不可删除。
+        #[arg(long, requires_all = ["execution_id", "yes"])]
+        force: bool,
         /// 只报告，不删除任何 UDF 临时材料。
         #[arg(long)]
         dry_run: bool,

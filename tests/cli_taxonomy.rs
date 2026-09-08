@@ -125,6 +125,18 @@ fn package_clean_exposes_explicit_cache_cleanup_switches() {
     ));
     assert!(Cli::try_parse_from(["udf", "package", "clean", "--stale", "--yes"]).is_ok());
     assert!(Cli::try_parse_from(["udf", "package", "clean", "--legacy", "--yes"]).is_ok());
+    assert!(
+        Cli::try_parse_from([
+            "udf",
+            "package",
+            "clean",
+            "package-plugin-failed",
+            "--yes",
+            "--force",
+        ])
+        .is_ok()
+    );
+    assert!(Cli::try_parse_from(["udf", "package", "clean", "--force"]).is_err());
 }
 
 #[test]

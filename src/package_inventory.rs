@@ -501,6 +501,12 @@ fn live_process_commands() -> Vec<String> {
 fn process_uses_path(commands: &[String], path: &Path, execution_ids: &[String]) -> bool {
     let path = path.to_string_lossy().to_ascii_lowercase();
     commands.iter().any(|command| {
+        // The cleanup process itself names the execution ID on its command
+        // line.  It is not a package producer and must not protect a failed
+        // stage from an explicitly requested cleanup.
+        if command.contains("udf") && command.contains("package") && command.contains("clean") {
+            return false;
+        }
         command.contains(&path)
             || execution_ids
                 .iter()
