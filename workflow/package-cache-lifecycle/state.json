@@ -1,0 +1,182 @@
+{
+  "artifacts": [
+    {
+      "artifact_id": "ar_01M201Z5M9J9Y4FRF0GV717QQR",
+      "depends_on": [
+        "ar_01M1Y6N5EPKA8HMNC9E6JGKQS4",
+        "ar_01M1Y6N59V3BEHVPA4V0V2ZT57"
+      ],
+      "freshness": "fresh",
+      "outcome": "complete",
+      "path": "change-note.md",
+      "stage": 45,
+      "type": "change-note"
+    },
+    {
+      "artifact_id": "ar_01M2022QKK1F1AE34JS0JN810S",
+      "depends_on": [
+        "ar_01M201Z5S9Z68CST1SDEHDPFGR",
+        "ar_01M201Z63CWYPKJ2DDRX7HAD0H",
+        "ar_01M201Z68FQ0GDTFPCQQHBV07Z"
+      ],
+      "freshness": "fresh",
+      "outcome": "ready_to_land",
+      "path": "delivery.md",
+      "stage": 80,
+      "type": "delivery"
+    },
+    {
+      "artifact_id": "ar_01M1Y6N59V3BEHVPA4V0V2ZT57",
+      "depends_on": [
+        "ar_01M1XHETDT2NJ5JXMTTYS20RFM"
+      ],
+      "freshness": "fresh",
+      "outcome": "accepted",
+      "path": "design/plugin-stage-space-design.md",
+      "stage": 20,
+      "type": "design"
+    },
+    {
+      "artifact_id": "ar_01M1XHETDT2NJ5JXMTTYS20RFM",
+      "depends_on": [
+        "ar_01M1XHET6S2W0P8TVE8WKSH4D0"
+      ],
+      "freshness": "superseded",
+      "outcome": "superseded",
+      "path": "design.md",
+      "stage": 20,
+      "type": "design"
+    },
+    {
+      "artifact_id": "ar_01M201Z5S9Z68CST1SDEHDPFGR",
+      "depends_on": [
+        "ar_01M1Y6N5EPKA8HMNC9E6JGKQS4",
+        "ar_01M201Z5M9J9Y4FRF0GV717QQR"
+      ],
+      "freshness": "fresh",
+      "outcome": "complete",
+      "path": "implementation.md",
+      "stage": 50,
+      "type": "implementation"
+    },
+    {
+      "artifact_id": "ar_01M201Z5Y9RNEH8DWME72PJD4S",
+      "depends_on": [
+        "ar_01M201Z63CWYPKJ2DDRX7HAD0H",
+        "ar_01M201Z5S9Z68CST1SDEHDPFGR"
+      ],
+      "freshness": "fresh",
+      "outcome": "passed",
+      "path": "manual-test.md",
+      "stage": 70,
+      "type": "manual-test"
+    },
+    {
+      "artifact_id": "ar_01M1Y6N5EPKA8HMNC9E6JGKQS4",
+      "depends_on": [
+        "ar_01M1Y6N59V3BEHVPA4V0V2ZT57"
+      ],
+      "freshness": "fresh",
+      "outcome": "ready",
+      "path": "plan.md",
+      "stage": 30,
+      "type": "plan"
+    },
+    {
+      "artifact_id": "ar_01M1XHET6S2W0P8TVE8WKSH4D0",
+      "depends_on": [],
+      "freshness": "fresh",
+      "outcome": "complete",
+      "path": "research/storage-lifecycle-research.md",
+      "stage": 10,
+      "type": "research"
+    },
+    {
+      "artifact_id": "ar_01M201Z63CWYPKJ2DDRX7HAD0H",
+      "depends_on": [
+        "ar_01M1Y6N5EPKA8HMNC9E6JGKQS4",
+        "ar_01M201Z5S9Z68CST1SDEHDPFGR"
+      ],
+      "freshness": "fresh",
+      "outcome": "approved",
+      "path": "reviews/code-review.md",
+      "stage": 60,
+      "type": "review"
+    },
+    {
+      "artifact_id": "ar_01M201Z68FQ0GDTFPCQQHBV07Z",
+      "depends_on": [
+        "ar_01M201Z5S9Z68CST1SDEHDPFGR",
+        "ar_01M201Z63CWYPKJ2DDRX7HAD0H",
+        "ar_01M201Z5Y9RNEH8DWME72PJD4S"
+      ],
+      "freshness": "fresh",
+      "outcome": "passed",
+      "path": "validation.md",
+      "stage": 70,
+      "type": "validation"
+    }
+  ],
+  "computed_from": {
+    "change_set": {
+      "content_digest": "sha256:60d56a644472396b2f4495673b45ebb362aa4069f4af3537fa2c9f0eae2e90c5",
+      "revision": "b8bede7f7c4fbdfd3cdff714040a854fa7e68f5e",
+      "tree": "b5718aa1f6f34ec823fc4c9c1c6af9b468650a71"
+    },
+    "documents": {
+      "change-note.md": "sha256:ea6539a3a47bf7946c15b2ac965e53e535387069d8f09ebb15319e5f55456c8c",
+      "delivery.md": "sha256:2e36c11e319e5ddf3a24146bd56209c861269f18f03aabbfb2d62ff167de819a",
+      "design.md": "sha256:357578e62603d7b7ca44ec4a5ffe3039ffac84c2cb915f5e9d230986e24c33a5",
+      "design/plugin-stage-space-design.md": "sha256:5cbdacf7d34197a18350ae4d86eb59cfe7f7ea0d8aa1bb34da6ef777f9728898",
+      "implementation.md": "sha256:943954a4098d8bd9f3cf59acf9ca33abde7dbd3ae24e7ad09e572c5dcff1d11c",
+      "manual-test.md": "sha256:a5683c9c484c75d51415f4ceba7f068e98b7173e5b473a4b21c119c897ee0438",
+      "plan.md": "sha256:3cc447c49098acbc38ba415cd6370ef3d35559fa5ec3bd8acf671a58c03a8d8f",
+      "research/storage-lifecycle-research.md": "sha256:063185d77a1581235d5739cafe33c2ccf997e14e05cdff6ce77aef7e7ac23f99",
+      "reviews/code-review.md": "sha256:2d2c8953d8732b02c233a406b2b0a44e88fa82b944e02f5326b6c488df82cddc",
+      "validation.md": "sha256:141c32267c4aa7f9d70619b7d8a55d0f45368d051dba036fbcbb1b3e81b47b22",
+      "work-item.md": "sha256:75c7bba195918674d8fffb4507062ce7afe911c45bc762691feef6ef4c3a7444"
+    }
+  },
+  "generated_at": "2026-09-08T08:28:19.366303Z",
+  "generated_by": {
+    "tool_revision": "sha256:c6285ce5fa09"
+  },
+  "manual_test": {
+    "failed": 0,
+    "open": 0,
+    "passed": 3
+  },
+  "next": "落地后用 aes-finish 收口，这时才把任务记录一次性提交",
+  "protocol": "1.3.0",
+  "schema_version": 1,
+  "stage": {
+    "next_skill": "aes-retrospect",
+    "reached": "delivery",
+    "reached_stage": 80,
+    "waiting_on": null
+  },
+  "wayfinder": null,
+  "work_item": {
+    "acceptance_ids": [
+      "AC-001",
+      "AC-002",
+      "AC-003",
+      "AC-004",
+      "AC-005",
+      "AC-006",
+      "AC-007",
+      "AC-008",
+      "AC-009",
+      "AC-010"
+    ],
+    "branch": "fix/package-cache-lifecycle",
+    "contract_digest": "sha256:d3df2aee22bad7a05acda4ad8ef2acb4afda08c21b9f245b6912657a3fb8108d",
+    "home_repository": "https://github.com/pb763396199/UnrealDevFlow.git",
+    "id": "wi_01M1XH0G01JN3HHH886TS7ZMW4",
+    "kind": "fix",
+    "short_id": "ns4dy38b",
+    "slug": "package-cache-lifecycle",
+    "status": "in_review",
+    "title": "修正项目打包缓存的记账、清理和复用规则"
+  }
+}
