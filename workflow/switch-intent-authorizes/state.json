@@ -94,8 +94,8 @@
   "computed_from": {
     "change_set": {
       "content_digest": "sha256:9627bb1c6892a900d666ee8df6edfeec4435b0722d8c549961e3da58f501813a",
-      "revision": "33e231377b8dedabf74d564368c6ff19f232e5ea",
-      "tree": "76fab3657816be5852e02902a0e736544bf622bd"
+      "revision": "53f0addf9f525e47fbc9484776f442ac0f2fca64",
+      "tree": "6134f02397a4f4aee7f1b8c35be2f94b17fcb3a5"
     },
     "documents": {
       "change-note.md": "sha256:60e1e9477fd52ef84270195e48baac25beb9af591bb7dc6b7791bbcf26b3d248",
@@ -109,7 +109,7 @@
       "work-item.md": "sha256:d9352fa261bed169227d4f18868f85798ba24328a7c1690dc910bfc1c8fdf53f"
     }
   },
-  "generated_at": "2026-09-09T02:59:02.105788Z",
+  "generated_at": "2026-09-09T02:59:52.128433Z",
   "generated_by": {
     "tool_revision": "sha256:c6285ce5fa09"
   },
