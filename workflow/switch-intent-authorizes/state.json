@@ -1,0 +1,147 @@
+{
+  "artifacts": [
+    {
+      "artifact_id": "ar_01M2095V6YGJ8M98C787RY8AMA",
+      "depends_on": [
+        "ar_01M208TQ1DQRBZE10C46Q7ZJNJ"
+      ],
+      "freshness": "fresh",
+      "outcome": "complete",
+      "path": "change-note.md",
+      "stage": 45,
+      "type": "change-note"
+    },
+    {
+      "artifact_id": "ar_01M221MVXZ1B5ZCA0QS63EGP5F",
+      "depends_on": [
+        "ar_01M209D8TTMPDM9VWTFDC26XVT",
+        "ar_01M209D90ZBXQWMP262H5REY8A",
+        "ar_01M209D979VC7FXNP4X6S2KWA8"
+      ],
+      "freshness": "fresh",
+      "outcome": "delivered",
+      "path": "delivery.md",
+      "stage": 80,
+      "type": "delivery"
+    },
+    {
+      "artifact_id": "ar_01M2085HSSGR8CZ8N6CVF178DH",
+      "depends_on": [],
+      "freshness": "fresh",
+      "outcome": "accepted",
+      "path": "design.md",
+      "stage": 20,
+      "type": "design"
+    },
+    {
+      "artifact_id": "ar_01M2095VCDE70NFEPA3SRVPWTK",
+      "depends_on": [
+        "ar_01M208TQ1DQRBZE10C46Q7ZJNJ",
+        "ar_01M2095V6YGJ8M98C787RY8AMA"
+      ],
+      "freshness": "fresh",
+      "outcome": "complete",
+      "path": "implementation.md",
+      "stage": 50,
+      "type": "implementation"
+    },
+    {
+      "artifact_id": "ar_01M209D979VC7FXNP4X6S2KWA8",
+      "depends_on": [
+        "ar_01M209D90ZBXQWMP262H5REY8A"
+      ],
+      "freshness": "fresh",
+      "outcome": "passed",
+      "path": "manual-test.md",
+      "stage": 70,
+      "type": "manual-test"
+    },
+    {
+      "artifact_id": "ar_01M208TQ1DQRBZE10C46Q7ZJNJ",
+      "depends_on": [
+        "ar_01M2085HSSGR8CZ8N6CVF178DH"
+      ],
+      "freshness": "fresh",
+      "outcome": "ready",
+      "path": "plan.md",
+      "stage": 30,
+      "type": "plan"
+    },
+    {
+      "artifact_id": "ar_01M209D8TTMPDM9VWTFDC26XVT",
+      "depends_on": [
+        "ar_01M2095VCDE70NFEPA3SRVPWTK"
+      ],
+      "freshness": "fresh",
+      "outcome": "approved",
+      "path": "reviews/code-review.md",
+      "stage": 60,
+      "type": "review"
+    },
+    {
+      "artifact_id": "ar_01M209D90ZBXQWMP262H5REY8A",
+      "depends_on": [
+        "ar_01M2095VCDE70NFEPA3SRVPWTK",
+        "ar_01M209D8TTMPDM9VWTFDC26XVT"
+      ],
+      "freshness": "fresh",
+      "outcome": "passed",
+      "path": "validation.md",
+      "stage": 70,
+      "type": "validation"
+    }
+  ],
+  "computed_from": {
+    "change_set": {
+      "content_digest": "sha256:9627bb1c6892a900d666ee8df6edfeec4435b0722d8c549961e3da58f501813a",
+      "revision": "33e231377b8dedabf74d564368c6ff19f232e5ea",
+      "tree": "76fab3657816be5852e02902a0e736544bf622bd"
+    },
+    "documents": {
+      "change-note.md": "sha256:60e1e9477fd52ef84270195e48baac25beb9af591bb7dc6b7791bbcf26b3d248",
+      "delivery.md": "sha256:5880656e00467fc5d2209288a25687bc7b0efa1cf382017dd923fecd721ac5c8",
+      "design.md": "sha256:671ae0fa639c867b84397ee53b242ca28dc1fbc2109bca7ce01194e29e3c37a7",
+      "implementation.md": "sha256:ecd664a3ec6f7f87103aedd47582563549e5289cfc9847f35a2066db789f721e",
+      "manual-test.md": "sha256:783269c2dbb3f7ec4cff6c05a1b06a88a4e11a1fa5184265c1dd540d1d6ca561",
+      "plan.md": "sha256:3d27952e403a8d9f28471c6717fadb803bc7203429ecf17aac1c67f159a923a8",
+      "reviews/code-review.md": "sha256:e619c5d5bcda1a7cbea75ca078eea08b4f39d046aeee05593be6e25837aa0569",
+      "validation.md": "sha256:f6e0d590df915da475eac2b66f88f2a4a73db6bf8b5ac911379bafc8c7fe8472",
+      "work-item.md": "sha256:d9352fa261bed169227d4f18868f85798ba24328a7c1690dc910bfc1c8fdf53f"
+    }
+  },
+  "generated_at": "2026-09-09T02:59:02.105788Z",
+  "generated_by": {
+    "tool_revision": "sha256:c6285ce5fa09"
+  },
+  "manual_test": {
+    "failed": 0,
+    "open": 0,
+    "passed": 0
+  },
+  "next": "已收口",
+  "protocol": "1.3.0",
+  "schema_version": 1,
+  "stage": {
+    "next_skill": "aes-retrospect",
+    "reached": "delivery",
+    "reached_stage": 80,
+    "waiting_on": null
+  },
+  "wayfinder": null,
+  "work_item": {
+    "acceptance_ids": [
+      "AC-001",
+      "AC-002",
+      "AC-003"
+    ],
+    "branch": "fix/switch-intent-authorizes",
+    "contract_digest": "sha256:ed781313e35620b5bdabfb7f07de6dba2388dbf6392c4d97baa12ad041ac198a",
+    "home_repository": "https://github.com/pb763396199/UnrealDevFlow.git",
+    "id": "wi_01M2081ANJ3JCWCFEF3FW3AXAK",
+    "kind": "fix",
+    "short_id": "95t1d211",
+    "slug": "switch-intent-authorizes",
+    "status": "done",
+    "title": "用户提到 switch 时直接执行"
+  }
+}
